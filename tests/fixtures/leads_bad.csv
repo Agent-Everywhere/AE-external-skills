@@ -1,0 +1,5 @@
+full_name,title,seniority,company_name,company_domain,salesnav_lead_url,linkedin_url,location,time_in_role,signals,dm_rank,buyer_type,shard,mode,status,collected_at
+Jane Doe,Head,Director,Acme,acme.com,https://www.linkedin.com/sales/lead/ACwAAA1,https://www.linkedin.com/in/jane-doe,,,,1,,,A,collected,2026-10-13
+,Head,Director,,https://www.acme.com/x,https://www.linkedin.com/in/oops,https://www.linkedin.com/sales/lead/ACwAAA2,,,,,,,Z,done,13/10/2026
+Bob,CEO,CXO,Bobco,www.bob.com,,https://www.linkedin.com/in/bob,,,,,,,B,collected,2026-02-30
+Too,Few,Cells

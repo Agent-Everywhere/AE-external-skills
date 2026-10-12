@@ -1,0 +1,9 @@
+full_name,title,seniority,company_name,company_domain,salesnav_lead_url,linkedin_url,location,time_in_role,signals,dm_rank,buyer_type,shard,mode,status,collected_at
+Jane Doe,Head of Product,Director,Acme Wellness,acmewellness.com,https://www.linkedin.com/sales/lead/ACwAAA1,HTTP://LinkedIn.com/in/Jane-Doe/?trk=x#top,"Austin, TX, US",8 months,,1,,US-TX,A,collected,2026-10-13
+Jane Doe,,,,,https://www.linkedin.com/sales/lead/ACwAAA1?q=1,https://www.linkedin.com/in/jane-doe,,,open profile,,,,A,collected,2026-10-13
+Sam Lee,Executive Assistant,Entry,Acme Wellness,acmewellness.com,https://www.linkedin.com/sales/lead/ACwAAA2,,,,,,,,A,collected,2026-10-13
+Pat Kim,Marketing Intern,Intern,Beta Labs,beta.com,,https://www.linkedin.com/in/pat-kim,,,,,,,A,collected,2026-10-13
+Ann Roe,VP Operations,VP,Gamma Co,gamma.io,,,,,,,,,A,collected,2026-10-13
+ann roe,,,Gamma Co,GAMMA.io,,,,,,,,,A,collected,2026-10-13
+Lee Fox,CEO,CXO,Rival Corp,rival.com,,https://www.linkedin.com/in/lee-fox,,,,,,,A,collected,2026-10-13
+Max Ray,CTO,CXO,Other Inc,other.com,,https://www.linkedin.com/in/excluded-person,,,,,,,A,collected,2026-10-13

@@ -1,0 +1,9 @@
+company_name,company_domain,salesnav_account_url,linkedin_company_url,industry,headcount_band,hq_location,signals,buyer_type,shard,mode,fit_notes,status,collected_at
+Acme Wellness,https://www.AcmeWellness.com/about?utm=1,https://www.linkedin.com/sales/company/1234?_ntb=x,,Wellness,11-50,"Austin, TX, US",,add-new-line,US-TX · 11-50,B,,collected,2026-10-13
+"Acme Wellness, Inc.",acmewellness.com,,https://www.linkedin.com/company/acme-wellness/,,,,hiring ops,,,B,sells capsules,collected,2026-10-13
+Beta Labs,,https://www.linkedin.com/sales/company/5678,,Biotech,51-200,"Boston, MA, US",,,,B,,collected,2026-10-13
+Beta Labs,,https://www.linkedin.com/sales/company/5678?trk=abc,,,,,,,,B,,collected,2026-10-13
+Gamma & Co,gamma.io,,,,,,,,,B,,collected,2026-10-13
+The Gamma and Company,,,,,,,,,,B,,collected,2026-10-13
+Rival Corp,rival.com,,,,,,,,,B,,collected,2026-10-13
+Customer One,www.customer1.com,,,,,,,,,B,,collected,2026-10-13

@@ -1,0 +1,10 @@
+dimension,value,count,parent
+geo,TX,1800,
+geo,CA,3100,
+geo,NY,6000,
+headcount,1-10,2000,
+headcount,11-50,3000,
+headcount,51-200,5000,
+headcount,1-10,1000,geo=CA
+headcount,11-50,1400,geo=CA
+headcount,51-200,700,geo=CA
