@@ -33,22 +33,6 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
-jobs: { gbrain: { uses: Agent-Everywhere/ae-gbrain-deploy/.github/workflows/gbrain-source-push.yml@main, secrets: inherit } }
-# Needs org secret GBRAIN_SYNC_TRIGGER_SECRET and org variable GBRAIN_SYNC_URL. Allowlist: sync/sources.json.
-name: gbrain-source-push
-on:
-  workflow_call:
-    inputs:
-      source:
-        description: "Source id or repo name (default: the calling repo's name)"
-        type: string
-        required: false
-        default: ""
-    secrets:
-      GBRAIN_SYNC_TRIGGER_SECRET:
-        required: true
-permissions:
-  contents: read
 jobs:
   push:
     runs-on: ubuntu-latest
