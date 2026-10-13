@@ -43,6 +43,17 @@ from any file. Leave unknown fields blank; never guess.
 | status | collected | collected / qualified / rejected |
 | collected_at | 2026-10-13 | |
 
+## Qualify columns (appended to accounts.csv)
+
+Added by the `qualify-accounts` action (`references/qualify.md`) after the 14 columns above;
+optional, and `scripts/validate_csv.py` accepts them.
+
+| Column | Example | Notes |
+|---|---|---|
+| facts | sells capsules and gummies; ships to retailers | 1–2 facts read from the website, `;`-separated |
+| fit_reason | contract-manufactures for brands = buyer type A | one line against the Company Profile |
+| keep | keep | keep / drop / unsure. `keep` sets `status` to `qualified`, `drop` to `rejected`; `unsure` stays `collected` |
+
 ## Filling the columns from the fast path
 
 `scripts/salesnav_rows.py` writes these files from API results. It fills what the search returns

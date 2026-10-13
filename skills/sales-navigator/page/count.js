@@ -1,4 +1,6 @@
 // count.js: exact result totals for one or many searches, using count=1 (tiny responses).
+// Standalone (browser JS tool): run it as the async IIFE  (<this function>)({...params})  or build that with
+//   python3 runtime/session.py --emit count.js --params '{...}' --compact   (add --form return if the tool needs `return`).
 // Run on a loaded, signed-in linkedin.com/sales page, after csrf_ready.js reports ready.
 // params: {
 //   kind:    'lead' | 'account'

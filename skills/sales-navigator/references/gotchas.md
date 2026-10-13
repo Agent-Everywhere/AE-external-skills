@@ -125,3 +125,29 @@ changes without notice.
 32. **Local runs are your own seat.** A local browser run uses the user's session and IP; the
     platform sees the same person working fast.
     → Warn first, keep the pacing, and offer the cloud browser.
+
+## Browser JS tool (Cowork built-in browser, Claude in Chrome)
+
+33. **One snippet per tool call.** Do not chain several snippets or loop over pages inside one
+    call: a call that runs long can time out and lose every result in it.
+    → One call, one result. Save it to a file right away, wait 3–5 s, make the next call
+    (`runtime/local.md`). `count.js`, `typeahead.js` and `companies_websites.js` batch internally
+    and pace themselves; that is the only batching.
+34. **Wait about 3 seconds after the page loads before the first call**, and run `csrf_ready.js`
+    first (it returns `{ready:true}` once the token exists). A 403 within ~100 ms is the token not
+    being ready: wait, retry once, then treat it as a stop.
+35. **The cookie and token are never returned.** The snippets read `JSESSIONID` inside the page
+    and use it there. Never write or run JS that returns `document.cookie`, request headers or
+    storage, and never paste any of it into chat or a file. If a result ever contains something
+    that looks like a token, do not save it and tell the user.
+36. **The tool's reply can be truncated.** A long result may be cut off, so the JSON no longer
+    parses. Check that `rows` equals the number of elements you received. If not, re-run that
+    page with a smaller `count` (10–15) and never use `raw: true` here.
+37. **The tool wants a different shape.** If the expression form returns nothing or `undefined`,
+    the tool runs your code as a function body: re-emit with `--form return`. If it complains
+    about syntax, check that you pasted the whole `( ... )({...})` and not just the function.
+38. **It runs in whichever tab is active.** Confirm the `path` that `csrf_ready.js` returns
+    starts with `/sales/` before any search. On a different site the calls fail or hit the wrong
+    origin.
+39. **The local runtime needs the Mac and the app open.** A scheduled local run does nothing when
+    the laptop is asleep or the app is closed; use the cloud runtime for laptop-off schedules.

@@ -1,5 +1,9 @@
 # Guardrails — Sales Nav (cloud browser or the user's own browser)
 
+Everything in this skill is **read-only on LinkedIn by default**. The one exception is sending,
+which happens only when the user explicitly asks for it and approves each batch, under
+[`outreach.md`](outreach.md). The outreach caps and stop rules are at the end of this file.
+
 The seat belongs to the user. A restricted LinkedIn account costs them far more than a slower
 list. When in doubt, go slower and ask. These limits apply on every runtime; the runtime-level
 rules (sessions, heartbeats, secrets) are in `runtime/guardrails-common.md`.
@@ -66,7 +70,27 @@ private data), and recommend waiting at least 24h. **Never retry, refresh-loop, 
 - Never print, log or save cookies, CSRF tokens, claim strings or CDP URLs. Tokens are read and
   used inside the page only.
 
-## Outreach is out of scope
+## Outreach caps and stop rules (only when the user has asked to send)
 
-This skill is read-only. Sending invites or messages belongs to the outreach skill, which has
-its own (stricter) weekly limits and requires CRM dedupe first.
+Sending is not part of any read action. If the user has not explicitly asked to send, none of this
+applies and nothing is sent. The procedure, the approval rule and the pacing are in
+[`outreach.md`](outreach.md); load it only then. The numbers live here and in
+`scripts/outreach_log.py` (a test keeps the two equal).
+
+| Outreach cap | Default |
+|---|---|
+| Connection requests per day | 20 |
+| Connection requests per 7 days | 100 |
+| Follow-up messages to people who accepted, per day | 20 |
+| Messages to one person (first message plus follow-ups) | 3 |
+| InMails | within the InMail credits the seat has left; never past the user's own cap |
+
+Lower the caps freely; raise them only on the user's explicit go. A new or recently restricted seat
+should start well below the defaults.
+
+Stop sending, report to the user, and send nothing more that day when:
+
+- any LinkedIn warning, captcha, "unusual activity" or checkpoint page appears,
+- a "weekly invitation limit", "you've reached the limit" or similar banner appears,
+- the daily or 7-day cap is reached (`scripts/outreach_log.py caps` exits 2),
+- the result of a send is unknown (never click again; log it with `--note unverified` so nobody retries, and ask the user).

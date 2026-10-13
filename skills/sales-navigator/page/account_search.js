@@ -1,4 +1,6 @@
 // account_search.js: one page of a Sales Navigator account (company) search, via the in-page API.
+// Standalone (browser JS tool): run it as the async IIFE  (<this function>)({...params})  or build that with
+//   python3 runtime/session.py --emit account_search.js --params '{...}' --compact   (add --form return if the tool needs `return`).
 // Run on a loaded, signed-in linkedin.com/sales page, after csrf_ready.js reports ready.
 // params: {
 //   query:  Rest.li search query. Filters come FIRST, keywords are a top-level key after them:

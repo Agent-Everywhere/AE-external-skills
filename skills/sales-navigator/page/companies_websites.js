@@ -1,4 +1,6 @@
 // companies_websites.js: company websites for account ids (search results carry none).
+// Standalone (browser JS tool): run it as the async IIFE  (<this function>)({...params})  or build that with
+//   python3 runtime/session.py --emit companies_websites.js --params '{...}' --compact   (add --form return if the tool needs `return`).
 // Run on a loaded, signed-in linkedin.com/sales page, after csrf_ready.js reports ready.
 // params: { ids: [company ids or "urn:li:fs_salesCompany:<id>" strings], delayMs?: 3500 }
 // Ids are sent 25 per call (the proven batch size); more than 25 are chunked with a pause.

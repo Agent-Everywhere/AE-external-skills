@@ -1,4 +1,6 @@
 // typeahead.js: resolve filter values (geography, industry, ...) to the ids a query needs.
+// Standalone (browser JS tool): run it as the async IIFE  (<this function>)({...params})  or build that with
+//   python3 runtime/session.py --emit typeahead.js --params '{...}' --compact   (add --form return if the tool needs `return`).
 // Run on a loaded, signed-in linkedin.com/sales page, after csrf_ready.js reports ready.
 // params: { type: 'BING_GEO' | 'INDUSTRY' | ..., term: 'text' (or terms: ['a','b']), count?: 10, delayMs?: 3500 }
 // Geography uses type BING_GEO (the resulting filter type is REGION; United States = 103644278).

@@ -34,7 +34,7 @@ cloud-browser MCP; `sales-navigator` can also run in the user's own browser (`lo
 
 | Skill | What it does |
 |---|---|
-| [`sales-navigator`](skills/sales-navigator/SKILL.md) | Build account, lead, and decision-maker lists in LinkedIn Sales Navigator, with guardrails: fast in-page API in your own browser (local) or a cloud browser (Agent Browser), slow page-reading fallback |
+| [`sales-navigator`](skills/sales-navigator/SKILL.md) | Work LinkedIn Sales Navigator with guardrails: build account, lead, and decision-maker lists, qualify accounts from their websites, save to named lists, draft outreach, track follow-ups, or run it as a daily routine. Fast in-page API through your browser's JavaScript tool (Cowork built-in browser, Claude in Chrome) or a cloud browser (Agent Browser), slow page-reading fallback. Read-only unless you explicitly ask it to send, and then only for batches you approve |
 | [`grokbot`](skills/grokbot/SKILL.md) | Your own Claude Code operates your Grok Bot desktop app on your Mac: status/doctor, agents, groups, sections, pins, transcripts, `send --wait`, app restart (bundled Node CLI, no `npm install`) |
 | [`grokbot-box`](skills/grokbot-box/SKILL.md) | For a Grok Bot agent inside its own cloud box: list, create, organize, send to, and delete its sibling workers under an advisory, audited agent policy (uses the `grokbot` CLI) |
 

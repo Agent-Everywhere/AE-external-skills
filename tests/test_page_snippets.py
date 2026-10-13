@@ -34,6 +34,39 @@ class PageSnippets(unittest.TestCase):
                 body = "\n".join(l for l in path.read_text().splitlines() if not l.startswith("//")).strip()
                 self.assertTrue(body.startswith("async (params) =>"), path.name)
 
+    def test_emitted_standalone_expressions_are_valid_js(self):
+        """Each snippet must be pasteable into a browser JS tool as an async IIFE with params inline."""
+        import sys
+        import tempfile
+        sys.path.insert(0, str(ROOT / "packages" / "browser-runtime"))
+        import session
+        for path in sorted(PAGE.glob("*.js")):
+            for form in ("expression", "return"):
+                with self.subTest(snippet=path.name, form=form):
+                    code = session.emit_expression(path.name, '{"query": "x", "ids": [1]}', [PAGE],
+                                                   compact=True, form=form)
+                    self.assertNotIn("\n//", code)  # compact drops whole-line comments
+                    if form == "return":
+                        code = "async function f() {\n" + code + "\n}"
+                    with tempfile.TemporaryDirectory() as tmp:
+                        out = Path(tmp) / "emitted.js"
+                        out.write_text(code)
+                        proc = subprocess.run([NODE, "--check", str(out)], capture_output=True, text=True)
+                        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_emitted_expression_runs_and_returns_json(self):
+        """Evaluate the emitted expression against a fake page, the way a JS tool would."""
+        import sys
+        sys.path.insert(0, str(ROOT / "packages" / "browser-runtime"))
+        import session
+        code = session.emit_expression("csrf_ready.js", "{}", [PAGE], compact=True)
+        script = ("global.document={cookie:%s};global.location={pathname:'/sales/home'};"
+                  "Promise.resolve(eval(%s)).then(r=>console.log(JSON.stringify(r)));"
+                  % (json.dumps(COOKIE), json.dumps(code)))
+        proc = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=30)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout), {"ready": True, "path": "/sales/home"})
+
     def test_headers_and_token_handling(self):
         out = run_snippet("lead_search.js", {"query": CLEAN, "count": 1},
                           [{"status": 200, "body": {"paging": {"total": 7}, "elements": []}}])

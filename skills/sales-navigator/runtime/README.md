@@ -13,15 +13,15 @@ skill whose `skill.yaml` lists a browser runtime gets this folder vendored into
 |---|---|
 | `session.py` | Generic runner. Connects to a browser over CDP, settles the page, runs a JSON plan of JS snippet calls, streams one JSONL record per call, heartbeats (Agent Browser). |
 | `agent-browser.md` | Runtime A: the cloud browser (Agent Browser MCP connector) driven from a sandbox or shell with code execution. |
-| `local.md` | Runtime B: the user's own Chrome (Claude in Chrome, a "run JavaScript" browser tool, or Playwright attached to their Chrome). |
+| `local.md` | Runtime B (default for Desktop users): the user's own signed-in browser, driven through its JavaScript tool (Cowork built-in browser, Claude in Chrome), one snippet per call, or through Playwright attached to their Chrome. |
 | `guardrails-common.md` | Rules every runtime shares: one session per seat, pacing, stop signals, secrets. |
 
 ## Which runtime
 
 ```
-Agent Browser connector + code execution (Claude Code, Cowork sandbox, Codex)  -> agent-browser
-A browser JS tool (Claude in Chrome, built-in browser) or a local Chrome         -> local
-Plain chat with neither                                                           -> slow page-reading path (skill-specific)
+A browser JS tool (Cowork built-in browser, Claude in Chrome)      -> local   (default; no code execution needed)
+Agent Browser connector + code execution (Claude Code, Cowork, Codex) -> agent-browser (schedules, laptop off)
+Neither                                                             -> slow page-reading path (skill-specific)
 ```
 
 Both runtimes run the same page snippets (`skills/<name>/page/*.js`): each file is one
@@ -41,8 +41,9 @@ python3 runtime/session.py --runtime agent-browser --base "$BASE" --claim "$CLAI
 python3 runtime/session.py --runtime cdp --cdp-url http://127.0.0.1:9222 \
         --plan plan.json --out results.jsonl
 
-# Paste-ready expression for a browser JS tool
-python3 runtime/session.py --emit lead_search.js --params '{"query":"(filters:List(...))","count":1}'
+# Paste-ready async IIFE for a browser JS tool (one snippet per tool call).
+# --compact drops comments; --form return prefixes `return await` for tools that run a function body.
+python3 runtime/session.py --emit lead_search.js --params '{"query":"(filters:List(...))","count":1}' --compact
 ```
 
 The plan format, exit codes, and resume behaviour are documented at the top of `session.py`

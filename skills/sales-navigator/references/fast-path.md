@@ -13,11 +13,13 @@ guessing.
 
 | Runtime | Use when | Doc |
 |---|---|---|
-| agent-browser | Agent Browser connector + code execution | `runtime/agent-browser.md` |
-| local | A browser JavaScript tool, or Playwright on the user's Chrome | `runtime/local.md` |
-| neither | Plain chat with no code and no browser JS tool | slow path in `SKILL.md` 4b |
+| local (default) | A browser JavaScript tool (Cowork built-in browser, Claude in Chrome), or Playwright on the user's Chrome | `runtime/local.md` |
+| agent-browser | Agent Browser connector + code execution; runs on a schedule or with the laptop closed | `runtime/agent-browser.md` |
+| neither | Plain chat with no browser JS tool and no connector | slow path in `references/build-list.md` section 4b |
 
-Both fast runtimes run the same snippets. Plain chat cannot do the fast path.
+Both fast runtimes run the same snippets. With a browser JS tool each snippet is one tool call
+(an async IIFE with its params inline, built with `session.py --emit`); the plan and `--skip-done`
+machinery below is for the code-execution runtimes. Plain chat cannot do the fast path.
 
 ## The call, exactly
 

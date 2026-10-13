@@ -1,4 +1,6 @@
 // lead_search.js: one page of a Sales Navigator lead (people) search, via the in-page API.
+// Standalone (browser JS tool): run it as the async IIFE  (<this function>)({...params})  or build that with
+//   python3 runtime/session.py --emit lead_search.js --params '{...}' --compact   (add --form return if the tool needs `return`).
 // Run on a loaded, signed-in linkedin.com/sales page, after csrf_ready.js reports ready.
 // params: {
 //   query:  Rest.li search query, e.g. "(filters:List((type:CURRENT_TITLE,values:List((text:VP%20Operations,selectionType:INCLUDED)))))"

@@ -388,6 +388,9 @@ def pick_page(browser, prefer="linkedin.com/sales"):
     return ctx.pages[0] if ctx.pages else ctx.new_page()
 
 
+EMIT_FORMS = ("expression", "return")
+
+
 def build_parser():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -410,6 +413,11 @@ def build_parser():
     ap.add_argument("--emit", metavar="SNIPPET",
                     help="print a paste-ready JS expression for a snippet (use with --params), then exit")
     ap.add_argument("--params", default="{}", help="JSON params for --emit")
+    ap.add_argument("--compact", action="store_true",
+                    help="--emit: drop whole-line // comments and blank lines (smaller tool call)")
+    ap.add_argument("--form", choices=EMIT_FORMS, default="expression",
+                    help="--emit: 'expression' = async IIFE a JS tool evaluates; 'return' = the same "
+                         "prefixed with `return await`, for tools that run the code as a function body")
     return ap
 
 
@@ -422,10 +430,19 @@ def default_snippet_dirs(extra, plan_path):
     return dirs
 
 
-def emit_expression(snippet, params_json, dirs):
+def compact_js(source):
+    """Drop whole-line // comments and blank lines. The page snippets use no multi-line strings."""
+    return "\n".join(l for l in source.splitlines() if l.strip() and not l.lstrip().startswith("//"))
+
+
+def emit_expression(snippet, params_json, dirs, compact=False, form="expression"):
+    """One paste-ready JS expression: the snippet as an async IIFE with its params inline."""
     source = load_snippet(snippet, dirs)
+    if compact:
+        source = compact_js(source)
     params = json.loads(params_json)
-    return "%s(%s)" % (wrap_js(source), json.dumps(params, ensure_ascii=False))
+    expr = "%s(%s)" % (wrap_js(source), json.dumps(params, ensure_ascii=False))
+    return "return await " + expr if form == "return" else expr
 
 
 def connect_agent_browser(args, log):
@@ -446,7 +463,8 @@ def connect_agent_browser(args, log):
 def main(argv=None):
     args = build_parser().parse_args(argv)
     if args.emit:
-        print(emit_expression(args.emit, args.params, default_snippet_dirs(args.snippets_dir, args.plan)))
+        print(emit_expression(args.emit, args.params, default_snippet_dirs(args.snippets_dir, args.plan),
+                              compact=args.compact, form=args.form))
         return EXIT_OK
     if not (args.runtime and args.plan and args.out):
         print("error: --runtime, --plan and --out are required (or use --emit)", file=sys.stderr)

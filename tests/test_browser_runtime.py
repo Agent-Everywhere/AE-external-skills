@@ -142,6 +142,24 @@ class Helpers(unittest.TestCase):
             self.assertTrue(out.endswith('({"n": 2})'))
 
 
+    def test_emit_compact_and_return_forms(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "s.js").write_text("// c\nasync (p) => {\n  // inner\n\n  return p.n;\n}\n")
+            out = session.emit_expression("s.js", '{"n": 2}', [d], compact=True)
+            self.assertEqual(out, '(\nasync (p) => {\n  return p.n;\n}\n)({"n": 2})')
+            ret = session.emit_expression("s.js", '{"n": 2}', [d], compact=True, form="return")
+            self.assertEqual(ret, "return await " + out)
+
+    def test_emit_cli_flags(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "s.js").write_text("// c\nasync (p) => p.n")
+            proc = subprocess.run([sys.executable, str(PKG / "session.py"), "--emit", "s.js", "--params", '{"n":1}',
+                                   "--snippets-dir", d, "--compact", "--form", "return"],
+                                  capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(proc.stdout.strip(), 'return await (\nasync (p) => p.n\n)({"n": 1})')
+
+
 class RunnerTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

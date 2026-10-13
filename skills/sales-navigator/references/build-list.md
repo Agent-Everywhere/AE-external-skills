@@ -1,0 +1,151 @@
+# Action: build-list
+
+Turn the Company Profile into a clean list of accounts and/or decision-makers. This is the
+original, read-only action; every other action starts from its CSVs. Preflight (runtime, session,
+profile, budget) is in `SKILL.md` and has already been done.
+
+## 1. Intake (only what is missing)
+
+Ask in one short batch, offer examples, accept "skip". Never interrogate.
+
+| Need | Ask | Used for |
+|---|---|---|
+| Offer | "In one line, what do you sell and to whom?" | filter choice, relevance |
+| Buyer types | "Are there 2–3 different kinds of buyer? e.g. 'already buys this from someone else' vs 'doesn't have it yet'" | separate searches + tags |
+| Firmographics | industry, headcount band, geography, company type, growth/hiring signals | account filters |
+| Decision-makers | titles/functions/seniority that buy, by company size | lead filters |
+| Exclusions | customers, competitors, industries, regions, title words (intern, assistant, student) | post-filter (see "No exclusions at search time") |
+| Existing material | saved searches, account lists, a CSV of target companies | entry mode |
+| Size goal | how many accounts / leads this run | pacing, sharding |
+| Where results go | CSV download, Google Sheet, CRM via MCP, just this chat | output |
+
+Write the answers back into the Company Profile (`templates/company-profile.md`, kept in the
+user's folder) so the next run, and every other action, does not ask again.
+
+## 2. Choose the entry mode
+
+Recommend one, say why in one sentence, let the user override. The `mode` column in the CSV uses
+the letter.
+
+| Mode | Use when | Flow |
+|---|---|---|
+| **A. Contact-first (title-driven)** | The title is the strongest signal (e.g. "VP Ops at 50–200 person brands"); many small companies; speed matters | Lead search with title/seniority + company filters → people list → roll up to accounts |
+| **A′. Contact-first with industry** | The title is common but the industry narrows it (e.g. "owner or founder" in 4 named industries) | Same, with industry/headcount/geography filters carrying the weight; still mode `A` |
+| **B. Account-first** | Fit depends on the company (product, niche, growth) more than the title; enterprise or niche markets; user wants to qualify companies before people | Account search → websites → qualify (hand to research) → per-account decision-maker search |
+| **C. Bring-your-accounts** | User already has target companies (CSV, CRM, event list, saved account list) | Match each company to its Sales Nav account → per-account decision-maker search |
+| **D. Signal sweep** | Timing matters: job changes, new hires, hiring growth, recently posted, funding news | Lead or account search with the signal filters → short fresh list, re-run weekly |
+
+Modes chain. Typical: B (accounts) → research/qualify → B2 (decision-makers in survivors).
+The user can stop after any phase and resume later from the CSV.
+
+## 3. Build the searches (the agent builds them)
+
+**You construct every search yourself**, from the profile: through the Sales Navigator filter
+panel, or (fast path) as a query string whose ids you resolved with `typeahead.js`
+(`references/filters.md`). **Never import a search URL from the user** unless they ask you to; a
+pasted URL carries their history and filters you did not choose.
+
+Use the **funnel**: maximize coverage at the top, qualify per row later. A wide, slightly noisy
+master list that research can narrow beats a tight list that silently misses buyers.
+
+1. **Master search.** The widest definition that is still the ICP (broad keywords, no
+   over-tight headcount). Get its exact count (`count.js`, `count=1`).
+   - A single noisy keyword can explode the count (a generic word like "wellness" can be most of
+     the master on its own). **Count each keyword alone** and drop or demote the ones that
+     dominate and mostly match company names.
+2. **Sub-lists under the cap.** Cap = 2,500 viewable leads, 1,000 viewable accounts. Shard by
+   **HQ state** first, then **headcount band** inside the states still over the cap, then
+   **metro** inside any remaining over-cap band (`scripts/shard_plan.py`). Count every shard
+   before collecting. Record shard totals — summed they are the addressable market (an estimate:
+   shards overlap slightly).
+3. **50-row sample.** Before scaling, pull two pages (50 rows) of the master and of any shard
+   that will be big, and read them with the user: roughly what share are plausible buyers? Fix
+   keywords and filters now. Ten good rows beat 1,000 bad ones.
+4. **Collect shard by shard**, writing every page to the JSONL as it arrives, deduping across
+   shards by company id (and lead URL) afterwards.
+5. **No exclusions at search time.** Do not subtract competitors or customers in the query: it
+   hides how big the market really is and hides near-misses. Collect, then exclude at the clean-up
+   step (`scripts/dedupe.py --exclude`) and show the user what was removed.
+
+Optionally save each final search in Sales Nav (named `<buyer-type> · <shard> · <yyyy-mm>`) so the
+user can reuse it and Sales Nav shows "new since last time" (only with the user's okay; saving is
+a write to their account).
+
+## 4. Collect
+
+### 4a. Fast path (local or agent-browser runtime) — default
+
+**Browser JS tool (local, the default for Desktop users):** one `page/*.js` snippet per tool call,
+each result saved to the user's folder before the next call, then `scripts/salesnav_rows.py`
+rebuilds the CSV (`runtime/local.md`).
+
+**Code execution (cloud browser, or Playwright on the user's Chrome):** write a plan
+(`references/fast-path.md`), run it with `runtime/session.py` in ONE process for the session, then
+convert with `scripts/salesnav_rows.py`.
+
+- Reads come from the search API inside the page: 25 rows per call in about 2 s, with exact
+  totals. Account results carry no website; fetch websites in batches of 25 with
+  `companies_websites.js`.
+- One record per call is saved as it arrives (a JSONL line, or one `results/*.json` file), so a
+  stop, a sign-out, or the 40-minute cloud ceiling loses nothing. Resume with `--skip-done`, or
+  continue from the next page after the last saved file.
+- Pace 3–5 s between calls; the runner stops on 403/429 (guardrails).
+
+### 4b. Slow path (page reading) — only when no fast runtime exists
+
+- Read rows from **search result pages** (25 per page): name, title, company, location, time in
+  role, badges. Opening every profile is the fastest way to hit limits; don't.
+- Scroll the results list to the bottom and confirm 25 rows before reading (rows lazy-load).
+- Open an individual profile or account page only when a needed field is missing and the user
+  asked for depth (per-day limits in guardrails).
+- Write rows out every page, not at the end. Human rhythm: a few seconds between pages, a longer
+  pause every few pages.
+- Record each row per [`references/output.md`](references/output.md). Keep the Sales Nav URL and,
+  when visible, the public LinkedIn URL — that is the dedupe key for the CRM step.
+
+## 5. Decision-makers inside accounts (Mode B2 / C)
+
+Per-account flow: **account → website → decision-makers → hand to CRM dedupe.**
+
+1. **Account.** Take qualified accounts with their Sales Nav company id (from the account
+   search; for Mode C, resolve each company name to an account with a small account search).
+2. **Website.** `companies_websites.js` returns the website for 25 ids per call; the domain is
+   the join key for CRM dedupe (`salesnav_rows.py accounts` fills `company_domain`).
+3. **Decision-makers.** One lead search per account filtered to that company and to the buying
+   seniority levels (`references/fast-path.md` has the query). Apply the title map for the
+   company's size (small: founder/CEO/owner; mid: function head; larger: VP/Director of the
+   buying function + one level below). Keep **1–3 people per account**, ranked: buying-function
+   title match → seniority → time in role (6+ months beats 2 weeks unless the run is a
+   job-change sweep).
+4. If nobody matches, record the account as `no_dm_found` with the closest title — don't force a
+   bad match.
+5. **Hand to CRM dedupe** (always before any outreach): `leads.csv` + `accounts.csv`, joined on
+   `company_domain`, with `linkedin_url` blank where the search did not expose it.
+
+## 6. Clean and hand off
+
+- De-duplicate within the run (same person from two shards; same company spelled twice;
+  `scripts/dedupe.py`).
+- Apply exclusions on the collected rows (customers, competitors, title words) and show what was removed.
+- Tag each row: buyer type, shard, mode, signal(s), fit notes.
+- Validate: `scripts/validate_csv.py`.
+- Give the user: counts per shard, a sample of 5 rows, what was excluded and why, and the file /
+  sheet / CRM location.
+- Suggest the next step: **qualify-accounts** (`references/qualify.md`), then **save-to-lists**
+  (`references/lists.md`). Building a list sends nothing; outreach happens only if the user asks
+  for it (see `SKILL.md`).
+
+## 7. Resume and repeat
+
+- Each run's JSONL and CSVs plus the saved searches are the state. To resume, re-run the plan
+  with `--skip-done`, or read the last CSV, skip rows already present, continue from the next
+  shard/page.
+- Weekly cadence: re-run the saved searches or plans and take only new rows.
+
+### Running this on a schedule
+
+A recurring daily routine is `references/run-my-day.md`. A recurring sweep alone (weekly job
+changes, new hires, "new since last time" lists) can also run unattended: the plan, queries and
+CSV columns from this run carry over unchanged to a schedule on the cloud runtime (laptop off) or,
+on the local runtime, to a Cowork scheduled task that needs the Mac and the app open. Set up
+scheduling only when the user asks.
