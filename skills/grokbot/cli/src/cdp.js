@@ -21,6 +21,9 @@ export class CdpError extends Error {
   }
 }
 
+/** Largest delay setTimeout honors (2^31-1 ms, about 24.8 days); larger values fire immediately. */
+export const MAX_TIMER_MS = 2 ** 31 - 1;
+
 export async function cdpVersion(port = DEFAULT_CDP_PORT, { timeoutMs = 1500 } = {}) {
   try {
     const res = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(timeoutMs) });
@@ -163,6 +166,8 @@ export class Cdp {
   }
 
   send(method, params = {}, { timeoutMs = this.timeoutMs } = {}) {
+    // setTimeout fires immediately for delays above 2^31-1 ms, so clamp rather than time out at once.
+    timeoutMs = Math.min(timeoutMs, MAX_TIMER_MS);
     return new Promise((resolve, reject) => {
       if (this.closed) return reject(new CdpError(`${method}: CDP websocket is closed`));
       const id = ++this.id;

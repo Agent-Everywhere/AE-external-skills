@@ -37,7 +37,7 @@ The **Agent Browser** skills drive Agent Everywhere's cloud-browser MCP. Other s
 
 ```
 .claude-plugin/
-  marketplace.json  # Claude Code marketplace: one plugin per skill, each pointing at skills/<name>
+  marketplace.json  # Claude Code marketplace: one plugin per skill, each rooted at skills/<name>
 skills/<skill-name>/
   SKILL.md          # entry point: frontmatter (name, description) + procedure
   references/       # loaded on demand: guardrails, gotchas, schemas
@@ -46,9 +46,10 @@ skills/<skill-name>/
   cli/dist/         # committed single-file bundle of the CLI (no npm install needed); rebuild with `npm run build`
 ```
 
-The marketplace entries use the repo root as each plugin's source and list the one skill folder
-under `skills`, so the `skills/` layout is unchanged. `grokbot-box` reuses the CLI in
-`skills/grokbot/cli`.
+Each marketplace entry uses its own skill folder as the plugin source (`"source": "./skills/<name>"`,
+`"skills": ["."]`), so a plugin installs only its own skill. Do not point a plugin at the repo root:
+the `skills` key adds to the default `skills/` scan, so every skill would load. `grokbot-box` does not
+ship the CLI; it installs it inside the box by cloning this repo.
 
 ## Conventions
 
@@ -75,8 +76,8 @@ Each skill folder zips into an installable skill:
 cd skills && zip -r ../dist/<skill-name>.zip <skill-name> -x '*/node_modules/*'
 ```
 
-`grokbot-box` points at the CLI and references in the sibling `grokbot` folder, so zip both folders
-together (or clone the repo, as the skill's install section does).
+`grokbot-box` does not bundle the CLI or the `grokbot` references; its install section clones this
+repo inside the box, and the zip needs nothing else.
 
 ## Requirements for users
 

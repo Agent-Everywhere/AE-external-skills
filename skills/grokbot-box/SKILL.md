@@ -15,8 +15,11 @@ description: >-
 
 This skill is for a **Grok Bot agent inside its own cloud box** that manages its sibling Grok Bot
 workers. The CLI, command reference, and internals live in the `grokbot` skill and are not
-duplicated here: the CLI is `../grokbot/cli`, its docs are `../grokbot/cli/README.md` and
-`../grokbot/references/`. A human on a Mac uses the `grokbot` skill directly.
+duplicated here. This skill is installed on its own, so it does not ship the CLI: install it in
+the box by cloning the repo (see "Install inside the box"), and read the docs from that clone
+(`AE-external-skills/skills/grokbot/...`) or from GitHub
+(<https://github.com/Agent-Everywhere/AE-external-skills/tree/main/skills/grokbot>). A human on a
+Mac uses the `grokbot` skill directly.
 
 ## What you can do
 
@@ -58,7 +61,7 @@ grokbot policy    # expect "policy agent" and the box's gateway.json path
 grokbot status
 ```
 
-(The bundled `../grokbot/cli/dist/grokbot.mjs` also runs without `npm install`:
+(The repo's bundled `cli/dist/grokbot.mjs` also runs without `npm install`:
 `node AE-external-skills/skills/grokbot/cli/dist/grokbot.mjs status`.) The CLI finds the host
 through the box's own `gateway.json`; no Keychain, no Electron.
 
@@ -99,6 +102,9 @@ real box.
 
 ## References
 
-- `../grokbot/cli/README.md`: complete CLI reference, including the box section.
-- `../grokbot/references/host-commands.md`: host gateway command catalog.
-- `../grokbot/references/internals.md`: how the app stores credentials and state.
+In the repo clone (`AE-external-skills/`), or at
+<https://github.com/Agent-Everywhere/AE-external-skills/tree/main/skills/grokbot>:
+
+- `skills/grokbot/cli/README.md`: complete CLI reference, including the box section.
+- `skills/grokbot/references/host-commands.md`: host gateway command catalog.
+- `skills/grokbot/references/internals.md`: how the app stores credentials and state.

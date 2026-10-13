@@ -3744,6 +3744,7 @@ var CdpError = class extends Error {
     Object.assign(this, extra);
   }
 };
+var MAX_TIMER_MS = 2 ** 31 - 1;
 async function cdpVersion(port = DEFAULT_CDP_PORT, { timeoutMs = 1500 } = {}) {
   try {
     const res = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(timeoutMs) });
@@ -3873,6 +3874,7 @@ var Cdp = class _Cdp {
     return cdp;
   }
   send(method, params = {}, { timeoutMs = this.timeoutMs } = {}) {
+    timeoutMs = Math.min(timeoutMs, MAX_TIMER_MS);
     return new Promise((resolve, reject) => {
       if (this.closed) return reject(new CdpError(`${method}: CDP websocket is closed`));
       const id = ++this.id;
@@ -4777,9 +4779,10 @@ function entryText(e) {
   return transcriptText({ entries: [e] })[0]?.text ?? "";
 }
 function isUserEntry(e) {
-  const who = String(e?.role ?? e?.author ?? e?.authorKind ?? "").toLowerCase();
+  const who = String(e?.role ?? e?.author ?? e?.authorKind ?? e?.kind ?? e?.type ?? "").toLowerCase();
   return who === "" || who === "user" || who === "human";
 }
+var SENT_SLACK_MS = 2e3;
 function entriesSince(entries, sentAt, sent = {}) {
   const { nonce, prompt, entryIds = [] } = sent;
   const want = typeof prompt === "string" ? prompt.trim() : "";
@@ -4789,11 +4792,11 @@ function entriesSince(entries, sentAt, sent = {}) {
     const e = entries[i];
     if (ids.length && e?.id != null && ids.includes(String(e.id))) anchor = i;
     else if (typeof nonce === "string" && nonce.length >= 8 && JSON.stringify(e ?? null).includes(nonce)) anchor = i;
-    else if (want && isUserEntry(e) && entryText(e).trim() === want) anchor = i;
+    else if (want && isUserEntry(e) && entryText(e).trim() === want && (entryTime(e) === null || entryTime(e) >= sentAt - SENT_SLACK_MS)) anchor = i;
   }
   if (anchor >= 0) return entries.slice(anchor);
   if (entries.some((e) => entryTime(e) !== null)) {
-    const since = entries.filter((e) => (entryTime(e) ?? 0) >= sentAt - 2e3);
+    const since = entries.filter((e) => (entryTime(e) ?? 0) >= sentAt - SENT_SLACK_MS);
     if (since.length) return since;
   }
   return entries.slice(-FALLBACK_TAIL);
@@ -4802,7 +4805,9 @@ function cdpTimeoutMs(o) {
   if (o?.timeout === void 0) return void 0;
   const sec = Number(o.timeout);
   if (!(Number.isFinite(sec) && sec > 0)) throw new UsageError(`--timeout must be a positive number of seconds (got "${o.timeout}").`);
-  return Math.round(sec * 1e3);
+  const ms = Math.round(sec * 1e3);
+  if (ms > MAX_TIMER_MS) throw new UsageError(`--timeout is too large (max ${Math.floor(MAX_TIMER_MS / 1e3)} seconds; got "${o.timeout}").`);
+  return ms;
 }
 function formatEntry(e) {
   const flat = transcriptText({ entries: [e] })[0];
@@ -5288,17 +5293,19 @@ Re-run with --yes.`);
   });
   cdp.command("targets").action(async (_, cmd) => printJson(await cdpTargets(await cdpPort(cmd))));
   cdp.command("eval <expression>").description("Evaluate JS in the renderer (promises awaited)").option("--timeout <sec>", "per-call timeout in seconds (default 30)").action(async (expr, o, cmd) => {
+    const timeoutMs = cdpTimeoutMs(o);
     const c = await Cdp.connect({ port: await cdpPort(cmd) });
     try {
-      printJson(await c.evaluate(expr, { timeoutMs: cdpTimeoutMs(o) }));
+      printJson(await c.evaluate(expr, { timeoutMs }));
     } finally {
       c.close();
     }
   });
   cdp.command("desktop <path> [jsonArgs]").description("Call window.desktop.<path>(...args), e.g. agent.getSidebarSections").option("--timeout <sec>", "per-call timeout in seconds (default 30; known-slow calls get 120)").action(async (path, jsonArgs, o, cmd) => {
+    const timeoutMs = cdpTimeoutMs(o);
     const c = await Cdp.connect({ port: await cdpPort(cmd) });
     try {
-      printJson(await c.callDesktop(path, jsonArgs ? JSON.parse(jsonArgs) : [], { timeoutMs: cdpTimeoutMs(o) }));
+      printJson(await c.callDesktop(path, jsonArgs ? JSON.parse(jsonArgs) : [], { timeoutMs }));
     } finally {
       c.close();
     }
