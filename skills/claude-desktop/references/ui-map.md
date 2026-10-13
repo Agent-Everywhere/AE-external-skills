@@ -65,7 +65,7 @@ you did not add. Its tool-call approvals are outward-facing.
 ## Local MCP servers
 
 `desktop.py config-mcp list|add|remove` edits `~/Library/Application Support/Claude/claude_desktop_config.json`
-(stdio servers): validates JSON, writes a unique `.bak-` copy, touches only the named entry,. `list` redacts secret-looking values. Use `--restart` (it quits Desktop first, since the
+(stdio servers): validates JSON, writes a unique `.bak-` copy, touches only the named entry. `list` redacts secret-looking values. Use `--restart` (it quits Desktop first, since the
 running app rewrites the file); a restart interrupts running tasks, so ask first. Never put secrets in
 `--env`.
 

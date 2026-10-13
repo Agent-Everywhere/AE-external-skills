@@ -34,6 +34,10 @@ class ClaudeDesktopDocs(unittest.TestCase):
             "stop after 5",
             "explicit yes in chat",                        # outward-facing or destructive
             "leave the mac alone",
+            "close anything sensitive on screen",          # preflight
+            "wait for their go-ahead",
+            "the user decides it, not you",                # the Code-mode folder
+            "not for the claude api, claude.ai in a browser, or claude code's own sessions",   # keeps triggering narrow
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, text)

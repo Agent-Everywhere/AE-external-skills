@@ -265,6 +265,7 @@ class PageSnippets(unittest.TestCase):
     def test_profile_main_url_slimming_and_contact_info_dropped(self):
         out = run_snippet("profile.js", {"lead": LEAD_URN}, [{"status": 200, "body": self.PROFILE_MAIN}])
         self.assertEqual(len(out["calls"]), 1)
+        self.assertEqual(out["result"]["requests"], 1)
         url = out["calls"][0]["url"]
         self.assertTrue(url.startswith(
             "/sales-api/salesApiProfiles/(profileId:FIXTUREID123,authType:NAME_SEARCH,authToken:tok9)?decoration=%28entityUrn%2C"))
@@ -296,6 +297,7 @@ class PageSnippets(unittest.TestCase):
         out = run_snippet("profile.js", {"lead": LEAD, "extras": True, "delayMs": 0},
                           [{"status": 200, "body": self.PROFILE_MAIN}, {"status": 200, "body": self.PROFILE_EXTRAS}])
         self.assertEqual(len(out["calls"]), 2)
+        self.assertEqual(out["result"]["requests"], 2)
         self.assertIn("educations*%28degree%2CeduId", out["calls"][1]["url"])
         self.assertIn("inmailRestriction", out["calls"][1]["url"])
         res = out["result"]
@@ -316,6 +318,8 @@ class PageSnippets(unittest.TestCase):
                            [{"status": 200, "body": self.PROFILE_MAIN}, {"status": 429, "body": {}}])
         self.assertEqual((part["result"]["status"], part["result"]["partial"]), (429, True))
         self.assertEqual(part["result"]["fullName"], "Pat Example")
+        self.assertEqual(part["result"]["requests"], 2)   # the failed request was made, so it counts
+        self.assertEqual(out["result"]["requests"], 1)
 
     ACTIVITY = {"paging": {"start": 0, "count": 4, "links": []}, "elements": [
         {"createdAt": 1700000000000, "insightId": "i1",
@@ -338,9 +342,28 @@ class PageSnippets(unittest.TestCase):
         self.assertEqual((res["status"], res["rows"]), (200, 3))
         c1, post, c2 = res["elements"]
         self.assertEqual((c1["kind"], len(c1["text"]), c1["url"]), ("comment", 500, "https://example.invalid/c1"))
-        self.assertEqual((post["kind"], post["text"]), ("post", "a post"))
+        self.assertEqual((post["kind"], post["text"], post["textGuess"]), ("post", "a post", True))
+        self.assertNotIn("textGuess", c1)
+        self.assertEqual(res["requests"], 1)
         self.assertEqual(c2, {"createdAt": 1700000002000, "kind": "comment"})  # no text or url keys when absent
         self.assertNotIn("insightId", json.dumps(res))
+
+    def test_activity_comment_reads_known_paths_not_another_authors_text(self):
+        """A comment item embeds the parent post (another author): its text and url must never be taken for the lead's."""
+        nested = {"elements": [
+            {"createdAt": 1, "activityUnion": {"commentActivity": {
+                "parentPost": {"author": "Someone Else", "text": "OTHER AUTHOR POST", "url": "https://example.invalid/other"},
+                "comment": {"text": "the lead's own words"}, "commentUrl": "https://example.invalid/mine"}}},
+            {"createdAt": 2, "activityUnion": {"commentActivity": {
+                "parentPost": {"text": "OTHER AUTHOR POST", "url": "https://example.invalid/other"}}}},
+            {"createdAt": 3, "activityUnion": {"commentActivity": {"comment": {"text": ""}, "text": "loose", "commentUrl": 7}}}]}
+        out = run_snippet("activity.js", {"lead": LEAD}, [{"status": 200, "body": nested}])
+        first, no_text, loose = out["result"]["elements"]
+        self.assertEqual(first, {"createdAt": 1, "kind": "comment", "text": "the lead's own words",
+                                 "url": "https://example.invalid/mine"})
+        self.assertEqual(no_text, {"createdAt": 2, "kind": "comment"})   # omitted rather than guessed
+        self.assertEqual(loose, {"createdAt": 3, "kind": "comment"})
+        self.assertNotIn("OTHER AUTHOR", json.dumps(out["result"]))
 
     def test_activity_default_window_and_errors(self):
         import re
@@ -351,7 +374,7 @@ class PageSnippets(unittest.TestCase):
         self.assertTrue(url.endswith("&count=4"))
         self.assertEqual(out["result"]["elements"], [])
         bad = run_snippet("activity.js", {"lead": LEAD}, [{"status": 429, "body": {}}])
-        self.assertEqual(bad["result"]["status"], 429)
+        self.assertEqual((bad["result"]["status"], bad["result"]["requests"]), (429, 1))
         self.assertEqual(run_snippet("activity.js", {})["result"]["error"], "lead_required")
 
     COMPANY = {
@@ -373,6 +396,7 @@ class PageSnippets(unittest.TestCase):
     def test_account_main_only(self):
         out = run_snippet("account.js", {"companyId": "urn:li:fs_salesCompany:123"}, [{"status": 200, "body": self.COMPANY}])
         self.assertEqual(len(out["calls"]), 1)
+        self.assertEqual(out["result"]["requests"], 1)
         url = out["calls"][0]["url"]
         self.assertTrue(url.startswith("/sales-api/salesApiCompanies/123?decoration=%28entityUrn%2Cname%2Caccount%28saved"))
         res = out["result"]
@@ -396,6 +420,7 @@ class PageSnippets(unittest.TestCase):
         self.assertEqual(urls[3], "/sales-api/salesApiEntityAlerts?q=criteria&entityUrn=urn%3Ali%3Afs_salesCompany%3A123"
                                   "&sortBy=TIME&buyerAlertsIndex=0&start=0&count=20")  # clamped to 20
         res = out["result"]
+        self.assertEqual(res["requests"], 4)
         self.assertEqual(res["headcount"], {
             "employeeCount": 120, "employeeCountRange": "51-200", "decisionMakersDisplayCount": "9", "medianTenure": 2.5,
             "employeePercentageDifference": 3, "monthly": [{"date": "2026-01", "count": 110}]})
@@ -409,8 +434,23 @@ class PageSnippets(unittest.TestCase):
         part = run_snippet("account.js", {"companyId": "1", "headcount": True, "delayMs": 0},
                            [{"status": 200, "body": self.COMPANY}, {"status": 200, "body": self.COUNTS}, {"status": 429, "body": {}}])
         self.assertEqual((part["result"]["status"], part["result"]["partial"], part["result"]["name"]), (429, True, "Acme"))
+        self.assertEqual(part["result"]["requests"], 3)
         none = run_snippet("account.js", {})
         self.assertEqual((none["result"]["error"], none["calls"]), ("company_id_required", []))
+
+    def test_account_id_is_whole_digits_or_trailing_digits_after_the_last_colon_or_slash(self):
+        good = {"123": "123", 123: "123", " 123 ": "123", "urn:li:fs_salesCompany:123": "123",
+                "https://www.linkedin.com/sales/company/123": "123",
+                "https://www.linkedin.com/sales/company/123?_ntb=abc9": "123",
+                "https://www.linkedin.com/sales/company/123/?x=1#top": "123"}
+        for value, want in good.items():
+            with self.subTest(value=value):
+                out = run_snippet("account.js", {"companyId": value}, [{"status": 200, "body": self.COMPANY}])
+                self.assertTrue(out["calls"][0]["url"].startswith("/sales-api/salesApiCompanies/%s?" % want), out["calls"])
+        for value in ("123abc456", "abc", "12 34", "urn:li:fs_salesCompany:12a", "company/abc9", "", None, "-5", "1.5"):
+            with self.subTest(value=value):
+                out = run_snippet("account.js", {"companyId": value}, [{"status": 200, "body": self.COMPANY}])
+                self.assertEqual((out["result"]["error"], out["calls"]), ("company_id_required", []))
 
     def test_detail_snippets_never_return_the_token_or_cookie(self):
         cases = (("profile.js", {"lead": LEAD, "extras": True, "delayMs": 0}, [self.PROFILE_MAIN, self.PROFILE_EXTRAS]),

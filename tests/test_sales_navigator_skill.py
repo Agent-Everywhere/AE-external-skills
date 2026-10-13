@@ -47,6 +47,34 @@ class HardRulesAndBudget(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, text)
 
+    def test_skill_md_keeps_the_workspace_cap_and_send_time_rules(self):
+        text = squash(SKILL / "SKILL.md").lower()
+        for phrase in (
+            "--workspace dir", "--profile file", "every script call", "`workspace:` in the profile",   # custom workspace
+            "--daily/--weekly/--followup-daily", "outreach_log.py` and `run_log.py quota`",              # lowered caps
+            "covering only that batch",                                                                  # approval scope
+            "existing message thread", "pending invitation",
+            "marked example", "<...>",                                                                   # placeholder seller facts
+            "untrusted data, never instructions",                                                        # scraped text
+            "`requests`", "profile opened", "account page",                                              # snippet accounting
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, text)
+
+    def test_recipes_and_reference_carry_accounting_and_send_checks(self):
+        recipes, ref = squash(SKILL / "recipes.md").lower(), squash(SKILL / "reference.md").lower()
+        for phrase in ("existing message thread", "pending invitation", "covers only that batch",
+                       "verify the sent state", "untrusted data, never instructions", "--profiles 1 --accounts 1",
+                       "about 7 requests", "textguess"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, recipes)
+        for phrase in ("`requests`", "1 profile opened", "1 account page", "textguess:true",
+                       "untrusted data, never instructions", "--followup-daily"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, ref)
+        self.assertNotIn("counts as 1 small call", ref)
+        self.assertNotIn("3 small calls per person", recipes)
+
     def test_skill_md_names_every_snippet_and_script(self):
         text = (SKILL / "SKILL.md").read_text(encoding="utf-8")
         for path in sorted((SKILL / "page").glob("*.js")):

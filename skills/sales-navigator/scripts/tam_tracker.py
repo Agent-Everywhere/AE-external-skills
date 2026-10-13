@@ -6,13 +6,17 @@ then headcount band, then metro: see shard_plan.py). This file is the checklist:
 sub-list, so a later task knows what is counted, what is pulled and what is next.
 
   tam_tracker.py add    --list-id ID --master NAME --filters-delta "state=Texas; headcount=C" --count N
-                        [--file results/texas-c.csv] [--cap 1000]
-        add a sub-list (status new, pulled 0). Refuses (exit 3) an id already in the file, and
-        (exit 2) a count over --cap: split it further first.
-  tam_tracker.py update --list-id ID [--count N] [--pulled N] [--status new|partial|done]
-                        [--file PATH] [--date YYYY-MM-DD]
-        record progress. --pulled without --status sets partial, or done once pulled >= count;
-        a pull stamps last_pulled (default today).
+                        --kind account|lead [--cap N] [--file results/texas-c.csv]
+        add a sub-list (status new, pulled 0). --kind sets the viewable cap (account 1000, lead 2500);
+        --cap N may only lower it; one of the two is required. Refuses (exit 5) a count over the cap:
+        split it further first. Refuses (exit 3) an id already used under the same master.
+  tam_tracker.py update --master NAME --list-id ID [--count N] [--kind account|lead] [--pulled N]
+                        [--status new|partial|done] [--file PATH] [--date YYYY-MM-DD]
+        record progress on one list. A list is identified by (master, list id), so two masters may both
+        have a "tx-c"; give ids the master as a prefix (acme-tx-c) anyway. --pulled without --status
+        sets partial, or done once pulled >= count; a pull stamps last_pulled (default today).
+        --count without --status re-derives the status from the new count (a done list whose count
+        grows becomes partial); --kind with --count re-checks the new count against the cap.
   tam_tracker.py status [--master NAME]
         counts per status, rows pulled against the sum of counts, and the lists not done. Shards
         overlap, so the sum over-counts: dedupe the pulled files (dedupe.py) for the unique total.
@@ -23,8 +27,12 @@ CSV (<workspace>/tam_tracker.csv): list_id,master,filters_delta,count,pulled,sta
 
 Where it lives: the workspace folder (workspace.py): --workspace DIR, else the `workspace:` field of the
 profile (--profile FILE), else $SALESNAV_WORKSPACE, else ~/Claude/sales-navigator when it exists; --log FILE
-overrides the path. Exit codes: 0 ok, 1 bad input, 2 count over --cap, 3 duplicate or unknown list id,
-4 workspace not located or tracker file missing (ask the user; never start a fresh tracker by mistake).
+overrides the path. Exit codes: 0 ok, 1 bad input (including a damaged tracker file or a lock held too
+long), 2 command-line usage error (argparse), 3 duplicate or unknown list id, 4 workspace not located or
+tracker file missing (ask the user; never start a fresh tracker by mistake), 5 count over the cap (split it).
+
+`add` and `update` take a lock file (<tracker>.lock) around reading and rewriting the tracker, so two
+tasks cannot lose each other's update.
 
 Python 3 standard library only, no network.
 """
@@ -33,6 +41,8 @@ import csv
 import os
 import sys
 import tempfile
+import time
+from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path
 
@@ -42,22 +52,55 @@ import workspace  # noqa: E402
 DEFAULT_FILE = "tam_tracker.csv"
 COLUMNS = ["list_id", "master", "filters_delta", "count", "pulled", "status", "last_pulled", "file"]
 STATUSES = ["new", "partial", "done"]
-EXIT_OK, EXIT_BAD, EXIT_CAP, EXIT_ID, EXIT_NO_FILE = 0, 1, 2, 3, 4
+EXIT_OK, EXIT_BAD, EXIT_ID, EXIT_NO_FILE, EXIT_CAP = 0, 1, 3, 4, 5   # 2 stays argparse's usage error
+CAPS = {"account": 1000, "lead": 2500}   # viewable results per search
+LOCK_WAIT_SECONDS = 10
+LOCK_STALE_SECONDS = 120
 
 
 class TrackerError(Exception):
     pass
 
 
+def to_int(value, label):
+    try:
+        number = int(str(value).replace(",", "").strip())
+    except ValueError:
+        raise TrackerError("%s must be a whole number, got %r" % (label, value))
+    if number < 0:
+        raise TrackerError("%s must not be negative" % label)
+    return number
+
+
 def read_rows(path):
+    """The tracker rows, validated: counts are whole numbers, status is known, no short or long lines.
+
+    A missing or empty (zero-byte) file is a tracker with no rows. A damaged file raises TrackerError."""
     p = Path(path)
-    if not p.is_file():
+    if not p.is_file() or not p.read_bytes().strip():
         return []
     with open(p, newline="", encoding="utf-8-sig") as fh:
         reader = csv.DictReader(fh)
         if reader.fieldnames != COLUMNS:
             raise TrackerError("%s: header must be %s" % (path, ",".join(COLUMNS)))
-        return [dict(r) for r in reader]
+        rows, seen = [], set()
+        for row in reader:
+            where = "%s line %d" % (path, reader.line_num)
+            if None in row or any(v is None for v in row.values()):
+                raise TrackerError("%s: expected %d fields" % (where, len(COLUMNS)))
+            row = {k: v.strip() for k, v in row.items()}
+            row["count"] = str(to_int(row["count"], "%s: count" % where))
+            row["pulled"] = str(to_int(row["pulled"], "%s: pulled" % where))
+            if row["status"] not in STATUSES:
+                raise TrackerError("%s: status must be one of %s, got %r" % (where, "|".join(STATUSES), row["status"]))
+            if not row["list_id"]:
+                raise TrackerError("%s: list_id is empty" % where)
+            key = (row["master"], row["list_id"])
+            if key in seen:
+                raise TrackerError("%s: list %s is listed twice under master %r" % (where, row["list_id"], row["master"]))
+            seen.add(key)
+            rows.append(row)
+        return rows
 
 
 def write_rows(path, rows):
@@ -77,14 +120,35 @@ def write_rows(path, rows):
         raise
 
 
-def to_int(value, label):
+@contextmanager
+def locked(path):
+    """Hold <tracker>.lock (created exclusively) while a command reads, changes and rewrites the file."""
+    lock = Path(str(path) + ".lock")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + LOCK_WAIT_SECONDS
+    while True:
+        try:
+            fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            break
+        except FileExistsError:
+            try:
+                if time.time() - lock.stat().st_mtime > LOCK_STALE_SECONDS:   # a crashed task left it
+                    lock.unlink()
+                    continue
+            except FileNotFoundError:
+                continue
+            if time.monotonic() > deadline:
+                raise TrackerError("%s is held by another task; try again in a moment" % lock)
+            time.sleep(0.1)
     try:
-        number = int(str(value).replace(",", "").strip())
-    except ValueError:
-        raise TrackerError("%s must be a whole number, got %r" % (label, value))
-    if number < 0:
-        raise TrackerError("%s must not be negative" % label)
-    return number
+        os.write(fd, str(os.getpid()).encode())
+        os.close(fd)
+        yield
+    finally:
+        try:
+            lock.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def check_date(text):
@@ -95,9 +159,9 @@ def check_date(text):
     return text
 
 
-def find(rows, list_id):
+def find(rows, master, list_id):
     for row in rows:
-        if row["list_id"] == list_id:
+        if row["list_id"] == list_id and row["master"] == master:
             return row
     return None
 
@@ -108,19 +172,38 @@ def auto_status(count, pulled):
     return "partial" if pulled > 0 else "new"
 
 
+def cap_for(kind, cap):
+    """The viewable cap that applies: --kind sets it, --cap may only lower it. One of them is required."""
+    if cap is not None and cap <= 0:
+        raise TrackerError("--cap must be a positive whole number, got %d" % cap)
+    if kind is None and cap is None:
+        raise TrackerError("give --kind account|lead (cap %s) so an oversize list cannot be recorded"
+                           % " / ".join("%s %d" % (k, v) for k, v in CAPS.items()))
+    return min(n for n in (CAPS.get(kind), cap) if n is not None)
+
+
+def refuse_over_cap(list_id, count, cap):
+    print("refused: %s has %d results, over the cap of %d: split it by the next dimension "
+          "(shard_plan.py) and add the pieces" % (list_id, count, cap), file=sys.stderr)
+    return EXIT_CAP
+
+
 def cmd_add(args, rows):
     list_id = args.list_id.strip()
+    master = args.master.strip()
     if not list_id:
         raise TrackerError("--list-id must not be empty")
-    if find(rows, list_id):
-        print("refused: list %s is already in the tracker (use `update`)" % list_id, file=sys.stderr)
-        return EXIT_ID
+    if not master:
+        raise TrackerError("--master must not be empty")
     count = to_int(args.count, "--count")
-    if args.cap is not None and count > args.cap:
-        print("refused: %s has %d results, over the cap of %d: split it by the next dimension "
-              "(shard_plan.py) and add the pieces" % (list_id, count, args.cap), file=sys.stderr)
-        return EXIT_CAP
-    rows.append({"list_id": list_id, "master": args.master.strip(), "filters_delta": args.filters_delta.strip(),
+    cap = cap_for(args.kind, args.cap)
+    if find(rows, master, list_id):
+        print("refused: list %s is already in the tracker under master %r (use `update --master %s`)"
+              % (list_id, master, master), file=sys.stderr)
+        return EXIT_ID
+    if count > cap:
+        return refuse_over_cap(list_id, count, cap)
+    rows.append({"list_id": list_id, "master": master, "filters_delta": args.filters_delta.strip(),
                  "count": str(count), "pulled": "0", "status": "new", "last_pulled": "",
                  "file": (args.file or "").strip()})
     write_rows(args.log, rows)
@@ -129,17 +212,25 @@ def cmd_add(args, rows):
 
 
 def cmd_update(args, rows):
-    row = find(rows, args.list_id.strip())
+    master, list_id = args.master.strip(), args.list_id.strip()
+    row = find(rows, master, list_id)
     if not row:
-        print("refused: no list %s in the tracker" % args.list_id, file=sys.stderr)
+        print("refused: no list %s under master %r in the tracker" % (list_id, master), file=sys.stderr)
         return EXIT_ID
+    if args.kind is not None and args.count is None:
+        raise TrackerError("--kind re-checks a new --count: give --count with it")
     if args.count is not None:
-        row["count"] = str(to_int(args.count, "--count"))
+        count = to_int(args.count, "--count")
+        if args.kind is not None and count > CAPS[args.kind]:
+            return refuse_over_cap(list_id, count, CAPS[args.kind])
+        row["count"] = str(count)
+        if args.pulled is None and not args.status:   # a changed count can change what "done" means
+            row["status"] = auto_status(count, int(row["pulled"]))
     if args.file is not None:
         row["file"] = args.file.strip()
     if args.pulled is not None:
         row["pulled"] = str(to_int(args.pulled, "--pulled"))
-        row["status"] = args.status or auto_status(int(row["count"] or 0), int(row["pulled"]))
+        row["status"] = args.status or auto_status(int(row["count"]), int(row["pulled"]))
         row["last_pulled"] = check_date(args.date) if args.date else date.today().isoformat()
     elif args.status:
         row["status"] = args.status
@@ -162,8 +253,8 @@ def cmd_status(args, rows):
         print("no lists tracked%s" % (" for master %r" % args.master if args.master else ""))
         return EXIT_OK
     counts = {s: sum(1 for r in rows if r["status"] == s) for s in STATUSES}
-    total = sum(int(r["count"] or 0) for r in rows)
-    pulled = sum(int(r["pulled"] or 0) for r in rows)
+    total = sum(int(r["count"]) for r in rows)
+    pulled = sum(int(r["pulled"]) for r in rows)
     pct = (100.0 * pulled / total) if total else 0.0
     print("lists: %d (new %d, partial %d, done %d)" % (len(rows), counts["new"], counts["partial"], counts["done"]))
     print("rows: pulled %d of %d counted (%.0f%%); shards overlap, so run dedupe.py for the unique total"
@@ -210,11 +301,14 @@ def build_parser():
     add.add_argument("--filters-delta", required=True, help="what this list adds to the master, e.g. 'state=Texas'")
     add.add_argument("--count", required=True, help="exact count from count=1")
     add.add_argument("--file", help="where the pulled rows are saved")
-    add.add_argument("--cap", type=int, metavar="N", help="viewable cap (1000 accounts, 2500 leads): refuse a bigger list")
+    add.add_argument("--kind", choices=sorted(CAPS), help="account (cap 1000) or lead (cap 2500)")
+    add.add_argument("--cap", type=int, metavar="N", help="a lower cap than --kind's; one of --kind and --cap is required")
 
     upd = sub.add_parser("update", parents=[common], help="record counts, progress or status")
+    upd.add_argument("--master", required=True, help="the master search the list belongs to (ids are per master)")
     upd.add_argument("--list-id", required=True)
     upd.add_argument("--count")
+    upd.add_argument("--kind", choices=sorted(CAPS), help="with --count: refuse a count over this kind's cap")
     upd.add_argument("--pulled")
     upd.add_argument("--status", choices=STATUSES)
     upd.add_argument("--file")
@@ -241,6 +335,9 @@ def main(argv=None):
             print("refused: no tracker at %s. If lists were tracked before, the workspace is wrong: ask the "
                   "user. Otherwise start with `add`" % args.log, file=sys.stderr)
             return EXIT_NO_FILE
+        if args.command in ("add", "update"):
+            with locked(args.log):
+                return COMMANDS[args.command](args, read_rows(args.log))
         return COMMANDS[args.command](args, read_rows(args.log))
     except (TrackerError, OSError) as exc:
         print("error: %s" % exc, file=sys.stderr)

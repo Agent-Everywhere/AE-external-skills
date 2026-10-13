@@ -9,16 +9,18 @@
 //   count?:     10 alerts, at most 20
 //   delayMs?:   3500 pause between the requests of one run
 // }
-// One run counts as 1 small call (each option adds paced requests; a failure stops the run and
-// returns what was gathered with partial:true).
-// returns: { status, name, description, website, industry, type, yearFounded, specialties, headquarters,
+// One run opens 1 account page (log --accounts 1) and makes `requests` requests, 1 to 4 (log them as small
+// calls); a failure stops the run and returns what was gathered with partial:true.
+// returns: { status, requests, name, description, website, industry, type, yearFounded, specialties, headquarters,
 //   revenueRange, employeeGrowthPercentages; headcount: { employeeCount, employeeCountRange,
-//   decisionMakersDisplayCount, medianTenure, monthly }; news: [{ type, headline, createdAt }] }
+//   decisionMakersDisplayCount, medianTenure, employeePercentageDifference, monthly }; news: [{ type, headline, createdAt }] }
 async (params) => {
   const p = params || {};
   const csrfMatch = (() => { try { return document.cookie; } catch (e) { return ''; } })().match(/JSESSIONID="?([^";]+)/);
   if (!csrfMatch) return { status: 0, error: 'csrf_missing' };
-  const id = String(p.companyId || '').replace(/^.*:/, '').replace(/\D/g, '');
+  // Digits only: the whole value, or the digits after the last ':' or '/' (a trailing ?query is ignored).
+  const idMatch = String(p.companyId == null ? '' : p.companyId).trim().split(/[?#]/)[0].match(/(?:^|[:/])(\d+)\/?$/);
+  const id = idMatch ? idMatch[1] : '';
   if (!id) return { status: 0, error: 'company_id_required' };
   const MAIN = '%28entityUrn%2Cname%2Caccount%28saved%2CnoteCount%2ClistCount%2CcrmStatus%2Cstarred%29%2CpictureInfo%2CcompanyPictureDisplayImage%2CcompanyBackgroundCoverImage%2Cdescription%2Cindustry%2Clocation%2Cheadquarters%2Cwebsite%2CrevenueRange%2CcrmOpportunities%2CflagshipCompanyUrl%2CemployeeGrowthPercentages%2Cemployees*~fs_salesProfile%28entityUrn%2CfirstName%2ClastName%2CfullName%2CpictureInfo%2CprofilePictureDisplayImage%29%2Cspecialties%2Ctype%2CyearFounded%29';
   const COUNTS = '%28entityUrn%2CemployeeCount%2CemployeeDisplayCount%2CemployeeCountRange%2CdecisionMakersDisplayCount%2CpersonaResultCounts%2CteamLinkConnectionsDisplayCount%2CsharedAlumniDisplayCount%2CsharedAlumniSchoolIds%29';
@@ -33,7 +35,7 @@ async (params) => {
       credentials: 'include',
       headers: { 'csrf-token': csrfMatch[1], 'x-restli-protocol-version': '2.0.0', 'accept': 'application/json' },
     });
-    if (r.status !== 200) return { fail: { status: r.status, ms: Math.round(performance.now() - t0), body: (await r.text()).slice(0, 200) } };
+    if (r.status !== 200) return { fail: { status: r.status, requests: n, ms: Math.round(performance.now() - t0), body: (await r.text()).slice(0, 200) } };
     return { json: await r.json() };
   };
   try {
@@ -43,6 +45,7 @@ async (params) => {
     const hq = j.headquarters || {};
     const out = {
       status: 200,
+      requests: n,
       name: j.name || '',
       description: (j.description || '').slice(0, 1500),
       website: j.website || '',
@@ -77,9 +80,10 @@ async (params) => {
         type: e.type, headline: text(e.headline).slice(0, 300), createdAt: e.createdAt,
       }));
     }
+    out.requests = n;
     out.ms = Math.round(performance.now() - t0);
     return out;
   } catch (e) {
-    return { status: 0, error: String(e).slice(0, 200) };
+    return { status: 0, requests: n, error: String(e).slice(0, 200) };
   }
 }

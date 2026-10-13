@@ -18,7 +18,8 @@ headcount band, then metro) and count each; `salesnav-tam-tracker` tracks that, 
 
 ## Flow (adapt to the ask)
 
-1. Find the workspace (`python3 scripts/workspace.py locate`); read the company profile for buyer types,
+1. Find the workspace (`python3 scripts/workspace.py locate`; outside the default, pass `--workspace DIR`
+   to every script); read the company profile for buyer types,
    titles by company size, title words to exclude and geography. Ask only for what is missing.
 2. In a signed-in `linkedin.com/sales` tab, run `page/csrf_ready.js`, then `page/typeahead.js` for
    geography (`BING_GEO`) and industry ids. Titles go in as free text (`CURRENT_TITLE`).

@@ -18,7 +18,8 @@ band, then metro) and count each; `salesnav-tam-tracker` does that and tracks th
 
 ## Flow (adapt to the ask)
 
-1. Find the workspace (`python3 scripts/workspace.py locate`) and read the company profile for ICP,
+1. Find the workspace (`python3 scripts/workspace.py locate`; outside the default, pass `--workspace DIR`
+   to every script) and read the company profile for ICP,
    keywords, noise words and exclusions. Ask only for what is missing, once.
 2. Open a signed-in `linkedin.com/sales` tab; `page/csrf_ready.js` must report ready first.
 3. Resolve ids with `page/typeahead.js`: geography (`BING_GEO`), industry. Niche industries often resolve

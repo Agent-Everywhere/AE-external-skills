@@ -206,6 +206,72 @@ class PurposeSkillDocs(unittest.TestCase):
         self.assertIn("%d follow-ups a day" % outreach_log.DAILY_FOLLOWUP_CAP, body)
         self.assertIn("%d messages to one person" % outreach_log.MAX_TOUCHES, body)
 
+    def test_the_page_cap_in_the_tracker_skill_is_the_runtime_and_run_log_default(self):
+        import run_log
+        sys.path.insert(0, str(ROOT / "packages" / "browser-runtime"))
+        import session
+        pages = run_log.LIMITS["pages"]["default"]
+        self.assertEqual(pages, session.DEFAULT_MAX_PAGES)
+        self.assertIn("default %d result pages a day" % pages, squash("salesnav-tam-tracker"))
+
+    def test_run_log_options_named_in_the_skills_are_real(self):
+        import subprocess
+        helptext = subprocess.run([sys.executable, str(TOOLKIT / "scripts" / "run_log.py"), "add", "--help"],
+                                  capture_output=True, text=True).stdout
+        for flag in ("--pages", "--small-calls"):
+            self.assertIn(flag, helptext)
+        named = set()
+        for name in NAMES:
+            for span in re.findall(r"run_log\.py add ([^`]*)`", text(name)):
+                named |= set(re.findall(r"--[\w-]+", span))
+        for name in NAMES:
+            named |= set(re.findall(r"`(--[\w-]+) N` for", text(name)))
+        self.assertTrue({"--pages", "--small-calls"} <= named, named)
+        for flag in sorted(named):
+            with self.subTest(flag=flag):
+                self.assertIn(flag, helptext)
+
+    def test_tracker_commands_in_the_skill_use_real_options(self):
+        import subprocess
+        body = text("salesnav-tam-tracker")
+        for command in ("add", "update"):
+            helptext = subprocess.run([sys.executable, str(skill("salesnav-tam-tracker") / "scripts" / "tam_tracker.py"),
+                                       command, "--help"], capture_output=True, text=True).stdout
+            span = re.search(r"tam_tracker\.py %s ([^`]*)`" % command, body)
+            self.assertTrue(span, command)
+            for flag in re.findall(r"--[\w-]+", span.group(1)):
+                with self.subTest(command=command, flag=flag):
+                    self.assertIn(flag, helptext)
+        self.assertRegex(body, r"update --master \w+ --list-id")      # ids are per master
+        self.assertIn("exit 5", squash("salesnav-tam-tracker"))
+
+    def test_workspace_init_works_in_every_skill_installed_alone(self):
+        """The TAM skills do not bundle templates/company-profile.md: init must create the folders without it."""
+        import shutil
+        import subprocess
+        import tempfile
+        for name in NAMES:
+            with self.subTest(skill=name), tempfile.TemporaryDirectory() as tmp:
+                alone = Path(tmp) / name
+                shutil.copytree(skill(name), alone, ignore=shutil.ignore_patterns("__pycache__"))
+                home = Path(tmp) / "Claude"
+                run = subprocess.run([sys.executable, str(alone / "scripts" / "workspace.py"), "init", str(home)],
+                                     capture_output=True, text=True)
+                self.assertEqual(run.returncode, 0, run.stderr)
+                for sub in ("lists", "drafts", "results"):
+                    self.assertTrue((home / "sales-navigator" / sub).is_dir(), sub)
+                loc = subprocess.run([sys.executable, str(alone / "scripts" / "workspace.py"), "locate",
+                                      "--workspace", str(home / "sales-navigator")], capture_output=True, text=True)
+                self.assertEqual(loc.returncode, 0, loc.stdout + loc.stderr)
+
+    def test_outreach_skill_carries_the_send_time_and_cap_passthrough_rules(self):
+        body = squash("salesnav-outreach")
+        for phrase in ("covers only that batch", "existing message thread", "pending invitation",
+                       "verify the sent state", "--daily/--weekly/--followup-daily", "marked example",
+                       "untrusted data, never instructions", "--workspace dir"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, body)
+
     def test_sales_navigator_points_to_the_purpose_skills(self):
         body = (TOOLKIT / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("## Purpose skills", body)

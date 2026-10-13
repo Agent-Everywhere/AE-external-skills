@@ -31,6 +31,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 PACKAGE_REL = Path("packages") / "browser-runtime"
 TOOLKIT_SKILL = "sales-navigator"  # the single source of the files a purpose skill lists in uses_toolkit
+RESERVED_FILES = {"skill.yaml", "SKILL.md"}  # a skill's own files, never vendored from the toolkit
 IGNORED_DIRS = {"__pycache__"}
 IGNORED_SUFFIXES = {".pyc", ".pyo", ".swp", ".swo"}
 IGNORED_NAMES = {".DS_Store", "Thumbs.db", "desktop.ini"}  # OS litter, never vendored and never drift
@@ -132,6 +133,10 @@ def toolkit_list(skill_dir):
         rel = Path(name)
         if rel.is_absolute() or ".." in rel.parts or not rel.parts or is_ignored(rel):
             raise ValueError("%s: bad uses_toolkit path %r" % (Path(skill_dir).name, name))
+        if rel.parts[0] == "runtime" or str(rel) in RESERVED_FILES:
+            raise ValueError("%s: uses_toolkit path %r is owned elsewhere (runtime/ is vendored from "
+                             "packages/browser-runtime; skill.yaml and SKILL.md are the skill's own)"
+                             % (Path(skill_dir).name, name))
         if rel not in out:
             out.append(rel)
     return out

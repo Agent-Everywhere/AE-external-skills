@@ -3,7 +3,8 @@ name: claude-desktop
 description: >-
   Operate the Claude Desktop app on your Mac from Claude Code: open Chat, Cowork or Code tasks with a
   prompt, send, read replies, click approvals; manage projects, skills, connectors and scheduled tasks.
-  Uses claude:// deep links plus Peekaboo. Needs macOS 15+.
+  Uses claude:// deep links plus Peekaboo. Needs macOS 15+. Not for the Claude API, claude.ai in a
+  browser, or Claude Code's own sessions.
 ---
 
 # claude-desktop
@@ -16,8 +17,8 @@ Work from screenshots and window-relative coordinates. `references/ui-map.md` ha
 ## Tools
 
 Deep links prefill a new task and never submit (14,000 characters at most): `claude://claude.ai/new?q=`
-(Chat), `claude://cowork/new?q=`, `claude://code/new?q=...&folder=` (Desktop asks the user to confirm
-the folder).
+(Chat), `claude://cowork/new?q=`, `claude://code/new?q=...&folder=` (the user confirms the folder in
+Desktop; the user decides it, not you).
 
 `scripts/desktop.py` (stdlib; shells out to `peekaboo` and `open`; install with `brew install
 openclaw/tap/peekaboo`):
@@ -30,7 +31,7 @@ openclaw/tap/peekaboo`):
 ## Rules
 
 1. **Preflight.** Run `doctor`; the terminal running Claude Code needs Screen Recording, Accessibility
-   and Automation permission (only the user can grant them). Tell the user to leave the Mac alone.
+   and Automation permission (only the user can grant them). Tell the user to leave the Mac alone, close anything sensitive on screen, and wait for their go-ahead.
 2. **Screenshot before every click**: fresh `shot`, read it, click, `shot` again to confirm. Click Send
    rather than pressing Return; input goes to the frontmost window.
 3. **Stop if the wrong window is frontmost** or you see another app, an unexpected dialog or a login.

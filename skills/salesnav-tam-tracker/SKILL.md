@@ -16,18 +16,21 @@ that each fit under the cap, and keep a checklist so any later task knows what i
 
 ## Flow (adapt to the ask)
 
-1. Locate the workspace (`python3 scripts/workspace.py locate`). Check the tracker first:
+1. Locate the workspace (`python3 scripts/workspace.py locate`; outside the default, pass `--workspace DIR`
+   to every script). Check the tracker first:
    `python3 scripts/tam_tracker.py status`. It is `tam_tracker.csv` (columns: list_id, master,
    filters_delta, count, pulled, status new|partial|done, last_pulled, file).
 2. Plan the cut. Count states in priority order with `page/count.js` until about 90 percent of the
    national count is covered, then split big states by headcount band, then metro. `scripts/shard_plan.py`
    proposes the split from the counts you give it. State ids come from `page/typeahead.js`.
-3. Record each sub-list under the cap: `tam_tracker.py add --list-id tx-c --master NAME --filters-delta
-   "state=Texas; headcount=C" --count 840 --cap 1000` (`--cap 2500` for leads). It refuses an oversize
-   list: split it further.
+3. Record each sub-list under the cap, with ids that carry the master: `tam_tracker.py add --list-id
+   acme-tx-c --master acme --filters-delta "state=Texas; headcount=C" --count 840 --kind account`
+   (`--kind lead` for people). A list is keyed on (master, list id). Exit 5 means over the cap (1,000
+   accounts, 2,500 leads): split it further.
 4. Ask `tam_tracker.py next`, pull that list page by page (`page/account_search.js` or
    `page/lead_search.js`, 25 rows, `start` += 25), save each page under `results/<list_id>/`, then
-   `tam_tracker.py update --list-id ID --pulled N --file PATH`. Status turns partial, then done.
+   `tam_tracker.py update --master acme --list-id ID --pulled N --file PATH`. Status turns partial, then
+   done; a changed `--count N` re-derives it.
 5. Convert with `scripts/salesnav_rows.py accounts|leads results/<list_id>/*.json -o FILE.csv`, check it
    with `scripts/validate_csv.py`, and merge shards with `scripts/dedupe.py`. Shards overlap: report
    "sum X, unique Y", never the sum alone.

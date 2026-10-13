@@ -8,9 +8,10 @@
 //   extras?: true also fetches educations, skills, languages, connections, badges (one more call, paced)
 //   delayMs?: 3500 pause before the extras call
 // }
-// One run counts as 1 small call (extras adds one paced request). contactInfo (email, phone) is part of
+// One run opens 1 profile (log --profiles 1) and makes `requests` requests, 1 or 2 (log them as small
+// calls). contactInfo (email, phone) is part of
 // the page's own decoration but is never copied into the result.
-// returns: { status, fullName, headline, location, degree, summary, pendingInvitation, flagshipProfileUrl,
+// returns: { status, requests, fullName, headline, location, degree, summary, pendingInvitation, flagshipProfileUrl,
 //   positions: [{ title, companyName, companyId, description, startedOn, endedOn, current, location }],
 //   and with extras: educations, skills [{ name, endorsements }], languages, numOfConnections,
 //   memberBadges { openLink, premium }, inmailRestriction }
@@ -27,12 +28,14 @@ async (params) => {
   const cut = (v, n) => (typeof v === 'string' ? v.slice(0, n) : v);
   const date = (d) => (d && d.year ? { year: d.year, month: d.month } : undefined);
   const t0 = performance.now();
+  let n = 0;
   const get = async (decoration) => {
+    n++;
     const r = await fetch('/sales-api/salesApiProfiles/' + key + '?decoration=' + decoration, {
       credentials: 'include',
       headers: { 'csrf-token': csrfMatch[1], 'x-restli-protocol-version': '2.0.0', 'accept': 'application/json' },
     });
-    if (r.status !== 200) return { fail: { status: r.status, ms: Math.round(performance.now() - t0), body: (await r.text()).slice(0, 200) } };
+    if (r.status !== 200) return { fail: { status: r.status, requests: n, ms: Math.round(performance.now() - t0), body: (await r.text()).slice(0, 200) } };
     return { json: await r.json() };
   };
   try {
@@ -41,6 +44,7 @@ async (params) => {
     const j = main.json;
     const out = {
       status: 200,
+      requests: n,
       fullName: j.fullName || '',
       headline: j.headline || '',
       location: j.location || '',
@@ -76,9 +80,10 @@ async (params) => {
       out.memberBadges = { openLink: !!badges.openLink, premium: !!badges.premium };
       out.inmailRestriction = e.inmailRestriction;
     }
+    out.requests = n;
     out.ms = Math.round(performance.now() - t0);
     return out;
   } catch (e) {
-    return { status: 0, error: String(e).slice(0, 200) };
+    return { status: 0, requests: n, error: String(e).slice(0, 200) };
   }
 }

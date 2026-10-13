@@ -8,9 +8,12 @@
 //   days?:  90 look-back window
 //   count?: 4 items, at most 10
 // }
-// One call counts as 1 small call. Only comment items were seen live: the post item shape is
-// unverified, so text and url are read defensively and left out when absent.
-// returns: { status, rows, elements: [{ createdAt, kind: 'post' | 'comment', text?, url? }], paging }
+// One request, returned as `requests`: log it as 1 small call. Comment text and url are read from their known
+// paths only (commentActivity.comment.text, commentActivity.commentUrl): a comment item can embed another
+// author's post, so a comment is never searched deeper. The post item shape is unverified, so for a post
+// the text and url are a best guess (deep search) and the row says textGuess:true; never quote a guess as
+// the lead's words. Text that is not found is left out.
+// returns: { status, requests, rows, elements: [{ createdAt, kind: 'post' | 'comment', text?, url?, textGuess? }], paging }
 async (params) => {
   const p = params || {};
   const csrfMatch = (() => { try { return document.cookie; } catch (e) { return ''; } })().match(/JSESSIONID="?([^";]+)/);
@@ -25,7 +28,7 @@ async (params) => {
   const urn = 'urn%3Ali%3Afs_salesProfile%3A%28' + [idMatch[1], idMatch[2], idMatch[3]].map(encodeURIComponent).join('%2C') + '%29';
   const path = '/sales-api/salesApiInsightsV2?insightTypes=List(LEAD_POST,LEAD_COMMENT)&q=findByMember&profile=' + urn +
     '&timeRange=(start:' + start + ',end:' + end + ')&start=0&count=' + count;
-  // First string found under these keys, searched a few levels deep (post and comment bodies differ).
+  // Fallback for post items only: first string under these keys, a few levels deep.
   const TEXT_KEYS = ['text', 'commentary', 'comment', 'message', 'body', 'content'];
   const URL_KEYS = ['url', 'permalink', 'activityUrl', 'shareUrl', 'commentUrl'];
   const find = (o, keys, depth) => {
@@ -44,20 +47,29 @@ async (params) => {
       headers: { 'csrf-token': csrfMatch[1], 'x-restli-protocol-version': '2.0.0', 'accept': 'application/json' },
     });
     const ms = Math.round(performance.now() - t0);
-    if (r.status !== 200) return { status: r.status, ms, body: (await r.text()).slice(0, 200) };
+    if (r.status !== 200) return { status: r.status, requests: 1, ms, body: (await r.text()).slice(0, 200) };
     const j = await r.json();
+    const str = (v) => (typeof v === 'string' && v ? v : undefined);
     const elements = (j.elements || []).map((e) => {
       const u = e.activityUnion || {};
-      const text = find(u, TEXT_KEYS, 4);
-      const url = find(u, URL_KEYS, 4);
       const row = { createdAt: e.createdAt, kind: u.commentActivity ? 'comment' : 'post' };
+      let text, url;
+      if (u.commentActivity) {
+        const c = u.commentActivity;
+        text = str(c.comment && c.comment.text);
+        url = str(c.commentUrl);
+      } else {
+        text = find(u, TEXT_KEYS, 4);
+        url = find(u, URL_KEYS, 4);
+        if (text) row.textGuess = true;
+      }
       if (text) row.text = text.slice(0, 500);
       if (url) row.url = url;
       return row;
     });
     const paging = j.paging || {};
-    return { status: 200, ms, rows: elements.length, elements, paging: { start: paging.start, count: paging.count, total: paging.total } };
+    return { status: 200, requests: 1, ms, rows: elements.length, elements, paging: { start: paging.start, count: paging.count, total: paging.total } };
   } catch (e) {
-    return { status: 0, error: String(e).slice(0, 200) };
+    return { status: 0, requests: 1, error: String(e).slice(0, 200) };
   }
 }

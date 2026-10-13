@@ -38,7 +38,7 @@ How many accounts or leads this run; three tone words, sign-off, language:
 
 ## 8. Caps and permissions
 
-Write only what you want lower than the defaults. Create Sales Nav lists without asking: no. People per
+Write only what you want lower than the defaults (they are passed to the scripts as lower caps). Create Sales Nav lists without asking: no. People per
 account for the first touch: 1. Days to wait before a follow-up: 3. Working hours:
 
 ## 9. Where things live

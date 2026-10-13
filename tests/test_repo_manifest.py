@@ -283,6 +283,20 @@ class ToolkitBundling(unittest.TestCase):
                 self.assertEqual(check.returncode, 1)
                 self.assertIn(needle, check.stdout + check.stderr + fix.stderr)
 
+    def test_runtime_and_the_skills_own_files_cannot_be_listed(self):
+        """runtime/ is vendored from the package; skill.yaml and SKILL.md are the skill's own: listing them
+        would make the two sync mechanisms fight (every other runtime/ file would read as stale)."""
+        for listed in ("runtime/README.md", "runtime/session.py", "skill.yaml", "SKILL.md"):
+            with self.subTest(listed=listed):
+                self.write_yaml("[page/count.js, %s]" % listed)
+                fix = self.run_script()
+                check = self.run_script("--check")
+                self.assertEqual((fix.returncode, check.returncode), (1, 1))
+                self.assertIn("is owned elsewhere", fix.stderr + check.stderr)
+        self.write_yaml("[page/count.js]")
+        self.synced()   # the vendored runtime/ survives once the list is valid
+        self.assertTrue((self.skill / "runtime" / "session.py").is_file())
+
     def test_a_skill_without_uses_toolkit_is_untouched(self):
         self.write_yaml("[]")
         (self.skill / "page").mkdir()
