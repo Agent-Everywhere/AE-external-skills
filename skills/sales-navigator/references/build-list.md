@@ -2,20 +2,57 @@
 
 Turn the Company Profile into a clean list of accounts and/or decision-makers. This is the
 original, read-only action; every other action starts from its CSVs. Preflight (runtime, session,
-profile, budget) is in `SKILL.md` and has already been done.
+profile, budget) is in `SKILL.md` and has already been done, except for Setup, which skips
+runtime, session and budget and needs only the workspace. If a request needs a profile and none
+exists, run Setup and stop; do not carry on to the request.
 
-## 1. Intake (only what is missing)
+**One step per request.** build-list covers four separate requests; do only the one asked, then
+stop with a short result and "Next, you can: ...":
+
+| The user asks | You do | You do not |
+|---|---|---|
+| **Set up** | Section 1: write the profile + workspace | any LinkedIn page, count or typeahead call |
+| **Size my market** / "how big is it" | Sections 2-3 counting only: `count=1` calls (and typeahead lookups for ids), shard counts, the `## Sub-list plan` | pull any rows, qualify, find decision-makers |
+| **Pull** N accounts / leads | Section 3 for that list only (reuse the `## Sub-list plan` counts if they exist; else at most 10 count calls) plus the 2-page sample, then sections 4-6 for only that list and size | the rest of the market, qualify, decision-makers, save to a list |
+| **Find decision-makers** | Section 5 for only the accounts named | pull more accounts |
+
+Chaining (pull, then qualify, then decision-makers) happens only through `run-my-day`
+(`run-my-day.md`). The next step is a suggestion; a bare "continue" means one step, the one
+named or the single one offered (ask which if several).
+
+## 1. Intake = the Setup action (one turn, no search pages)
+
+"Set up my prospecting" does **one thing: write `company-profile.md` and create the workspace.**
+It makes **zero LinkedIn search pages, zero count or typeahead calls and no sign-in check**, and it
+does **not** size the market, qualify, or find decision-makers. When it is done, stop and say
+"Next, you can: size my market (counts only) / pull a first 25 accounts / run my day".
+Target: setup done in 1-2 turns, not a 15-minute interview.
 
 **Read before asking.** If a `company-profile.md` already exists (an attached file, a project
-file, or in the user's folder), read it and ask only for the fields still blank. Do not re-ask
-what it answers. A filled generic example to copy is `templates/company-profile.example.md`.
+file, or in the user's folder), read it and ask only for the fields still blank. A filled generic
+example to copy is `templates/company-profile.example.md`.
 
-If there is none, ask the short set below in **one short batch**, as ONE plain message with the
-questions numbered (no multi-step question screen, no one-question-at-a-time flow). Offer
-examples, accept "skip", and accept **"use defaults"**: then fill blanks with the template's
-defaults (caps and pacing from `guardrails.md`, 1 person per account for a first touch, a 3-day
-follow-up wait), say which you assumed, and go. Never interrogate. The table and the template
-are the same set; if one changes, change the other.
+If there is none, do **not** ask the questions one by one. **Propose a filled profile in ONE
+message:**
+
+1. Take the user's one-line description of what they sell and to whom. If they gave a website
+   (or you can name it), optionally read the homepage (one fetch, not a LinkedIn call; Cowork asks
+   "Allow Claude to fetch pages?" once, `gotchas.md` item 42, so skip it if the user's line is enough)
+   for the offer, who it serves, and any facts we may state.
+2. Fill every row of the table below from that, with a sensible default and a short rationale
+   where you guessed (buyer types, headcount band, titles, keywords, size goal 25, tone, default
+   caps from `guardrails.md`).
+3. Show it as a **short numbered list** (one line per row, 1-9) and ask exactly one question:
+   **"Confirm, or correct by number."** Accept "looks good", "yes", "use defaults" or "skip" as
+   a confirmation; apply any corrections and do not ask a second round. A guessed profile never
+   grants permissions: "create lists" stays **no**, and no outreach is enabled, until the user says
+   yes to that row by number. If the workspace folder is unknown, fold that question into this
+   same message.
+4. Save the profile and workspace (`scripts/workspace.py init`), show the path, and stop with the
+   "Next, you can: ..." line.
+
+Never run multi-round questioning or a question screen. The table and the template are the same
+set; if one changes, change the other.
 
 | Ask | Profile section | Used for |
 |---|---|---|
@@ -30,8 +67,7 @@ are the same set; if one changes, change the other.
 | **Caps**: only what the user wants lower than the defaults | 9 | guardrails |
 
 Where files go (profile section 10) is not asked: default to the user's working folder as CSVs, and
-say so. Write the answers back into the Company Profile (kept in the user's folder) so the next
-run, and every other action, does not ask again. Existing material (saved searches, account lists,
+say so. The confirmed answers live in the Company Profile so no later action asks again. Existing material (saved searches, account lists,
 a CSV of target companies) is not an intake question either: if the user brings some, it picks the
 entry mode (section 2).
 
@@ -48,8 +84,8 @@ the letter.
 | **C. Bring-your-accounts** | User already has target companies (CSV, CRM, event list, saved account list) | Match each company to its Sales Nav account → per-account decision-maker search |
 | **D. Signal sweep** | Timing matters: job changes, new hires, hiring growth, recently posted, funding news | Lead or account search with the signal filters → short fresh list, re-run weekly |
 
-Modes chain. Typical: B (accounts) → research/qualify → B2 (decision-makers in survivors).
-The user can stop after any phase and resume later from the CSV.
+Modes chain across requests through the CSVs. Typical: B (accounts) → research/qualify → B2
+(decision-makers in survivors), each its own request. Stop after any phase and resume later from the CSV.
 
 ## 3. Build the searches (the agent builds them)
 
@@ -79,7 +115,7 @@ master list that research can narrow beats a tight list that silently misses buy
      (order, buyer type tag, sub-list name, search notes, count, status of todo / partial /
      collected / qualified / listed / done). It is an output of counting, not an intake question;
      the daily routine (`run-my-day.md`) and the list names (`lists.md`) read it.
-3. **50-row sample.** Before scaling, pull two pages (50 rows) of the master and of any shard
+3. **50-row sample** (part of a **pull** request only; a market-sizing request stops after step 2's counts). Before scaling, pull two pages (50 rows) of the master and of any shard
    that will be big, and read them with the user: roughly what share are plausible buyers? Fix
    keywords and filters now. Ten good rows beat 1,000 bad ones.
    - **Sample vs collection.** A sample is a deliberate partial pull; a collection is every
@@ -179,9 +215,9 @@ Per-account flow: **account → website → decision-makers → hand to CRM dedu
 - Validate: `scripts/validate_csv.py`.
 - Give the user: counts per shard, a sample of 5 rows, what was excluded and why, and the file /
   sheet / CRM location.
-- Suggest the next step: **qualify-accounts** (`references/qualify.md`), then **save-to-lists**
-  (`references/lists.md`). Building a list sends nothing; outreach happens only if the user asks
-  for it (see `SKILL.md`).
+- **Stop here.** End with "Next, you can: qualify these accounts (`references/qualify.md`) / save
+  them to a list (`references/lists.md`) / find decision-makers", and do not start any of them.
+  Building a list sends nothing; outreach happens only if the user asks for it (see `SKILL.md`).
 
 ## 7. Resume and repeat
 

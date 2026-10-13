@@ -113,5 +113,5 @@ does not apply to it.
 
 Counts of keep / drop / unsure (and how many of the `unsure` rows carry `site: read`, and how many of those were settled),
 five sample rows, the most common drop reasons, any headcount flags, and the unsure rows that
-need their call. Then offer the next step: `save-to-lists` for the keepers
-(`references/lists.md`) or decision-makers for them (`references/build-list.md`, section 5).
+need their call. Then stop with "Next, you can: ..." (`save-to-lists` for the keepers,
+`references/lists.md`; decision-makers for them, `references/build-list.md`, section 5) and start none of them.

@@ -206,9 +206,9 @@ class IntakeMatchesProfile(unittest.TestCase):
 
     def test_intake_asks_the_agreed_short_set_and_not_the_old_extras(self):
         for needle in ("Offer", "Buyer types", "not a buyer", "Firmographics", "Decision-maker titles",
-                       "noise words", "Exclusions", "Size goal", "Tone", "Caps", "one short batch"):
+                       "noise words", "Exclusions", "Size goal", "Tone", "Caps", "ONE message"):
             with self.subTest(needle=needle):
-                self.assertIn(needle, self.intake)
+                self.assertIn(needle, " ".join(self.intake.split()))
         self.assertNotIn("Where results go", self.intake)
         self.assertNotIn("Sub-list plan", self.profile.split("## 10.", 1)[0])
 
@@ -487,8 +487,8 @@ class QualifyTiers(unittest.TestCase):
 class CallBudgetDocs(unittest.TestCase):
     def test_guardrails_say_what_to_do_when_a_cap_stops_a_pull(self):
         text = squash(REFS / "guardrails.md")
-        for needle in ("When a cap stops a pull", "how many rows remain", "continue tomorrow",
-                       "raise the cap for today", "explicit OK", "never after a stop signal",
+        for needle in ("a cap stops a pull", "rows remaining", "Continue tomorrow",
+                       "Raise today's cap", "explicit OK", "never after a stop signal",
                        "150 is the default and 200 the hard ceiling"):
             self.assertIn(needle, text)
         self.assertIn("Search result pages read", text)  # search pages are counted in their own row
@@ -502,8 +502,8 @@ class IntakeIsFast(unittest.TestCase):
 
     def test_reads_an_existing_profile_and_asks_only_missing_fields(self):
         for needle in ("Read before asking", "an attached file, a project file, or in the user's folder",
-                       "ask only for the fields still blank", "ONE plain message",
-                       "no multi-step question screen", '"use defaults"'):
+                       "ask only for the fields still blank", "ONE message",
+                       "or a question screen", '"use defaults"'):
             self.assertIn(needle, self.intake)
         self.assertIn("company-profile.example.md", self.intake)
         self.assertIn("ONE message", self.skill)
@@ -610,6 +610,176 @@ class StateShardOverlap(unittest.TestCase):
         self.assertIn("dedupe by company id", gotchas)
         self.assertIn("State and metro lists overlap", build)
         self.assertIn("the lists add up to X rows; Y are unique", build)
+
+
+def _sq(path):
+    return " ".join(Path(path).read_text(encoding="utf-8").split())
+
+
+class OneStepPerRequest(unittest.TestCase):
+    """Live Cowork findings: setup ran the whole pipeline and burned the daily budget."""
+
+    def setUp(self):
+        self.skill = _sq(SKILL / "SKILL.md")
+        self.build = _sq(REFS / "build-list.md")
+        self.run_day = _sq(REFS / "run-my-day.md")
+        self.guard = _sq(REFS / "guardrails.md")
+        self.gotchas = _sq(REFS / "gotchas.md")
+
+    def test_skill_md_has_a_prominent_one_step_rule_before_preflight(self):
+        raw = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("## One step per request", raw)
+        self.assertLess(raw.index("## One step per request"), raw.index("## Always read first"))
+        rule = _sq(SKILL / "SKILL.md").split("## One step per request", 1)[1].split("## Always read first", 1)[0]
+        for needle in ("exactly the one action", "Never chain", "zero search pages",
+                       "count calls only", "Next, you can", "Only **run-my-day** chains"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, rule)
+
+    def test_router_has_a_setup_row_pointing_at_the_intake(self):
+        router = (SKILL / "SKILL.md").read_text(encoding="utf-8").split("## Actions (router)", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("**setup**", router)
+        self.assertIn("set up my prospecting", router)
+        self.assertIn("build-list.md", router.split("**setup**", 1)[1].split("\n", 1)[0])
+
+    def test_setup_is_profile_and_workspace_only(self):
+        sec = self.build.split("## 1. Intake = the Setup action", 1)[1].split("| Ask |", 1)[0]
+        for needle in ("write `company-profile.md` and create the workspace", "zero LinkedIn search pages",
+                       "does **not** size the market", "Next, you can"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, sec)
+
+    def test_setup_intake_is_one_message_proposal_confirmed_by_number(self):
+        sec = self.build.split("## 1. Intake = the Setup action", 1)[1].split("| Ask |", 1)[0]
+        for needle in ("Propose a filled profile in ONE message", "homepage", "short numbered list",
+                       "Confirm, or correct by number", "looks good", "do not ask a second round",
+                       "1-2 turns"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, sec)
+        self.assertIn("Never run multi-round questioning or a question screen", sec)
+
+    def test_build_list_separates_sizing_pull_and_decision_makers(self):
+        top = self.build.split("## 1. Intake", 1)[0]
+        for needle in ("One step per request", "Size my market", "`count=1` calls", "pull any rows",
+                       "Pull", "only that list and size", "only through `run-my-day`"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, top)
+        self.assertIn("Stop here.", self.build)
+        self.assertIn("do not start any of them", self.build)
+
+    def test_run_my_day_is_the_only_chaining_action(self):
+        head = self.run_day.split("One routine that chains", 1)[0]
+        self.assertIn("The only action that chains", head)
+        self.assertIn('only when the user says "run my day"', head)
+        self.assertIn("never turns into a run-my-day on its own", head)
+        self.assertIn("use rows already pulled", head)
+
+    def test_budget_overrun_offers_three_options_safe_default_first(self):
+        sec = self.guard.split("daily page budget would be exceeded", 1)[1].split("## Where the counters live", 1)[0]
+        a, b, c = (sec.index(x) for x in ("1. **Use the rows already pulled**", "2. **Continue tomorrow**", "3. **Raise today's cap**"))
+        self.assertTrue(a < b < c)
+        self.assertIn("Recommended and safe", sec[a:b])
+        self.assertIn("explicit OK", sec[c:])
+        self.assertIn("no new calls", sec[a:b].lower())
+        self.assertIn("safe default first", self.skill)
+
+    def test_question_cards_default_to_the_safe_option(self):
+        for name, text in (("guardrails", self.guard), ("gotchas", self.gotchas), ("skill", self.skill)):
+            with self.subTest(doc=name):
+                self.assertIn("auto-select", text)
+                self.assertIn("safe", text)
+        self.assertIn("never raise a cap, never spend calls", self.guard)
+        self.assertIn("Question cards auto-select the recommended option", self.gotchas)
+        self.assertIn("Never recommend raising a cap", self.guard)
+
+    def test_skill_md_line_limit_still_holds_with_the_new_rule(self):
+        self.assertLess(len((SKILL / "SKILL.md").read_text(encoding="utf-8").splitlines()), 130)
+
+
+class ReviewFixesDocRules(unittest.TestCase):
+    """Cowork review findings: undefined chain trigger, setup vs preflight, pull sizing, card-approved
+    sends, unattended runs, and smaller inconsistencies."""
+
+    def setUp(self):
+        self.skill = _sq(SKILL / "SKILL.md")
+        self.build = _sq(REFS / "build-list.md")
+        self.run_day = _sq(REFS / "run-my-day.md")
+        self.guard = _sq(REFS / "guardrails.md")
+        self.gotchas = _sq(REFS / "gotchas.md")
+        self.outreach = _sq(REFS / "outreach.md")
+
+    def test_continue_means_exactly_one_step_and_only_run_my_day_chains(self):
+        self.assertIn('only on the literal "run my day" or a schedule', self.skill)
+        self.assertIn('A bare "continue" or "go on" means exactly ONE step', self.skill)
+        self.assertIn("several offered: ask which", self.skill)
+        self.assertNotIn("explicit \"continue\"", self.skill)
+        self.assertIn('A bare "continue" is not that: it means one step', self.run_day)
+        self.assertIn('a bare "continue" means one step', self.build)
+        self.assertNotIn("explicitly asks to continue", self.run_day + self.build)
+
+    def test_setup_skips_runtime_session_and_budget_preflight(self):
+        self.assertIn("## Preflight (every run except setup)", (SKILL / "SKILL.md").read_text(encoding="utf-8"))
+        self.assertIn("Setup needs only step 3's workspace; it skips steps 1, 2 and 5", self.skill)
+        self.assertIn("no sign-in check", self.skill)
+        self.assertIn("Setup, which skips runtime, session and budget", self.build)
+        self.assertIn("none exists, run Setup and stop", self.build)
+        self.assertIn("run **setup**", self.skill)
+        self.assertIn("and stop, even if the user asked for something else", self.skill)
+
+    def test_pull_row_assigns_counts_and_sample(self):
+        row = self.build.split("| **Pull** N accounts / leads |", 1)[1].split("|", 1)[0]
+        for needle in ("Section 3 for that list only", "`## Sub-list plan` counts", "at most 10 count calls",
+                       "2-page sample", "sections 4-6"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, row)
+
+    def test_typeahead_is_part_of_sizing_and_absent_from_setup(self):
+        self.assertIn("typeahead lookups for filter ids", self.skill)
+        self.assertIn("zero count or typeahead calls", self.build)
+
+    def test_send_approval_is_never_a_question_card(self):
+        for name, text, needle in (("guardrails", self.guard, "A send approval is never a card"),
+                                   ("outreach", self.outreach, "is never approval"),
+                                   ("gotchas", self.gotchas, "A send is never approved by a card"),
+                                   ("skill", self.skill, "A send is never approved by a card")):
+            with self.subTest(doc=name):
+                self.assertIn(needle, text)
+        self.assertIn("typed message in chat approving the exact batch", self.guard)
+        self.assertIn("nothing is sent", self.guard)
+        self.assertIn("a question card, its auto-selected default, a timeout or silence is never approval", self.outreach)
+        self.assertIn("if the user does not answer nothing is sent", self.outreach)
+
+    def test_guessed_profile_grants_no_permissions(self):
+        self.assertIn('A guessed profile never grants permissions', self.build)
+        self.assertIn('"create lists" stays **no**', self.build)
+        self.assertIn("no outreach is enabled", self.build)
+        self.assertIn('Only if the profile says "create lists: yes"', self.run_day)
+        self.assertIn("never a guessed default", self.run_day)
+
+    def test_unattended_runs_take_the_safe_option_automatically(self):
+        self.assertIn("take option 1 automatically", self.run_day)
+        for needle in ("no new calls past the budget", "mark the sub-list `partial`", "never raise a cap", "never send"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, self.run_day)
+        sched = self.run_day.split("give it this prompt:", 1)[1].split("What the runtime needs", 1)[0].replace("> ", "")
+        self.assertIn("use the rows already pulled and do not raise any cap", sched)
+        self.assertIn("Unattended runs", self.guard)
+        self.assertIn("take the safe option automatically", self.guard)
+        self.assertIn("no new calls beyond the budget, no raised cap, no send", self.guard)
+
+    def test_smaller_inconsistencies(self):
+        self.assertIn("pass the same lowered invite caps you pass to `outreach_log.py`", self.skill)
+        self.assertIn("Allow Claude to fetch pages?", self.build)
+        self.assertIn("optionally read the homepage", self.build)
+        self.assertIn("fold that question into this same message", self.build)
+
+    def test_every_action_ends_with_a_stop_and_next_suggestions(self):
+        for name in ("qualify.md", "lists.md", "followups.md"):
+            with self.subTest(doc=name):
+                self.assertIn('Stop with "Next, you can: ..."' if name == "followups.md"
+                              else 'stop with "Next, you can: ..."', _sq(REFS / name))
+        self.assertIn('Then stop with "Next, you can: ..."', self.outreach)
+        self.assertIn("do not start any of them", self.build)
 
 
 if __name__ == "__main__":

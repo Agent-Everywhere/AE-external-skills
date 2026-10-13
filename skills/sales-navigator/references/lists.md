@@ -51,8 +51,8 @@ Examples (generic): `needs-new-line · US-TX · 2026-10`, `already-buys · UK-al
 ## Report to the user
 
 The list name, kind, expected vs actual count, rows that did not match, and where `lists_log.csv`
-is. Offer the next step: draft outreach for the list (`references/outreach.md`), which only drafts
-until the user asks to send.
+is. Then stop with "Next, you can: ..." (draft outreach for the list, `references/outreach.md`,
+which only drafts until the user asks to send) and start none of them.
 
 ## Stops
 
