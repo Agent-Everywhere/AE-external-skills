@@ -35,6 +35,7 @@ Plan file (JSON)
     "stop_on_status": [403, 429],                            # stop the whole run on these (never empty)
     "evaluate_timeout_ms": 60000,                            # one in-page call may take at most this long
     "max_pages_total": 40,                                   # pages of paged calls executed in this run (below)
+    "sample": false,                                         # true: partial page pulls are intended (exit 0, not 8)
     "calls": [
       {"id": "count-1", "snippet": "count.js", "params": {"kind": "lead", "query": "..."}},
       {"id": "leads-1", "snippet": "lead_search.js", "params": {"query": "..."},
@@ -52,6 +53,11 @@ Page budget: references/guardrails.md allows 40 search pages a day by default an
 80. A paged call stops after "max_pages" pages (default 40, at most 80) and a run executes at most
 "max_pages_total" pages of paged calls (default 40, or the largest explicit "max_pages" in the
 plan; at most 80). A paged call that stops with rows left unread is "truncated".
+Sample, not collection: set "sample": true on the plan (default for every call) or on one call to
+say the partial page pull is intentional (for example max_pages 2 to read a 50-row sample of a
+big search). A sampled call that stops with rows left unread emits a "sampled" event instead of
+"truncated" and does not make the run exit 8. A sample that stops on an empty page, or on a
+failed call, is still incomplete. Leave "sample" off for a real collection.
 
 Output JSONL (one object per line): {"id", "h", "ok", "ms", "ts", "result"} per call ("h" is a hash
 of the call's snippet/js and params), plus {"event": ...} lines (ready, not_signed_in, checkpoint,
@@ -377,6 +383,8 @@ def validate_plan(plan, dirs=None):
         bad.append("evaluate_timeout_ms must be 1000..600000")
     if "max_pages_total" in plan and not _is_int(plan["max_pages_total"], 1, HARD_MAX_PAGES):
         bad.append("max_pages_total must be 1..%d (guardrails hard ceiling)" % HARD_MAX_PAGES)
+    if "sample" in plan and not isinstance(plan["sample"], bool):
+        bad.append("sample must be true or false")
     auth = plan.get("auth")
     if auth is not None:
         if not isinstance(auth, dict):
@@ -426,6 +434,8 @@ def validate_plan(plan, dirs=None):
             bad.append("%s: params must be an object" % label)
         elif "delayMs" in params and not (_is_num(params["delayMs"]) and params["delayMs"] >= MIN_DELAY_MS):
             bad.append("%s: params.delayMs must be >= %d" % (label, MIN_DELAY_MS))
+        if "sample" in call and not isinstance(call["sample"], bool):
+            bad.append("%s: sample must be true or false" % label)
         pages = call.get("pages")
         if pages is None:
             continue
@@ -488,6 +498,7 @@ class Runner:
         self.fail_count = 0
         self.rows = 0
         self.truncated = []
+        self.sampled = []
         self._out = None
         self._ran_any = False
 
@@ -667,6 +678,12 @@ class Runner:
             if got == 0 or nxt >= limit or n >= max_pages:
                 finished = start + got >= total if isinstance(total, int) else got < step
                 if not finished:
+                    sample = call.get("sample", self.plan.get("sample", False))
+                    if sample is True and got > 0:
+                        self.sampled.append(call_id)
+                        self.emit({"event": "sampled", "call": call_id, "fetched_to": nxt, "total": total,
+                                   "note": "intentional partial pull (sample: true); not a collection"})
+                        return None
                     self.truncated.append(call_id)
                     self.emit({"event": "truncated", "call": call_id, "fetched_to": nxt, "total": total,
                                "note": "rows were left unread (cap, page limit or an empty page)"})
@@ -689,6 +706,7 @@ class Runner:
                 self.emit({"event": "done" if code == EXIT_OK else "ended", "code": code,
                            "executed": self.executed, "ok": self.ok_count,
                            "failed": self.fail_count, "truncated": len(self.truncated),
+                           "sampled": len(self.sampled),
                            "rows": self.rows, "seconds": int(self.clock() - self.t0)})
                 return code
             except Exception as exc:
@@ -1111,7 +1129,8 @@ def main(argv=None):
             heartbeat.rows = runner.rows
             heartbeat.beat()
         summary = {"code": code, "executed": runner.executed, "ok": runner.ok_count,
-                   "failed": runner.fail_count, "truncated": len(runner.truncated), "rows": runner.rows}
+                   "failed": runner.fail_count, "truncated": len(runner.truncated),
+                   "sampled": len(runner.sampled), "rows": runner.rows}
         print(json.dumps(summary))
     except SystemExit:
         raise

@@ -2,6 +2,7 @@
 """Tiny daily usage log for a Sales Navigator seat (JSONL, one line per `add`).
 
   run_log.py add --pages 12 --profiles 3        append what you just did
+  run_log.py add --small-calls 20               counts, typeahead and website batches count too
   run_log.py today                              today's totals vs the daily limits
 
 Each action is reported as:
@@ -12,7 +13,7 @@ Each action is reported as:
 
 "Today" is the local calendar date. The log defaults to ./salesnav_run_log.jsonl.
 Override the limits with --limits-file, e.g.
-  {"pages": {"default": 30, "ceiling": 60}}   (keys: pages, profiles, accounts, saved_searches)
+  {"pages": {"default": 30, "ceiling": 60}}   (keys: pages, small_calls, profiles, accounts, saved_searches)
 
 Exit codes: 0 fine (incl. NEAR / OVER DEFAULT), 2 if any action is OVER CEILING,
 1 on bad input.
@@ -26,6 +27,7 @@ from datetime import date, datetime
 # Keep in sync with that table (a test checks it).
 LIMITS = {
     "pages": {"default": 40, "ceiling": 80},            # search result pages read
+    "small_calls": {"default": 100, "ceiling": 150},    # counts, typeahead, website batches
     "profiles": {"default": 80, "ceiling": 150},        # individual profiles opened
     "accounts": {"default": 60, "ceiling": 120},        # account pages opened
     "saved_searches": {"default": 10, "ceiling": 25},   # saved searches created
@@ -133,6 +135,7 @@ def main(argv=None):
     sub = p.add_subparsers(dest="command", required=True)
     add = sub.add_parser("add", parents=[common], help="append a usage entry, then show today's totals")
     for flag, helptext in (("pages", "search result pages read"),
+                           ("small-calls", "small API calls (counts, typeahead, website batches)"),
                            ("profiles", "individual profiles opened"),
                            ("accounts", "account pages opened"),
                            ("saved-searches", "saved searches created")):
@@ -147,8 +150,8 @@ def main(argv=None):
             if any(n < 0 for n in counts.values()):
                 raise ValueError("counts must not be negative")
             if not any(counts.values()):
-                raise ValueError("nothing to add: give at least one of --pages, --profiles, "
-                                 "--accounts, --saved-searches")
+                raise ValueError("nothing to add: give at least one of --pages, --small-calls, "
+                                 "--profiles, --accounts, --saved-searches")
             append_entry(args.log, counts)
             day = date.today()
         else:

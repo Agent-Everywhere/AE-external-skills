@@ -8,7 +8,8 @@ drafts. **It never sends.** Sending needs the user, awake, in a conversation, ap
 ## Before the first run
 
 - A filled Company Profile (`templates/company-profile.md`) with a **sub-list plan** (the ordered
-  sub-lists to work through, each with a status), the daily volume you may use, and whether
+  sub-lists to work through, each with a status; `build-list.md` section 3 writes it into the
+  profile after counting, so run a build-list first if it is missing), the daily volume you may use, and whether
   creating lists is allowed ("create lists: yes").
 - Preflight from `SKILL.md` (runtime, signed-in session, budget). Check `scripts/run_log.py today`
   and `scripts/outreach_log.py caps` so the day starts with the limits in view.

@@ -57,10 +57,16 @@ The API takes the same query language the Sales Navigator URL uses (Rest.li):
   and then send it, or the API answers 400. (The `lead_search.js` / `account_search.js` snippets
   do this for you.) You build searches yourself; only start from a user's URL if they ask.
 
-### Seniority
+### Seniority, title and function
 
 `SENIORITY_LEVEL` ids: `320` Owner/Partner, `310` CXO, `300` VP, `220` Director. For other
 levels, build the filter once in the UI and read its id, or resolve it with typeahead.
+
+For decision-makers inside one account, seniority alone is too loose. Pair it with
+`CURRENT_TITLE` (free `text:` or typeahead ids) and/or `FUNCTION` (resolve ids with
+`typeahead.js`, confirm with `count=1`), and with `REGION` set to the account's HQ country when it
+is a single-country company (`REGION` on a lead search is the person's location). Worked query:
+`references/fast-path.md`, "Per-account flow".
 
 ### Headcount (`COMPANY_HEADCOUNT`)
 
@@ -87,7 +93,9 @@ you shard by band include A and F+ shards or you lose those companies.
 Resolve every id with the typeahead endpoint (`page/typeahead.js`):
 
 - **Geography:** `type=BING_GEO` (the filter type you then use is `REGION`). United States is
-  `103644278`; states, metros and countries each have their own geo id, so resolve each name.
+  `103644278`; states, metros and countries each have their own geo id, so resolve each name. US
+  state ids, and the one-call way to resolve the missing ones, are in
+  [`geo-us-states.md`](geo-us-states.md).
 - **Industry:** `type=INDUSTRY`. Ids come from LinkedIn's taxonomy and are not always what you
   would call the niche: a term like "nutrition" can resolve to nothing, while neighbouring
   industries (health and wellness, personal care, food and beverage manufacturing, pharma,
@@ -132,7 +140,9 @@ estimate. `scripts/shard_plan.py` plans shards from counts.
   searches, not only industry codes.
 - **No exclusions at search time.** Do not exclude competitors or customers in the query; it
   hides the real market size and the near-misses. Exclude after collecting (`scripts/dedupe.py
-  --exclude`) and show the user what was removed.
+  --exclude`) and show the user what was removed. One carve-out: a NOT term for obvious
+  off-meaning noise (a keyword that also matches an unrelated industry) is allowed after you have
+  counted with and without it (`references/build-list.md`, section 3, step 5).
 - Keep a **near-miss bucket** (one filter off) for the user to decide on, rather than silently dropping them.
 
 ## Quality checks before paging

@@ -7,6 +7,8 @@ Checks:
     leads full_name, company_name, status, mode
   * accounts may also carry the optional qualify columns (facts, fit_reason, keep); keep is
     keep/drop/unsure
+  * leads may also carry the optional search-row columns (pending_invitation, degree, open_link,
+    dup_suspect): the first, third and fourth are yes or blank, degree is 1st/2nd/3rd or blank
   * mode is one of A/B/C/D; status is one of the values listed in output.md
   * URL shape: salesnav_*_url, linkedin_company_url, linkedin_url (https://www.linkedin.com/...)
   * company_domain is a bare lowercase domain (no https://, www. or path)
@@ -38,8 +40,12 @@ LEAD_COLUMNS = [
 # Optional columns the `qualify` action appends to accounts.csv (references/qualify.md).
 QUALIFY_COLUMNS = ["facts", "fit_reason", "keep"]
 KEEP_VALUES = ["keep", "drop", "unsure"]
+# Optional columns salesnav_rows.py writes to leads.csv from the search row (references/output.md).
+LEAD_OPTIONAL_COLUMNS = ["pending_invitation", "degree", "open_link", "dup_suspect"]
+YES_COLUMNS = ["pending_invitation", "open_link", "dup_suspect"]
+DEGREE_VALUES = ["1st", "2nd", "3rd"]
 COLUMNS = {"accounts": ACCOUNT_COLUMNS, "leads": LEAD_COLUMNS}
-OPTIONAL_COLUMNS = {"accounts": QUALIFY_COLUMNS, "leads": []}
+OPTIONAL_COLUMNS = {"accounts": QUALIFY_COLUMNS, "leads": LEAD_OPTIONAL_COLUMNS}
 REQUIRED = {"accounts": ["company_name", "status", "mode"],
             "leads": ["full_name", "company_name", "status", "mode"]}
 STATUSES = {"accounts": ["collected", "qualified", "rejected", "no_dm_found"],
@@ -93,6 +99,11 @@ def check_row(row, kind, headers):
                          % (row["status"], "/".join(STATUSES[kind]))))
     if row.get("keep") and row["keep"] not in KEEP_VALUES:
         problems.append(("keep", "enum", "%r is not one of %s" % (row["keep"], "/".join(KEEP_VALUES))))
+    for col in YES_COLUMNS:
+        if row.get(col) and row[col] != "yes":
+            problems.append((col, "enum", "%r should be yes or blank" % row[col]))
+    if row.get("degree") and row["degree"] not in DEGREE_VALUES:
+        problems.append(("degree", "enum", "%r is not one of %s" % (row["degree"], "/".join(DEGREE_VALUES))))
     for col, (pattern, example) in URL_PATTERNS.items():
         if row.get(col) and not re.fullmatch(pattern, row[col], re.I):
             problems.append((col, "url", "%r should look like %s" % (row[col], example)))

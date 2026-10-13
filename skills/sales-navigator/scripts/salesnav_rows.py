@@ -18,6 +18,15 @@ What is mapped (and what is deliberately left blank):
             (the API does not return it; pass the level the search was filtered on).
             linkedin_url stays blank: search results do not contain the public profile URL, and a
             slug is never invented.
+            Optional columns from the search row: pending_invitation (yes when an invitation is
+            already pending), degree (1st/2nd/3rd) and open_link (yes), so outreach can check
+            them without opening the profile. dup_suspect is yes on every row of a same-name
+            group inside one account (two profiles, one company, one name: often a duplicate
+            profile; check before contacting) and a count is printed.
+            The lead URL contains commas, so the CSV quotes it; read the file with a CSV reader.
+  buyer type per row: --buyer-type is the default for every row; --buyer-type-map PATH overrides
+            it per company. PATH is a JSON object {company id: type} or a CSV with a buyer_type
+            column plus company_id or salesnav_account_url (an accounts.csv works as is).
   accounts  company_name, industry, headcount_band (from employeeCountRange),
             salesnav_account_url from the company id, company_domain from the website records.
             hq_location stays blank (not in the search result).
@@ -35,6 +44,7 @@ import csv
 import json
 import re
 import sys
+from collections import Counter
 from datetime import date
 from pathlib import Path
 from urllib.parse import urlparse
@@ -194,13 +204,82 @@ def headcount_band(text):
     return band.replace(",", "").strip()
 
 
+DEGREES = {1: "1st", 2: "2nd", 3: "3rd"}
+
+
+def degree_of(value):
+    """The connection degree as 1st/2nd/3rd ('' when absent or not a degree)."""
+    if isinstance(value, bool):
+        return ""
+    if isinstance(value, int):
+        return DEGREES.get(value, "")
+    text = str(value or "").strip().lower()
+    for n, label in DEGREES.items():
+        if text in (str(n), label, "dist_%d" % n, "distance_%d" % n):
+            return label
+    return ""
+
+
+def load_buyer_type_map(path):
+    """{company id: buyer type} from a JSON object or a CSV (buyer_type + company_id/salesnav_account_url)."""
+    text = Path(path).read_text(encoding="utf-8-sig")
+    out = {}
+    try:
+        data = json.loads(text)
+    except ValueError:
+        data = None
+    if isinstance(data, dict):
+        for key, val in data.items():
+            cid = urn_id(str(key)) or str(key).strip()
+            if cid and isinstance(val, str) and val.strip():
+                out[cid] = val.strip()
+        return out
+    if data is not None:
+        raise ValueError("buyer-type map: JSON must be an object {company id: type}")
+    reader = csv.DictReader(text.splitlines())
+    fields = reader.fieldnames or []
+    if "buyer_type" not in fields or not ({"company_id", "salesnav_account_url"} & set(fields)):
+        raise ValueError("buyer-type map: a CSV needs a buyer_type column and company_id or "
+                         "salesnav_account_url")
+    for row in reader:
+        cid = (row.get("company_id") or "").strip() or urn_id((row.get("salesnav_account_url") or "").strip())
+        kind = (row.get("buyer_type") or "").strip()
+        if cid and kind:
+            out[cid] = kind
+    return out
+
+
+def same_name_groups(rows, company_ids):
+    """Lists of row indexes that share a company id and a normalised full name (2 or more rows)."""
+    groups = {}
+    for i, (row, cid) in enumerate(zip(rows, company_ids)):
+        name = re.sub(r"\s+", " ", (row.get("full_name") or "").strip().lower())
+        if cid and name:
+            groups.setdefault((cid, name), []).append(i)
+    return [m for m in groups.values() if len(m) > 1]
+
+
+def flag_same_name(rows, company_ids):
+    """Mark dup_suspect=yes on every row of a same-name group; return the number of groups."""
+    groups = same_name_groups(rows, company_ids)
+    for members in groups:
+        for i in members:
+            rows[i]["dup_suspect"] = "yes"
+    return len(groups)
+
+
 # ----------------------------------------------------------------------------- row builders
+
+def buyer_type_for(company_id, meta):
+    """The per-company type from --buyer-type-map, else the --buyer-type default."""
+    return (meta.get("buyer_type_map") or {}).get(company_id) or meta.get("buyer_type", "")
+
 
 def lead_row(e, meta, websites):
     pos = current_position(e)
     name = e.get("fullName") or " ".join(x for x in (e.get("firstName"), e.get("lastName")) if x)
     company_id = urn_id(pos.get("companyUrn") or "")
-    row = dict.fromkeys(validate_csv.LEAD_COLUMNS, "")
+    row = dict.fromkeys(validate_csv.LEAD_COLUMNS + validate_csv.LEAD_OPTIONAL_COLUMNS, "")
     row.update({
         "full_name": name,
         "title": pos.get("title", ""),
@@ -211,11 +290,14 @@ def lead_row(e, meta, websites):
         "location": e.get("geoRegion", ""),
         "time_in_role": tenure(pos),
         "signals": "open profile" if e.get("openLink") else "",
-        "buyer_type": meta.get("buyer_type", ""),
+        "buyer_type": buyer_type_for(company_id, meta),
         "shard": meta.get("shard", ""),
         "mode": meta.get("mode", "A"),
         "status": "collected",
         "collected_at": meta.get("collected_at", ""),
+        "pending_invitation": "yes" if e.get("pendingInvitation") is True else "",
+        "degree": degree_of(e.get("degree")),
+        "open_link": "yes" if e.get("openLink") is True else "",
     })
     return row, company_id
 
@@ -230,7 +312,7 @@ def account_row(e, meta, websites):
         "industry": e.get("industry", ""),
         "headcount_band": headcount_band(e.get("employeeCountRange")),
         "hq_location": e.get("location", "") if isinstance(e.get("location"), str) else "",
-        "buyer_type": meta.get("buyer_type", ""),
+        "buyer_type": buyer_type_for(company_id, meta),
         "shard": meta.get("shard", ""),
         "mode": meta.get("mode", "B"),
         "status": "collected",
@@ -259,6 +341,8 @@ def build_rows(kind, elements, websites, meta):
         seen.add(ident)
         rows.append(row)
         ids.append(company_id)
+    if kind == "leads":
+        flag_same_name(rows, ids)
     return rows, ids, dups
 
 
@@ -278,7 +362,10 @@ def main(argv=None):
     ap.add_argument("-o", "--out", required=True, help="CSV to write")
     ap.add_argument("--append", action="store_true", help="append to --out instead of replacing it")
     ap.add_argument("--mode", choices=validate_csv.MODES, help="A/B/C/D (default A for leads, B for accounts)")
-    ap.add_argument("--buyer-type", default="")
+    ap.add_argument("--buyer-type", default="", help="default buyer type for every row")
+    ap.add_argument("--buyer-type-map", metavar="PATH",
+                    help="per-company buyer type: JSON {company id: type}, or a CSV with buyer_type "
+                         "and company_id / salesnav_account_url (an accounts.csv works)")
     ap.add_argument("--shard", default="")
     ap.add_argument("--seniority", default="", help="leads: the level the search was filtered on")
     ap.add_argument("--collected-at", default=date.today().isoformat(), help="YYYY-MM-DD (default today)")
@@ -294,11 +381,19 @@ def main(argv=None):
     if not elements:
         print("error: no search elements found in the input", file=sys.stderr)
         return 1
-    meta = {"mode": args.mode or ("A" if args.kind == "leads" else "B"),
+    type_map = {}
+    if args.buyer_type_map:
+        try:
+            type_map = load_buyer_type_map(args.buyer_type_map)
+        except (OSError, ValueError) as exc:
+            print("error: %s" % exc, file=sys.stderr)
+            return 1
+    meta = {"buyer_type_map": type_map, "mode": args.mode or ("A" if args.kind == "leads" else "B"),
             "buyer_type": args.buyer_type, "shard": args.shard,
             "seniority": args.seniority, "collected_at": args.collected_at}
     rows, ids, dups = build_rows(args.kind, elements, websites, meta)
-    columns = validate_csv.LEAD_COLUMNS if args.kind == "leads" else validate_csv.ACCOUNT_COLUMNS
+    columns = (validate_csv.LEAD_COLUMNS + validate_csv.LEAD_OPTIONAL_COLUMNS
+               if args.kind == "leads" else validate_csv.ACCOUNT_COLUMNS)
     write_csv(args.out, columns, rows, append=args.append)
     if args.company_ids and args.kind == "leads":
         side = [{"salesnav_lead_url": r["salesnav_lead_url"], "company_id": cid}
@@ -306,6 +401,14 @@ def main(argv=None):
         write_csv(args.company_ids, ["salesnav_lead_url", "company_id"], side, append=args.append)
     print("%s: %d rows written to %s (%d duplicates dropped, %d website records)"
           % (args.kind, len(rows), args.out, dups, len(websites)), file=sys.stderr)
+    if args.kind == "leads":
+        groups = same_name_groups(rows, ids)
+        if groups:
+            print("warning: %d rows in %d same-name groups within one account are marked dup_suspect=yes; "
+                  "check them before contacting" % (sum(len(g) for g in groups), len(groups)), file=sys.stderr)
+    if type_map:
+        typed = Counter(r["buyer_type"] or "(blank)" for r in rows)
+        print("buyer types: " + ", ".join("%s=%d" % kv for kv in sorted(typed.items())), file=sys.stderr)
     return 0
 
 

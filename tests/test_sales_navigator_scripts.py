@@ -436,6 +436,7 @@ class RunLogTests(unittest.TestCase):
         md = (SKILL / "references" / "guardrails.md").read_text(encoding="utf-8")
         rows = {r[0]: r for r in md_table_rows(md, "Daily volume defaults")}
         expect = {"Search result pages read": "pages", "Individual profiles opened": "profiles",
+                  "Small API calls (counts, typeahead, website batches)": "small_calls",
                   "Account pages opened": "accounts", "Saved searches created": "saved_searches"}
         for label, key in expect.items():
             default = int(re.match(r"\d+", rows[label][1]).group())
@@ -534,7 +535,18 @@ class RunLogTests(unittest.TestCase):
     def test_today_with_no_log_file_is_all_ok(self):
         code, out, _ = run_main(run_log, ["today", "--log", self.log])
         self.assertEqual(code, 0)
-        self.assertEqual(out.count("OK"), 4)
+        self.assertEqual(out.count("OK"), 5)
+
+    def test_small_calls_are_counted_against_their_guardrail(self):
+        code, out, _ = run_main(run_log, ["add", "--small-calls", "85", "--log", self.log])
+        row = [l for l in out.splitlines() if l.startswith("small_calls")][0].split()
+        self.assertEqual((code, row[1], row[2], row[3], row[4]), (0, "85", "100", "150", "NEAR"))
+        code, out, _ = run_main(run_log, ["add", "--small-calls", "20", "--log", self.log])
+        self.assertEqual(code, 0)
+        self.assertIn("OVER DEFAULT", [l for l in out.splitlines() if l.startswith("small_calls")][0])
+        code, out, _ = run_main(run_log, ["add", "--small-calls", "50", "--log", self.log])
+        self.assertEqual(code, 2)
+        self.assertIn("OVER CEILING", out)
 
     def test_saved_searches_flag_is_recorded(self):
         run_main(run_log, ["add", "--saved-searches", "9", "--log", self.log])

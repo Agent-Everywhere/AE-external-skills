@@ -9,6 +9,23 @@ Needs: the Agent Browser connector (tools `browser`, `workspace`) **and** code e
 Without code execution (plain chat) this runtime is not available: use the skill's slow
 page-reading path instead.
 
+## Preflight (before spending a session)
+
+Both calls are free reads; do them first, in this order.
+
+1. **Workspace.** Call the connector's `workspace` tool with `action=list`. Browsers are billed to
+   a workspace, and each plan has a monthly hours allowance and a cap on browsers open at once.
+   Pick a workspace with hours left and no browser already running (`in_use` below
+   `max_browsers`). If the user has several, say which you picked; if a Free plan is out of hours,
+   `open_session` is rejected with `plan_hours_exhausted` and retrying cannot help, so tell the
+   user. For a big run, `browser action=usage` with that `workspace` shows what is already used.
+   Pass the chosen workspace to `open_session`.
+2. **Sign-in per site.** Call `browser action=status`. It reports whether a saved profile exists
+   and, per site, what real runs last reported (`ok` or `auth_required`). It never says what is
+   inside the profile, so it is a hint, not proof: the auth probe in step 3 below is the check.
+   If Sales Navigator shows `auth_required`, or there is no saved profile, have the user sign in
+   first (`browser action=open_browser`) before you open a billed session.
+
 ## Flow
 
 1. **Prepare first.** The claim in step 2 lives 60 seconds. Install Playwright
@@ -53,6 +70,14 @@ page-reading path instead.
   not retry the same claim.
 - **One session per seat.** Never open a second session on the same login while one is running.
 - **Billing is browser time.** Do not leave a session idle; close it when the job ends.
+- **Dependent steps cost a session each, unless the plan can chain them.** A plan is fixed before
+  the claim is spent (the claim lives 60 seconds), so calls inside one plan can only use params
+  written in advance. Chain steps in one plan only when every param is static: for example a
+  fixed list of states or title queries, or ids you already have. When a step needs the output of
+  an earlier step (typeahead ids for a query, the companies a search returned, then a search per
+  company), expect one session per step: run the first plan, close, read the JSONL, write the
+  next plan, open a new session. The local runtime (`local.md`) has no such limit, because each
+  snippet is its own tool call and the next call can use the last result.
 - **A long-lived helper process is fine** if it is the one holding the CDP connection (for
   interactive exploration it can read command files and execute them). It must still heartbeat.
 
@@ -68,3 +93,8 @@ page-reading path instead.
 | 6 | browser, page or claim error | read the `error` event; new session if the page is gone |
 | 7 | page never ready (CSRF cookie absent) | confirm the page is signed in and loaded, retry once |
 | 8 | finished, but a call failed or a paged call was truncated | read the `ended` event and the failed records; do not treat the output as complete |
+
+An intentional partial pull is not a failure: set `"sample": true` on the plan (or on one call)
+and a paged call that stops with rows left unread ends with a `sampled` event and exit 0 instead of
+exit 8. Use it for the 50-row sample of a big search (`"pages": {"max_pages": 2}`); never for a
+collection you mean to hand over as complete. A failed call or an empty early page still exits 8.

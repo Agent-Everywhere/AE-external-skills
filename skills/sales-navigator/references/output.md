@@ -43,6 +43,28 @@ from any file. Leave unknown fields blank; never guess.
 | status | collected | collected / qualified / rejected |
 | collected_at | 2026-10-13 | |
 
+## Search-row columns (optional, appended to leads.csv)
+
+Written by `scripts/salesnav_rows.py` after the 16 columns above; optional, and
+`scripts/validate_csv.py` accepts them. They come straight from the search row, so outreach can
+read them without opening the profile (`references/outreach.md`).
+
+| Column | Example | Notes |
+|---|---|---|
+| pending_invitation | yes | `yes` when an invitation to this person is already pending (the API's `pendingInvitation`); blank otherwise |
+| degree | 2nd | connection degree: 1st / 2nd / 3rd, blank when the row has none |
+| open_link | yes | `yes` when the person accepts open messages (the API's `openLink`); `signals` also says "open profile" |
+| dup_suspect | yes | `yes` on every row of a same-name group inside one account (same company, same name, different profile): often one person with two profiles. Check before contacting |
+
+`buyer_type` is per row. `--buyer-type` sets the default; `--buyer-type-map PATH` overrides it per
+company, from a JSON object `{company id: type}` or from a CSV with `buyer_type` and `company_id`
+or `salesnav_account_url`, so a qualified `accounts.csv` can type the leads of its accounts.
+
+**Lead URLs contain commas** (`.../sales/lead/ACw...,NAME_SEARCH,...`), so the CSV writer quotes
+that cell. Open and edit the file with a CSV reader or spreadsheet, never split a line on commas.
+`scripts/outreach_log.py` takes lead URLs or ids from a file with `--ids-file` (one per line)
+instead of on the command line, which avoids the quoting problem entirely.
+
 ## Qualify columns (appended to accounts.csv)
 
 Added by the `qualify-accounts` action (`references/qualify.md`) after the 14 columns above;

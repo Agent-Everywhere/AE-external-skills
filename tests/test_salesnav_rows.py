@@ -67,6 +67,115 @@ class Helpers(unittest.TestCase):
         self.assertEqual(salesnav_rows.headcount_band(None), "")
 
 
+def lead_el(pid, name, company_id, company="Acme", **extra):
+    e = {"fullName": name, "geoRegion": "Austin, Texas, United States",
+         "entityUrn": "urn:li:fs_salesProfile:(%s,NAME_SEARCH,x)" % pid,
+         "currentPositions": [{"current": True, "title": "Owner", "companyName": company,
+                               "companyUrn": "urn:li:fs_salesCompany:%s" % company_id}]}
+    e.update(extra)
+    return e
+
+
+class SearchRowFields(unittest.TestCase):
+    """pendingInvitation / degree / openLink carried through, same-name flags, per-row buyer type."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+        self.out = self.dir / "leads.csv"
+
+    def results(self, elements):
+        path = self.dir / "r.json"
+        path.write_text(json.dumps({"status": 200, "elements": elements}))
+        return str(path)
+
+    def test_pending_degree_and_open_link_are_carried(self):
+        src = self.results([
+            lead_el("A1", "Ann One", "10", pendingInvitation=True, degree=2, openLink=True),
+            lead_el("A2", "Bob Two", "10", pendingInvitation=False, degree=1),
+            lead_el("A3", "Cy Three", "11", degree=3),
+            lead_el("A4", "Di Four", "11"),
+        ])
+        code, err = run(["leads", src, "-o", str(self.out)])
+        self.assertEqual(code, 0, err)
+        ann, bob, cy, di = read(self.out)
+        self.assertEqual((ann["pending_invitation"], ann["degree"], ann["open_link"]), ("yes", "2nd", "yes"))
+        self.assertEqual((bob["pending_invitation"], bob["degree"], bob["open_link"]), ("", "1st", ""))
+        self.assertEqual((cy["degree"], di["degree"], di["pending_invitation"]), ("3rd", "", ""))
+        self.assertEqual(ann["signals"], "open profile")
+        self.assertEqual(validate(self.out), 0)
+
+    def test_degree_helper_handles_ints_labels_and_junk(self):
+        f = salesnav_rows.degree_of
+        self.assertEqual([f(1), f(2), f(3), f("2nd"), f("3"), f(0), f(4), f(None), f(True), f("x")],
+                         ["1st", "2nd", "3rd", "2nd", "3rd", "", "", "", "", ""])
+
+    def test_same_name_in_one_account_is_flagged_and_reported(self):
+        src = self.results([
+            lead_el("B1", "Jo  Park", "20"),
+            lead_el("B2", "jo park", "20"),          # same company, same name, other profile
+            lead_el("B3", "Jo Park", "21"),          # same name, other company: not flagged
+            lead_el("B4", "Lee Kim", "20"),
+        ])
+        code, err = run(["leads", src, "-o", str(self.out)])
+        self.assertEqual(code, 0, err)
+        flags = [r["dup_suspect"] for r in read(self.out)]
+        self.assertEqual(flags, ["yes", "yes", "", ""])
+        self.assertIn("2 rows in 1 same-name groups", err)
+        self.assertEqual(validate(self.out), 0)
+
+    def test_blank_company_ids_are_never_grouped(self):
+        rows = [{"full_name": "A B", "dup_suspect": ""}, {"full_name": "A B", "dup_suspect": ""}]
+        self.assertEqual(salesnav_rows.flag_same_name(rows, ["", ""]), 0)
+
+    def test_buyer_type_map_json_overrides_the_default_per_company(self):
+        mp = self.dir / "types.json"
+        mp.write_text(json.dumps({"10": "type-a", "urn:li:fs_salesCompany:11": "type-b"}))
+        src = self.results([lead_el("C1", "A A", "10"), lead_el("C2", "B B", "11"), lead_el("C3", "C C", "12")])
+        code, err = run(["leads", src, "-o", str(self.out), "--buyer-type", "other", "--buyer-type-map", str(mp)])
+        self.assertEqual(code, 0, err)
+        self.assertEqual([r["buyer_type"] for r in read(self.out)], ["type-a", "type-b", "other"])
+        self.assertIn("buyer types:", err)
+
+    def test_buyer_type_map_csv_accepts_an_accounts_file(self):
+        mp = self.dir / "accounts.csv"
+        mp.write_text("company_name,salesnav_account_url,buyer_type\n"
+                      "Acme,https://www.linkedin.com/sales/company/10,type-a\n"
+                      "Beta,https://www.linkedin.com/sales/company/11,\n")
+        src = self.results([lead_el("D1", "A A", "10"), lead_el("D2", "B B", "11")])
+        code, err = run(["leads", src, "-o", str(self.out), "--buyer-type", "dflt", "--buyer-type-map", str(mp)])
+        self.assertEqual(code, 0, err)
+        self.assertEqual([r["buyer_type"] for r in read(self.out)], ["type-a", "dflt"])
+
+    def test_buyer_type_map_also_types_accounts(self):
+        mp = self.dir / "t.json"
+        mp.write_text(json.dumps({"1234": "type-a"}))
+        acc = self.dir / "accounts.csv"
+        code, err = run(["accounts", str(FIXTURE), "-o", str(acc), "--buyer-type", "dflt", "--buyer-type-map", str(mp)])
+        self.assertEqual(code, 0, err)
+        types = {r["company_name"]: r["buyer_type"] for r in read(acc)}
+        self.assertEqual(types["Acme Wellness"], "type-a")
+        self.assertTrue(all(v == "dflt" for k, v in types.items() if k != "Acme Wellness"))
+
+    def test_bad_buyer_type_map_is_an_error(self):
+        bad = self.dir / "bad.csv"
+        bad.write_text("name,kind\nx,y\n")
+        src = self.results([lead_el("E1", "A A", "10")])
+        code, err = run(["leads", src, "-o", str(self.out), "--buyer-type-map", str(bad)])
+        self.assertEqual(code, 1)
+        self.assertIn("buyer-type map", err)
+        code, err = run(["leads", src, "-o", str(self.out), "--buyer-type-map", str(self.dir / "missing.json")])
+        self.assertEqual(code, 1)
+
+    def test_lead_urls_with_commas_are_quoted_and_round_trip(self):
+        src = self.results([lead_el("F1", "A A", "10")])
+        run(["leads", src, "-o", str(self.out)])
+        raw = self.out.read_text()
+        self.assertIn('"https://www.linkedin.com/sales/lead/F1,NAME_SEARCH,x"', raw)
+        self.assertEqual(read(self.out)[0]["salesnav_lead_url"], "https://www.linkedin.com/sales/lead/F1,NAME_SEARCH,x")
+
+
 class Leads(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -108,7 +217,7 @@ class Leads(unittest.TestCase):
     def test_default_mode_and_header_order(self):
         run(["leads", str(FIXTURE), "-o", str(self.out), "--collected-at", "2026-10-13"])
         header = self.out.read_text().splitlines()[0].split(",")
-        self.assertEqual(header, validate_csv.LEAD_COLUMNS)
+        self.assertEqual(header, validate_csv.LEAD_COLUMNS + validate_csv.LEAD_OPTIONAL_COLUMNS)
         self.assertEqual(read(self.out)[0]["mode"], "A")
 
     def test_append_keeps_one_header(self):

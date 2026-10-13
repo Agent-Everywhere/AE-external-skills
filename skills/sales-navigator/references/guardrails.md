@@ -20,7 +20,7 @@ user's explicit go, and never past the "hard ceiling" column.
 | Action | Default | Hard ceiling | Notes |
 |---|---|---|---|
 | Search result pages read | 40 (≈1,000 rows) | 80 | 25 rows/page, whether read from the page or fetched by an API search call; spread across the day for big runs |
-| Small API calls (counts, typeahead, website batches) | 100 | 150 | Tiny responses, but still calls; sizing a shard plan uses most of this |
+| Small API calls (counts, typeahead, website batches) | 100 | 150 | Tiny responses, but still calls; sizing a shard plan uses most of this. Log them with `scripts/run_log.py add --small-calls N` |
 | Individual profiles opened | 80 | 150 | Only when the row lacks a needed field |
 | Account pages opened | 60 | 120 | Mode B/C research |
 | Saved searches created | 10 | 25 | |
