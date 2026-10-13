@@ -15,10 +15,13 @@ Subcommands:
   scroll     scroll the conversation or a list
   config-mcp list | add | remove local MCP servers in claude_desktop_config.json (backup + validation)
   wait-idle  poll screenshots until the window stops changing (pixel compare, tolerant of a blinking caret)
-  approvals-log  add | show: append-only JSONL record of every approval prompt answered (count + warning)
+  approvals-log  start | add | show: JSONL record of every approval prompt answered (the 6th routine one
+                 in a run is refused without --user-ok; unknown/broad buttons need --user-ok too)
   doctor     check macOS version, Peekaboo, permissions, and whether Claude runs
 """
 import argparse
+import contextlib
+import fcntl
 import hashlib
 import json
 import os
@@ -29,6 +32,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 import zlib
 from datetime import datetime
 from urllib.parse import quote
@@ -123,18 +127,34 @@ def shot(path, runner=run, sleeper=time.sleep):
     cmd = ["peekaboo", "see", "--app", APP, "--no-elements", "--path", path]
     _remove_stale(path)
     code, out = runner(cmd)
-    if code != 0 and "target changed during capture" in out.lower():
-        # Transient: the window moved/redrew mid-capture. One automatic retry (seen to succeed live).
-        sleeper(0.5)
-        _remove_stale(path)
-        code, out = runner(cmd)
-    if code != 0 and "minimized" in out.lower():
-        runner(["open", "-a", APP])
-        sleeper(1.5)
+    first_error = None
+    retried_transient = recovered = False
+    # At most two follow-up captures (one transient retry, one minimized recovery) in either order, so a
+    # transient error is still retried after a minimized recovery and vice versa. Never an open loop.
+    while code != 0:
+        low = out.lower()
+        if first_error is None:
+            first_error = out.strip()
+        if not retried_transient and "target changed during capture" in low:
+            # Transient: the window moved/redrew mid-capture. One automatic retry (seen to succeed live).
+            retried_transient = True
+            sleeper(0.5)
+        elif not recovered and "minimized" in low:
+            recovered = True
+            runner(["open", "-a", APP])
+            sleeper(1.5)
+        else:
+            break
         _remove_stale(path)
         code, out = runner(cmd)
     if code != 0:
-        raise DesktopError("screenshot failed: %s" % out.strip()[:500])
+        last_error = out.strip()
+        message = "screenshot failed: %s" % last_error[:500]
+        if first_error and first_error != last_error:
+            message += " (first error was: %s)" % first_error[:300]
+        exc = DesktopError(message)
+        exc.output = last_error  # callers decide on retries from the LAST error only
+        raise exc
     if not os.path.isfile(path):
         raise DesktopError("peekaboo reported success but %s was not written" % path)
     return path
@@ -263,7 +283,7 @@ def shot_recovering(path, runner=run, sleeper=time.sleep, attempts=3):
             return shot(path, runner=runner, sleeper=sleeper)
         except DesktopError as exc:
             last = exc
-            text = str(exc).lower()
+            text = (getattr(exc, "output", None) or str(exc)).lower()
             if "minimized" not in text and "not found" not in text:
                 raise
             sleeper(1.0)
@@ -717,83 +737,272 @@ def wait_idle(capture, timeout=120.0, interval=6.0, stable=2, clock=time.monoton
 
 # --- approvals log -------------------------------------------------------------------------------
 # Every approval prompt answered in Claude Desktop is recorded here so the run can later prove which
-# button was clicked (for example that no "Allow all for this website" was granted). Append-only JSONL.
+# button was clicked. JSONL: `start` rotates the old file to <log>.prev and writes a run header; `add`
+# appends one record per click. Policy (safety.md section 3): by default only limited buttons, and stop
+# after 5 routine approvals. The user may OK more for the run (`start --user-ok "<quote>"`): broad
+# grants / Auto mode and routine approvals beyond 5 are then allowed. The tool enforces this: without
+# an OK, `add` refuses the 6th routine approval and any broad/unverified button.
 DEFAULT_APPROVALS_LOG = "desktop-approvals.jsonl"
 APPROVAL_WARN_AT = 5
-_BROAD_RE = re.compile(r"allow\s+all|always|for\s+this\s+(?:task|website|site|chat|session)|don'?t\s+ask\s+again|"
-                       r"skip\s+all", re.I)
+SHOT_MAX_AGE = 120  # seconds; the evidence screenshot must be fresh
+# Fail closed: only these labels are known to be limited. Anything else is "unverified" (or "broad").
+DECLINE_LABELS = frozenset(["deny", "cancel", "block", "not now", "dont allow"])
+LIMITED_LABELS = DECLINE_LABELS | {"allow once"}
+_BROAD_RE = re.compile(r"\ball\b|always|every|\bany\b|remember|dont\s+ask|skip|trust|permanent|"
+                       r"for\s+(?:this|the|all)\s+\w+|on\s+this\s+(?:domain|site|website)|auto", re.I)
 
 
-def is_broad_approval(button, prompt=""):
-    """True when the clicked button looks like a standing grant ("Allow all", "Always allow", ...)."""
-    return bool(_BROAD_RE.search(button or ""))
+def _norm_label(button):
+    text = (button or "").lower().replace("’", "'").replace("‘", "'").replace("'", "")
+    return re.sub(r"\s+", " ", text).strip(" .!")
+
+
+def is_decline(button):
+    return _norm_label(button) in DECLINE_LABELS
+
+
+def approval_scope(button):
+    """"limited" (known-limited label), "broad" (looks like a standing grant) or "unverified" (anything else)."""
+    label = _norm_label(button)
+    if label in LIMITED_LABELS:
+        return "limited"
+    return "broad" if _BROAD_RE.search(label) else "unverified"
+
+
+def is_broad_approval(button):
+    """True unless the button is a known-limited label (broad and unverified both count)."""
+    return approval_scope(button) != "limited"
+
+
+def entry_scope(entry):
+    """Scope of a stored entry, recomputed from its button so a stale or hand-edited flag cannot hide a grant."""
+    scope = approval_scope(entry.get("button"))
+    stored = entry.get("broad")
+    if scope == "broad" or stored is True:
+        return "broad"
+    if scope == "unverified" or stored:
+        return "unverified"
+    return "limited"
+
+
+@contextlib.contextmanager
+def _approvals_lock(path):
+    """Exclusive flock on <log>.lock around read+append (the log itself may be replaced by `start`)."""
+    lock_path = os.path.abspath(path) + ".lock"
+    try:
+        os.makedirs(os.path.dirname(lock_path), exist_ok=True)
+        fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+    except OSError as exc:
+        raise DesktopError("cannot lock approvals log %s: %s" % (path, exc))
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)  # closing releases the lock
+
+
+def read_log(path):
+    """Return (records, corrupt): every valid JSON-object line, and [(line number, reason)] for the rest."""
+    if not os.path.exists(path):
+        return [], []
+    try:
+        with open(path, "rb") as fh:
+            raw = fh.read()
+    except OSError as exc:
+        raise DesktopError("cannot read approvals log %s: %s" % (path, exc))
+    records, corrupt = [], []
+    for n, line in enumerate(raw.split(b"\n"), 1):
+        if not line.strip():
+            continue
+        try:
+            item = json.loads(line.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError, RecursionError):
+            corrupt.append((n, "not valid JSON"))
+            continue
+        if not isinstance(item, dict):
+            corrupt.append((n, "not a JSON object"))
+            continue
+        records.append(item)
+    return records, corrupt
 
 
 def read_approvals(path):
-    """Return the list of approval entries in the JSONL log (empty if the file is absent)."""
-    if not os.path.exists(path):
-        return []
-    entries = []
-    try:
-        with open(path, encoding="utf-8") as fh:
-            for n, line in enumerate(fh, 1):
-                if not line.strip():
-                    continue
-                try:
-                    item = json.loads(line)
-                except ValueError:
-                    raise DesktopError("%s line %d is not valid JSON; refusing to guess" % (path, n))
-                if not isinstance(item, dict):
-                    raise DesktopError("%s line %d is not a JSON object" % (path, n))
-                entries.append(item)
-    except OSError as exc:
-        raise DesktopError("cannot read approvals log %s: %s" % (path, exc))
-    return entries
+    """Approval entries (headers excluded) in the log; corrupt lines are skipped (see read_log)."""
+    return [r for r in read_log(path)[0] if r.get("type") != "header"]
 
 
-def add_approval(path, prompt, button, shot_path, now=None):
-    """Append one approval record. Returns (entry, count, warnings). All three fields are required."""
-    for name, value in (("--prompt", prompt), ("--button", button), ("--shot", shot_path)):
-        if not value or not value.strip():
-            raise DesktopError("%s is required: log the exact prompt text, the button you clicked, and the "
-                               "screenshot path that shows the whole prompt" % name)
-    entry = {
-        "time": (now or datetime.now()).isoformat(timespec="seconds"),
-        "prompt": prompt.strip(),
-        "button": button.strip(),
-        "shot": shot_path.strip(),
-        "broad": is_broad_approval(button),
-    }
-    directory = os.path.dirname(os.path.abspath(path))
-    os.makedirs(directory, exist_ok=True)
-    count = len(read_approvals(path)) + 1
+def current_run(records):
+    """(header or None, entries) for the run after the latest header; the whole file when there is none."""
+    header, start = None, 0
+    for i, r in enumerate(records):
+        if r.get("type") == "header":
+            header, start = r, i + 1
+    return header, [r for r in records[start:] if r.get("type") != "header"]
+
+
+def routine_count(entries):
+    """Approvals that granted something: everything except Deny / Not now / Cancel / Block / Don't allow."""
+    return sum(1 for e in entries if not is_decline(e.get("button")))
+
+
+def _stamp(now):
+    return (now or datetime.now()).astimezone().isoformat(timespec="seconds")  # timezone-aware
+
+
+def _append_line(path, record):
+    """Append one JSON line, first repairing a missing trailing newline. Returns True if it repaired one."""
     try:
-        with open(path, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        data = (json.dumps(record, ensure_ascii=False) + "\n").encode("utf-8")
+    except UnicodeEncodeError:
+        raise DesktopError("the text contains characters that cannot be stored as UTF-8; pass clean text")
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        with open(path, "a+b") as fh:
+            size = fh.seek(0, 2)
+            repaired = False
+            if size:
+                fh.seek(size - 1)
+                repaired = fh.read(1) != b"\n"
+            fh.write((b"\n" if repaired else b"") + data)
             fh.flush()
             os.fsync(fh.fileno())
     except OSError as exc:
         raise DesktopError("cannot write approvals log %s: %s" % (path, exc))
+    return repaired
+
+
+def start_run(path, user_ok=None, now=None, run_id=None):
+    """Begin a run: keep an existing log as <log>.prev and write a header. Returns (run_id, prev_path or None).
+
+    `user_ok` is the user's quoted OK for this run (for example to use Auto mode, click broad options,
+    or approve more than 5 prompts); it is stored in the header and lifts the limits in add_approval.
+    A log that holds only headers is replaced without touching an older .prev.
+    """
+    run_id = run_id or uuid.uuid4().hex[:12]
+    header = {"type": "header", "run": run_id, "time": _stamp(now)}
+    if user_ok and user_ok.strip():
+        header["user_ok"] = user_ok.strip()
+    with _approvals_lock(path):
+        prev = None
+        records, corrupt = read_log(path)
+        try:
+            if os.path.exists(path):
+                if corrupt or any(r.get("type") != "header" for r in records):
+                    prev = path + ".prev"
+                    os.replace(path, prev)
+                else:
+                    os.unlink(path)
+        except OSError as exc:
+            raise DesktopError("cannot rotate approvals log %s: %s" % (path, exc))
+        _append_line(path, header)
+    return run_id, prev
+
+
+def _check_shot(shot_abs, clock):
+    """The evidence screenshot must exist, be a PNG and be fresh. Returns its sha256."""
+    if not os.path.isfile(shot_abs):
+        raise DesktopError("--shot %s does not exist; take a fresh screenshot of the whole prompt first" % shot_abs)
+    if png_size(shot_abs) is None:
+        raise DesktopError("--shot %s is not a PNG screenshot" % shot_abs)
+    age = clock() - os.stat(shot_abs).st_mtime
+    if age > SHOT_MAX_AGE:
+        raise DesktopError("--shot %s is %d seconds old (limit %d); take a fresh screenshot of the prompt"
+                           % (shot_abs, age, SHOT_MAX_AGE))
+    with open(shot_abs, "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
+
+
+def add_approval(path, prompt, button, shot_path, now=None, user_ok=None, clock=time.time):
+    """Append one approval record. Returns (entry, routine_count, warnings).
+
+    Refuses (nothing is written) when the screenshot is missing/not a PNG/stale/the same as the previous
+    entry's, when the button is broad or unverified, or when it would be the 6th routine approval of the
+    run, unless the user's OK is on record (`user_ok` here or on the run header from `start --user-ok`).
+    """
+    for name, value in (("--prompt", prompt), ("--button", button), ("--shot", shot_path)):
+        if not value or not value.strip():
+            raise DesktopError("%s is required: log the exact prompt text, the button you clicked, and the "
+                               "screenshot path that shows the whole prompt" % name)
+    shot_abs = os.path.abspath(os.path.expanduser(shot_path.strip()))
+    sha = _check_shot(shot_abs, clock)
+    scope = approval_scope(button)
+    routine = not is_decline(button)
+    with _approvals_lock(path):
+        records, corrupt = read_log(path)
+        header, entries = current_run(records)
+        previous = [r for r in records if r.get("type") != "header"]
+        if previous and (previous[-1].get("shot") == shot_abs or previous[-1].get("shot_sha256") == sha):
+            raise DesktopError("--shot is the same screenshot as the previous entry's; take a new one for this "
+                               "prompt (one screenshot, one click, one screenshot)")
+        ok = (user_ok or "").strip() or (header or {}).get("user_ok") or ""
+        count = routine_count(entries) + (1 if routine else 0)
+        if scope != "limited" and not ok:
+            raise DesktopError(
+                "%r is %s: only Allow once / Deny / Cancel / Block / Not now / Don't allow are known-limited. "
+                "Broad grants and unknown buttons need the user's OK. Tell the user now, and record it with "
+                "--user-ok \"<their words>\" (or `approvals-log start --user-ok ...` for the whole run)"
+                % (button.strip(), "a broad grant" if scope == "broad" else "unverified"))
+        if routine and count > APPROVAL_WARN_AT and not ok:
+            raise DesktopError(
+                "this would be routine approval #%d in this run (limit %d). Stop and ask the user whether to "
+                "set the task to Auto, allow broad options, or keep approving one by one; record their OK with "
+                "--user-ok \"<their words>\" (or `approvals-log start --user-ok ...`)" % (count, APPROVAL_WARN_AT))
+        entry = {
+            "type": "approval",
+            "time": _stamp(now),
+            "run": (header or {}).get("run"),
+            "prompt": prompt.strip(),
+            "button": button.strip(),
+            "shot": shot_abs,
+            "shot_sha256": sha,
+            "broad": True if scope == "broad" else ("unverified" if scope == "unverified" else False),
+        }
+        if (user_ok or "").strip():
+            entry["user_ok"] = user_ok.strip()
+        repaired = _append_line(path, entry)
     warnings = []
-    if entry["broad"]:
-        warnings.append("WARNING: %r looks like a standing grant (Allow all / Always / for this task). That "
-                        "needs the user's explicit OK for that exact scope; tell the user now." % entry["button"])
-    if count >= APPROVAL_WARN_AT:
-        warnings.append("WARNING: %d approvals logged in this run. STOP clicking approvals and ask the user "
-                        "whether they would rather allow these themselves." % count)
+    if scope != "limited":
+        warnings.append("WARNING: %r is %s; recorded on the user's OK (%s). Tell the user in the chat."
+                        % (entry["button"], "a standing grant" if scope == "broad" else "an unverified button", ok))
+    if routine and count == APPROVAL_WARN_AT and not ok:
+        warnings.append("WARNING: %d routine approvals logged in this run. STOP clicking approvals and ask the "
+                        "user whether they would rather allow these themselves; the next one is refused "
+                        "without --user-ok." % count)
+    if corrupt:
+        warnings.append("WARNING: the log has %d corrupt line(s) (%s); the entry was appended anyway. Show "
+                        "the user `approvals-log show`." % (len(corrupt), ", ".join(str(n) for n, _ in corrupt)))
+    if repaired:
+        warnings.append("WARNING: the log did not end with a newline (interrupted write or manual edit); repaired.")
     return entry, count, warnings
 
 
-def format_approvals(entries):
-    """Human-readable lines for `approvals-log show`, ending with the count and any warnings."""
+def format_approvals(records, corrupt=()):
+    """Human-readable lines for `approvals-log show`: all records, CORRUPT lines, then the run summary."""
     lines = []
-    for i, e in enumerate(entries, 1):
-        lines.append("%d. %s  button=%r%s\n   prompt: %s\n   shot: %s" % (
-            i, e.get("time", "?"), e.get("button", "?"), "  [BROAD GRANT]" if e.get("broad") else "",
-            e.get("prompt", "?"), e.get("shot", "?")))
-    lines.append("%d approval(s) logged; %d broad grant(s)" % (len(entries), sum(1 for e in entries if e.get("broad"))))
-    if len(entries) >= APPROVAL_WARN_AT:
-        lines.append("WARNING: %d or more approvals; ask the user before clicking more." % APPROVAL_WARN_AT)
+    n = 0
+    for r in records:
+        if r.get("type") == "header":
+            lines.append("== run %s started %s%s ==" % (r.get("run", "?"), r.get("time", "?"),
+                         "  user OK: %s" % r["user_ok"] if r.get("user_ok") else ""))
+            continue
+        n += 1
+        scope = entry_scope(r)
+        tag = {"broad": "  [BROAD GRANT]", "unverified": "  [UNVERIFIED BUTTON]"}.get(scope, "")
+        lines.append("%d. %s  button=%r%s\n   prompt: %s\n   shot: %s%s" % (
+            n, r.get("time", "?"), r.get("button", "?"), tag, r.get("prompt", "?"), r.get("shot", "?"),
+            "\n   user OK: %s" % r["user_ok"] if r.get("user_ok") else ""))
+    for num, reason in corrupt:
+        lines.append("CORRUPT line %d: %s" % (num, reason))
+    _, entries = current_run(list(records))
+    routine = routine_count(entries)
+    lines.append("%d approval(s) logged; %d broad grant(s); %d unverified button(s); %d routine this run"
+                 % (len(entries), sum(entry_scope(e) == "broad" for e in entries),
+                    sum(entry_scope(e) == "unverified" for e in entries), routine))
+    if corrupt:
+        lines.append("WARNING: %d corrupt line(s); the log may be incomplete or tampered with." % len(corrupt))
+    if routine >= APPROVAL_WARN_AT:
+        lines.append("WARNING: %d or more routine approvals; the user must have OK'd more than %d."
+                     % (APPROVAL_WARN_AT, APPROVAL_WARN_AT))
     return lines
 
 
@@ -926,12 +1135,15 @@ def make_parser():
                    help="where to leave the final screenshot")
 
     al = sub.add_parser("approvals-log", help="record or list approval prompts answered (JSONL)")
-    al.add_argument("action", choices=["add", "show"])
+    al.add_argument("action", choices=["start", "add", "show"],
+                    help="start: new run (old log kept as .prev); add: record one click; show: list + counts")
     al.add_argument("--log", default=DEFAULT_APPROVALS_LOG,
                     help="JSONL file (default ./%s); pick a directory the user can read" % DEFAULT_APPROVALS_LOG)
     al.add_argument("--prompt", help="add: the prompt text as read from the screenshot")
     al.add_argument("--button", help="add: the exact label of the button you clicked")
-    al.add_argument("--shot", help="add: path of the screenshot showing the whole prompt")
+    al.add_argument("--shot", help="add: path of the fresh PNG screenshot showing the whole prompt")
+    al.add_argument("--user-ok", help="start/add: the user's quoted OK (Auto mode, broad options, or more than "
+                                      "5 approvals); without it add refuses those")
 
     sub.add_parser("doctor", help="check macOS, Peekaboo, permissions, and Claude Desktop")
     return p
@@ -1032,13 +1244,20 @@ def main(argv=None):
                   "screen) before assuming the task finished." % args.out)
             return EXIT_OK if status == "idle" else EXIT_TIMEOUT
         elif args.cmd == "approvals-log":
-            if args.action == "add":
-                entry, count, warnings = add_approval(args.log, args.prompt, args.button, args.shot)
-                print("logged approval #%d to %s: %r" % (count, args.log, entry["button"]))
+            if args.action == "start":
+                run_id, prev = start_run(args.log, args.user_ok)
+                print("started run %s in %s%s" % (run_id, args.log, "; previous log kept as %s" % prev if prev else ""))
+            elif args.action == "add":
+                entry, count, warnings = add_approval(args.log, args.prompt, args.button, args.shot,
+                                                      user_ok=args.user_ok)
+                print("logged %r to %s (routine approvals this run: %d)" % (entry["button"], args.log, count))
                 for w in warnings:
                     print(w, file=sys.stderr)
             else:
-                print("\n".join(format_approvals(read_approvals(args.log))))
+                records, corrupt = read_log(args.log)
+                print("\n".join(format_approvals(records, corrupt)))
+                if corrupt:
+                    return EXIT_ERROR
         elif args.cmd == "doctor":
             ok, lines = doctor()
             print("\n".join(lines))

@@ -42,6 +42,7 @@ python3 <skill-dir>/scripts/desktop.py press cmd+a
 python3 <skill-dir>/scripts/desktop.py scroll down --amount 10 --at 900,400
 python3 <skill-dir>/scripts/desktop.py config-mcp list           # also: add NAME --command C --arg=A | remove NAME, --restart
 python3 <skill-dir>/scripts/desktop.py wait-idle --timeout 180 --interval 6 --out /tmp/cd-done.png
+python3 <skill-dir>/scripts/desktop.py approvals-log start [--user-ok "<user's words>"]   # new run; old log kept as .prev
 python3 <skill-dir>/scripts/desktop.py approvals-log add --prompt "<text>" --button "Allow once" --shot /tmp/cd-2.png
 python3 <skill-dir>/scripts/desktop.py approvals-log show        # default file ./desktop-approvals.jsonl
 ```
@@ -134,8 +135,12 @@ When Desktop asks for permission (run a tool, access a folder or connector, edit
 
 - **Follow the "Hard rules for every approval prompt" in `references/safety.md`**: no auto-click scripts,
   whole prompt visible in a fresh screenshot, one click at a time, most limited button ("Allow once"),
-  never "Allow all"/"Always"/"for this task" without the user's explicit OK, stop and ask after 5, and
-  log each one with `desktop.py approvals-log add`.
+  and log each one with `desktop.py approvals-log add`.
+- **If the run will raise many routine approvals** (web fetches, many files), ask the user ONCE, at the
+  start, in this chat: (a) set the task's approval mode to Auto, (b) click "Allow all for this website"
+  style options as they appear, or (c) approve each prompt once. Record their answer with
+  `approvals-log start --user-ok "<their words>"`; only then are Auto and broad options allowed for that
+  run. Without that OK: limited buttons only, and the tool refuses the 6th routine approval.
 - **Read what it is asking.** Screenshot, read the full text of the request.
 - **Routine and local, inside what the user asked for** (for example reading a file in the task folder):
   you may click the most limited Allow, log it, and tell the user you did.
