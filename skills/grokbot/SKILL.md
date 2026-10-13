@@ -11,6 +11,8 @@ description: >-
 
 # grokbot
 
+> **Unofficial.** `grokbot` is not affiliated with or endorsed by Cursor or xAI. It uses Grok Bot's private, undocumented interfaces, which may change or break at any time. Use at your own risk: some commands can delete agents and sections.
+
 `grokbot` is a Node CLI that drives **Cursor's Grok Bot desktop app** (bundle
 `com.anysphere.sand`) from the terminal. The app is a thin Electron client: agents, transcripts,
 sections, and pins live on a per-user cloud **host** ("box"), and the CLI talks to the same host

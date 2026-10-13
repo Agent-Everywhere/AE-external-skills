@@ -14,6 +14,8 @@ The **Agent Browser** skills drive Agent Everywhere's cloud-browser MCP. Other s
 | [`sales-navigator`](skills/sales-navigator/SKILL.md) | Build account, lead, and decision-maker lists in LinkedIn Sales Navigator, with guardrails (Agent Browser) |
 | [`grokbot`](skills/grokbot/SKILL.md) | Operate Cursor's Grok Bot desktop app and agents from the terminal: agents, sections, pins, transcripts, groups, sending prompts (Node CLI) |
 
+> **Unofficial.** `grokbot` is not affiliated with or endorsed by Cursor or xAI. It uses Grok Bot's private, undocumented interfaces, which may change or break at any time. Use at your own risk: some commands can delete agents and sections.
+
 ## Layout
 
 ```
