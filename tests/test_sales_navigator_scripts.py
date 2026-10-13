@@ -543,5 +543,59 @@ class RunLogTests(unittest.TestCase):
         self.assertEqual(row[1:], ["9", "10", "25", "NEAR"])
 
 
+class DedupePreservesQualifyColumns(unittest.TestCase):
+    """facts / fit_reason / keep (references/qualify.md) must survive normalisation and de-duplication."""
+
+    FIELDS = validate_csv.ACCOUNT_COLUMNS + validate_csv.QUALIFY_COLUMNS
+
+    def rows(self):
+        base = dict.fromkeys(self.FIELDS, "")
+        base.update(mode="B", collected_at="2026-10-13")
+        return [
+            dict(base, company_name="Acme Wellness", company_domain="https://www.acme.com/about",
+                 salesnav_account_url="https://www.linkedin.com/sales/company/1/", facts="sells vitamins; ships to retailers",
+                 fit_reason="fits buyer type A", keep="keep", status="qualified"),
+            dict(base, company_name="Acme Wellness Inc", company_domain="acme.com", facts="",
+                 fit_reason="", keep="", status="collected"),
+            dict(base, company_name="Bright Foods", company_domain="brightfoods.co", facts="b2b only",
+                 fit_reason="wrong buyer", keep="drop", status="qualified"),
+            dict(base, company_name="Maybe Ltd", company_domain="maybe.example", keep="unsure", status="qualified"),
+        ]
+
+    def test_columns_and_values_survive_dedupe_and_a_csv_round_trip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src, out, removed = (Path(tmp) / n for n in ("in.csv", "out.csv", "removed.csv"))
+            dedupe.write_rows(src, self.FIELDS, self.rows())
+            code = dedupe.main([str(src), "--out", str(out), "--removed", str(removed)])
+            self.assertEqual(code, 0)
+            with open(out, newline="", encoding="utf-8") as fh:
+                reader = csv.DictReader(fh)
+                header, kept = reader.fieldnames, list(reader)
+            self.assertEqual(header, self.FIELDS)
+            self.assertTrue({"facts", "fit_reason", "keep"} <= set(header))
+            by_name = {r["company_name"]: r for r in kept}
+            self.assertEqual(sorted(by_name), ["Acme Wellness", "Bright Foods", "Maybe Ltd"])
+            acme = by_name["Acme Wellness"]
+            self.assertEqual((acme["facts"], acme["fit_reason"], acme["keep"]),
+                             ("sells vitamins; ships to retailers", "fits buyer type A", "keep"))
+            self.assertEqual((by_name["Bright Foods"]["keep"], by_name["Bright Foods"]["fit_reason"]), ("drop", "wrong buyer"))
+            self.assertEqual(by_name["Maybe Ltd"]["keep"], "unsure")
+            with open(removed, newline="", encoding="utf-8") as fh:
+                gone = list(csv.DictReader(fh))
+            self.assertEqual([(r["company_name"], r["removed_reason"]) for r in gone], [("Acme Wellness Inc", "duplicate")])
+            self.assertEqual(run_main(validate_csv, [str(out)])[0], 0)  # still a valid accounts file
+
+    def test_a_duplicate_fills_in_blank_qualify_cells_but_never_overwrites_them(self):
+        rows = self.rows()
+        rows[0]["keep"] = ""            # first row has not been judged yet ...
+        rows[1]["keep"] = "drop"        # ... its duplicate has
+        rows[1]["facts"] = "should not replace"
+        kept, dupes = dedupe.dedupe_rows([dedupe.normalize_row(dict(r)) for r in rows[:2]], "accounts")
+        self.assertEqual(len(kept), 1)
+        self.assertEqual(kept[0]["keep"], "drop")  # blank filled from the duplicate
+        self.assertEqual(kept[0]["facts"], "sells vitamins; ships to retailers")  # non-blank kept
+        self.assertEqual(kept[0]["fit_reason"], "fits buyer type A")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -5,13 +5,15 @@ changes without notice.
 
 ## Search and results
 
-1. **The ~2,500 viewable-result cap.** Results show 25 per page and stop around page 100, even
-   when the header says "10K+". Paging further returns nothing or repeats.
-   → Shard until each search is under ~2,500 (`scripts/shard_plan.py`). Never trust "10K+".
-2. **Result counts are approximate and drift.** The same search can show different totals minutes
-   apart, and counts above 1,000 are rounded.
-   → Record the count per shard at run time; treat TAM sums as estimates.
-3. **Results lazy-load.** Only part of a page's rows render until you scroll. Reading too early
+1. **The viewable-result cap.** Lead searches show at most ~2,500 results (100 pages of 25) and
+   account searches at most **1,000** (40 pages), even when the header says "10K+". Paging further
+   returns nothing or repeats.
+   → Shard until each search is under its cap (`scripts/shard_plan.py`). Never trust "10K+".
+2. **Result counts drift (UI) or are exact (API).** In the page, totals above 1,000 are rounded and
+   the same search can show different totals minutes apart. Through the API (`count=1`),
+   `paging.total` is exact for the query as sent.
+   → Prefer API counts; record the count per shard at run time; treat TAM sums as estimates.
+3. **Results lazy-load (page reading only).** Only part of a page's rows render until you scroll. Reading too early
    gives ~10 rows instead of 25.
    → Scroll to the bottom of the results list and confirm 25 rows (or the remainder on the last
    page) before reading.
@@ -81,3 +83,71 @@ changes without notice.
     and "former" people in titles.
     → Re-apply exclusions on the collected CSV (`scripts/dedupe.py --exclude`), and show the user
     what was removed.
+
+## Fast path (in-page API)
+
+21. **403 in ~100 ms on the first call.** The page's CSRF token (the `JSESSIONID` cookie) is not
+    ready yet. This is timing, not a block.
+    → Wait for `networkidle` plus about 3 seconds before the first call (`session.py` does;
+    `page/csrf_ready.js` checks). Only treat 403/429 as a stop signal after the page was ready.
+22. **A query copied from a page URL returns 400.** The URL's query carries `recentSearchParam`
+    and is percent-encoded once more than the API wants.
+    → Strip `recentSearchParam:(...)` and percent-decode once (the search snippets do). Better: build
+    the query yourself from typeahead-resolved ids; do not import a user's URL unless they ask.
+23. **Query order matters.** In an account query, `filters:List(...)` comes first and
+    `keywords:<url-encoded text>` is a top-level key after it.
+    → Boolean `OR` and quoted phrases work in keywords; they are not filter entries.
+24. **Account results have no website, domain or location.** A search row has name, industry,
+    headcount range and the company id only.
+    → Fetch websites with `companies_websites.js` (25 ids per call, decoration URL-encoded as
+    `%28entityUrn%2Cname%2Cwebsite%29`). Raw parentheses or richer decorations return 400. Leave
+    `hq_location` blank rather than guessing.
+25. **Typeahead fails silently.** A wrong `type` returns 200 with empty `elements`. Geography is
+    `type=BING_GEO` (the filter type is `REGION`). An industry like "nutrition" resolves to nothing.
+    → Treat empty as "not found", try parent industries, add niche words as keywords.
+26. **A noisy keyword swamps the master.** One generic word can account for most of an OR-list's
+    total and mostly match company names.
+    → Count every keyword alone; drop or demote the dominant one.
+27. **Headcount bands do not sum to the total.** Self-employed (`A`) and 501+ (`F`–`I`) sit outside
+    `B`–`E`; shard by band without them and companies vanish.
+    → Include explicit `A` and `F`+ shards inside any band-sharded state.
+28. **Shard totals over-count.** State (or metro) shards overlap through multi-location companies.
+    → Dedupe by company id (accounts) or Sales Nav lead URL (leads); expect a few percent overlap.
+29. **The cloud browser dies when the script disconnects.** Splitting a session across scripts, or
+    ending the process early, ends the browser and its state.
+    → Do all of a session's work in one `session.py` process; heartbeat at least every 60 s; stay
+    under the 40-minute ceiling by checkpointing to JSONL and reopening (`--skip-done`).
+30. **The claim is one-use and lasts 60 seconds.** A slow setup wastes it.
+    → Install Playwright and write the plan first, then open the session and run immediately.
+31. **Search results do not contain the public profile URL.** The row has the Sales Nav lead id
+    only.
+    → `linkedin_url` stays blank in fast-path output; never construct a slug.
+32. **Local runs are your own seat.** A local browser run uses the user's session and IP; the
+    platform sees the same person working fast.
+    → Warn first, keep the pacing, and offer the cloud browser.
+
+## Browser JS tool (Cowork built-in browser, Claude in Chrome)
+
+33. **One snippet per tool call.** Do not chain several snippets or loop over pages inside one
+    call: a call that runs long can time out and lose every result in it.
+    → One call, one result. Save it to a file right away, wait 3–5 s, make the next call
+    (`runtime/local.md`). `count.js`, `typeahead.js` and `companies_websites.js` batch internally
+    and pace themselves; that is the only batching.
+34. **Wait about 3 seconds after the page loads before the first call**, and run `csrf_ready.js`
+    first (it returns `{ready:true}` once the token exists). A 403 within ~100 ms is the token not
+    being ready: wait, retry once, then treat it as a stop.
+35. **The cookie and token are never returned.** The snippets read `JSESSIONID` inside the page
+    and use it there. Never write or run JS that returns `document.cookie`, request headers or
+    storage, and never paste any of it into chat or a file. If a result ever contains something
+    that looks like a token, do not save it and tell the user.
+36. **The tool's reply can be truncated.** A long result may be cut off, so the JSON no longer
+    parses. Check that `rows` equals the number of elements you received. If not, re-run that
+    page with a smaller `count` (10–15) and never use `raw: true` here.
+37. **The tool wants a different shape.** If the expression form returns nothing or `undefined`,
+    the tool runs your code as a function body: re-emit with `--form return`. If it complains
+    about syntax, check that you pasted the whole `( ... )({...})` and not just the function.
+38. **It runs in whichever tab is active.** Confirm the `path` that `csrf_ready.js` returns
+    starts with `/sales/` before any search. On a different site the calls fail or hit the wrong
+    origin.
+39. **The local runtime needs the Mac and the app open.** A scheduled local run does nothing when
+    the laptop is asleep or the app is closed; use the cloud runtime for laptop-off schedules.

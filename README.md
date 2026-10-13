@@ -26,14 +26,15 @@ needs Claude Code (or another agent with shell access) on the Mac that has Grok 
 mkdir -p ~/.local/bin && curl -fsSL https://github.com/Agent-Everywhere/AE-external-skills/releases/latest/download/grokbot.mjs -o ~/.local/bin/grokbot && chmod +x ~/.local/bin/grokbot
 ```
 
-The **Agent Browser** skills drive Agent Everywhere's cloud-browser MCP. Other skills (such as
-`grokbot`) ship their own tooling and do not need that connector.
+Skills that list `agent-browser` in their `skill.yaml` `runtimes` can drive Agent Everywhere's
+cloud-browser MCP; `sales-navigator` can also run in the user's own browser (`local`). Other skills
+(such as `grokbot`) ship their own tooling and do not need that connector.
 
 ## Skills
 
 | Skill | What it does |
 |---|---|
-| [`sales-navigator`](skills/sales-navigator/SKILL.md) | Build account, lead, and decision-maker lists in LinkedIn Sales Navigator, with guardrails (Agent Browser) |
+| [`sales-navigator`](skills/sales-navigator/SKILL.md) | Work LinkedIn Sales Navigator with guardrails: build account, lead, and decision-maker lists, qualify accounts from their websites, save to named lists, draft outreach, track follow-ups, or run it as a daily routine. Fast in-page API through your browser's JavaScript tool (Cowork built-in browser, Claude in Chrome) or a cloud browser (Agent Browser), slow page-reading fallback. Read-only unless you explicitly ask it to send, and then only for batches you approve |
 | [`grokbot`](skills/grokbot/SKILL.md) | Your own Claude Code operates your Grok Bot desktop app on your Mac: status/doctor, agents, groups, sections, pins, transcripts, `send --wait`, app restart (bundled Node CLI, no `npm install`) |
 | [`grokbot-box`](skills/grokbot-box/SKILL.md) | For a Grok Bot agent inside its own cloud box: list, create, organize, send to, and delete its sibling workers under an advisory, audited agent policy (uses the `grokbot` CLI) |
 
@@ -44,13 +45,26 @@ The **Agent Browser** skills drive Agent Everywhere's cloud-browser MCP. Other s
 ```
 .claude-plugin/
   marketplace.json  # Claude Code marketplace: one plugin per skill, each rooted at skills/<name>
+packages/
+  browser-runtime/  # SOURCE OF TRUTH for the shared browser runtime (session.py + runtime docs)
+build/
+  sync_runtime.py   # vendors packages/browser-runtime into each skill that lists a runtime; --check fails on drift
 skills/<skill-name>/
   SKILL.md          # entry point: frontmatter (name, description) + procedure
+  skill.yaml        # manifest: name, version, category, runtimes ([] or [local, agent-browser])
   references/       # loaded on demand: guardrails, gotchas, schemas
-  scripts/          # optional helpers (Python 3 stdlib only), run in the user's Claude
+  scripts/          # optional helpers (Python 3 stdlib only, no network), run in the user's Claude
+  page/             # optional JS snippets run inside the signed-in page by the browser runtime
+  runtime/          # vendored copy of packages/browser-runtime (generated; never edit here)
   cli/              # optional Node CLI (Node >= 20), for skills that wrap a command-line tool
   cli/dist/         # committed single-file bundle of the CLI (no npm install needed); rebuild with `npm run build`
+tests/              # Python tests for scripts, the runtime, page snippets, manifests and vendoring
 ```
+
+Browser-runtime changes are made once, in `packages/browser-runtime/`, then propagated with
+`python3 build/sync_runtime.py`, then run `python3 build/sync_runtime.py --check` before committing.
+The tests run the same check and fail if a skill's `runtime/` copy has drifted (or a skill with
+`runtimes: []` still has a `runtime/` folder).
 
 Each marketplace entry uses its own skill folder as the plugin source (`"source": "./skills/<name>"`,
 `"skills": ["."]`), so a plugin installs only its own skill. Do not point a plugin at the repo root:
@@ -69,6 +83,15 @@ ship the CLI; it installs it inside the box by cloning this repo.
   posting) require the user's approval and documented limits.
 - **Scripts:** Python 3 standard library only, no network, tested under `tests/`. (The `tests/`
   convention applies to Python scripts; `grokbot`'s CLI tests live in `skills/grokbot/cli/tests/` and run with `npm test`.)
+- **Exception: the browser runtime.** `packages/browser-runtime/session.py` is the one place that
+  touches the network (the Agent Browser claim/auth/heartbeat calls and Playwright's CDP
+  connection; it needs `pip install playwright`, imported lazily). Skill scripts under
+  `skills/<name>/scripts/` stay stdlib and no-network. Page snippets under `skills/<name>/page/` run
+  inside the user's signed-in browser, return compact JSON, and never return cookies or tokens.
+- **Runtimes manifest.** Every skill has a `skill.yaml` (`name`, `version`, `category`, `runtimes`)
+  that matches its `marketplace.json` entry. `runtimes` is `[]` for skills without a browser, or a
+  list from `local` (the user's own browser) and `agent-browser` (cloud browser); a non-empty list
+  gets `packages/browser-runtime` vendored into `runtime/`.
 - **Exception: Node CLI.** A skill may ship a Node CLI under `cli/` (Node >= 20, with its own
   `package.json` and lockfile; install with `npm install --omit=dev`, or run the committed bundle
   `cli/dist/grokbot.mjs` directly). This is the one exception

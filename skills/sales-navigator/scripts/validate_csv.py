@@ -5,6 +5,8 @@ Checks:
   * headers: missing and extra columns (a different column ORDER is only a warning)
   * required fields not empty: accounts company_name, status, mode;
     leads full_name, company_name, status, mode
+  * accounts may also carry the optional qualify columns (facts, fit_reason, keep); keep is
+    keep/drop/unsure
   * mode is one of A/B/C/D; status is one of the values listed in output.md
   * URL shape: salesnav_*_url, linkedin_company_url, linkedin_url (https://www.linkedin.com/...)
   * company_domain is a bare lowercase domain (no https://, www. or path)
@@ -33,7 +35,11 @@ LEAD_COLUMNS = [
     "salesnav_lead_url", "linkedin_url", "location", "time_in_role", "signals",
     "dm_rank", "buyer_type", "shard", "mode", "status", "collected_at",
 ]
+# Optional columns the `qualify` action appends to accounts.csv (references/qualify.md).
+QUALIFY_COLUMNS = ["facts", "fit_reason", "keep"]
+KEEP_VALUES = ["keep", "drop", "unsure"]
 COLUMNS = {"accounts": ACCOUNT_COLUMNS, "leads": LEAD_COLUMNS}
+OPTIONAL_COLUMNS = {"accounts": QUALIFY_COLUMNS, "leads": []}
 REQUIRED = {"accounts": ["company_name", "status", "mode"],
             "leads": ["full_name", "company_name", "status", "mode"]}
 STATUSES = {"accounts": ["collected", "qualified", "rejected", "no_dm_found"],
@@ -58,7 +64,8 @@ def check_header(headers, kind):
     """Return (errors, warnings) as lists of strings."""
     expected = COLUMNS[kind]
     missing = [c for c in expected if c not in headers]
-    extra = [c for c in headers if c not in expected]
+    optional = [c for c in OPTIONAL_COLUMNS[kind] if c in headers]
+    extra = [c for c in headers if c not in expected and c not in optional]
     errors = []
     if missing:
         errors.append("header: missing columns: " + ", ".join(missing))
@@ -67,7 +74,7 @@ def check_header(headers, kind):
     if len(set(headers)) != len(headers):
         errors.append("header: duplicate column names")
     warnings = []
-    if not missing and not extra and headers != expected:
+    if not missing and not extra and headers != expected + optional:
         warnings.append("header: columns are in a different order than output.md")
     return errors, warnings
 
@@ -84,6 +91,8 @@ def check_row(row, kind, headers):
     if row.get("status") and row["status"] not in STATUSES[kind]:
         problems.append(("status", "enum", "%r is not one of %s"
                          % (row["status"], "/".join(STATUSES[kind]))))
+    if row.get("keep") and row["keep"] not in KEEP_VALUES:
+        problems.append(("keep", "enum", "%r is not one of %s" % (row["keep"], "/".join(KEEP_VALUES))))
     for col, (pattern, example) in URL_PATTERNS.items():
         if row.get(col) and not re.fullmatch(pattern, row[col], re.I):
             problems.append((col, "url", "%r should look like %s" % (row[col], example)))
