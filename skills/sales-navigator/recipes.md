@@ -50,6 +50,14 @@ longer ago than the profile's wait (`summary --stale-days N`), draft a short fol
 the earlier note and adds one new true thing. Draft replies for the user to edit. Sending follows
 recipe 4's approval rules.
 
+## 6. Research a lead or account before outreach
+
+For one or a few people the user will actually write to: `profile.js` with `extras` (the lead from the
+search row's `entityUrn`), `activity.js` (`days` 90) and `account.js` for their current company
+(`companyId` from the profile's first current position; add `news`). That is 3 small calls per
+person. Summarize only what the data says (role tenure, a recent comment, an alert) with the source
+named for each fact; feed it to recipe 4's `sources` column. Skip anyone with `pendingInvitation`.
+
 ## Make it yours
 
 If the user likes a flow, offer to save it as their own small skill (ICP, caps and tone baked in) or a

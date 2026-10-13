@@ -15,6 +15,9 @@ NODE = shutil.which("node")
 COOKIE = 'lang=v=2; JSESSIONID="ajax:0123456789"; other=1'
 TOKEN = "ajax:0123456789"
 
+LEAD = "FIXTUREID123,NAME_SEARCH,tok9"
+LEAD_URN = "urn:li:fs_salesProfile:(FIXTUREID123,NAME_SEARCH,tok9)"
+
 CLEAN = "(filters:List((type:REGION,values:List((id:103644278,selectionType:INCLUDED)))))"
 
 
@@ -24,6 +27,10 @@ def run_snippet(name, params, responses=None, cookie=COOKIE):
         capture_output=True, text=True, timeout=30)
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)
+
+
+PROFILE_MAIN_CASE = {"fullName": "P", "positions": [{"title": "T", "companyUrn": "urn:li:fs_salesCompany:9"}],
+                     "contactInfo": {"primaryEmail": "x@example.invalid"}}
 
 
 @unittest.skipUnless(NODE, "node not installed")
@@ -128,7 +135,9 @@ class PageSnippets(unittest.TestCase):
         for name, params in (("lead_search.js", {"query": CLEAN}), ("account_search.js", {"query": CLEAN}),
                              ("count.js", {"kind": "lead", "query": CLEAN}),
                              ("typeahead.js", {"type": "BING_GEO", "term": "x"}),
-                             ("companies_websites.js", {"ids": [1]})):
+                             ("companies_websites.js", {"ids": [1]}),
+                             ("profile.js", {"lead": LEAD}), ("activity.js", {"lead": LEAD}),
+                             ("account.js", {"companyId": "123"})):
             with self.subTest(snippet=name):
                 out = run_snippet(name, params, cookie="lang=en")
                 self.assertEqual(out["result"]["error"], "csrf_missing")
@@ -232,6 +241,191 @@ class PageSnippets(unittest.TestCase):
                             [{"status": 200, "body": {"elements": []}}])
         self.assertTrue(empty["result"]["results"][0]["empty"])
 
+    # --- profile.js, activity.js, account.js
+    PROFILE_MAIN = {
+        "fullName": "Pat Example", "headline": "VP Ops at Acme", "location": "Austin, Texas", "degree": 2,
+        "summary": "S" * 2000, "pendingInvitation": False, "flagshipProfileUrl": "https://www.linkedin.com/in/x",
+        "contactInfo": {"primaryEmail": "pat@example.invalid", "phoneNumbers": [{"number": "555-0100"}]},
+        "crmStatus": {"imported": True}, "objectUrn": "urn:li:member:1", "listCount": 3,
+        "positions": [
+            {"title": "VP Ops", "companyName": "Acme", "companyUrn": "urn:li:fs_salesCompany:111", "current": True,
+             "description": "D" * 900, "startedOn": {"year": 2021, "month": 3}, "location": "Austin", "posId": 9,
+             "companyUrnResolutionResult": {"name": "Acme", "companyPictureDisplayImage": {"a": 1}}},
+            {"title": "Mgr", "companyName": "Old", "companyUrn": "urn:li:fs_salesCompany:222", "current": False,
+             "startedOn": {"year": 2015}, "endedOn": {"year": 2021, "month": 2}}]}
+    PROFILE_EXTRAS = {
+        "educations": [{"schoolName": "State U", "degree": "BS", "fieldsOfStudy": ["Math"], "eduId": 4,
+                        "startedOn": {"year": 2008}, "endedOn": {"year": 2012},
+                        "schoolResolutionResult": {"url": "x"}}],
+        "skills": [{"name": "Ops", "numOfEndorsement": 5}, {"name": "Sales"}],
+        "languages": [{"name": "English", "proficiency": "NATIVE"}], "numOfConnections": 500,
+        "memberBadges": {"premium": True, "openLink": False, "jobSeeker": True}, "inmailRestriction": "NO_RESTRICTION",
+        "profilePictureDisplayImage": {"rootUrl": "x"}, "volunteeringExperiences": [{"role": "r"}]}
+
+    def test_profile_main_url_slimming_and_contact_info_dropped(self):
+        out = run_snippet("profile.js", {"lead": LEAD_URN}, [{"status": 200, "body": self.PROFILE_MAIN}])
+        self.assertEqual(len(out["calls"]), 1)
+        url = out["calls"][0]["url"]
+        self.assertTrue(url.startswith(
+            "/sales-api/salesApiProfiles/(profileId:FIXTUREID123,authType:NAME_SEARCH,authToken:tok9)?decoration=%28entityUrn%2C"))
+        self.assertNotIn("decoration=(", url)
+        self.assertIn("contactInfo", url)  # the page's own decoration; the result must not carry it
+        self.assertIn("positions*%28companyName%2Ccurrent", url)
+        res = out["result"]
+        self.assertEqual((res["status"], res["fullName"], res["degree"], res["pendingInvitation"]), (200, "Pat Example", 2, False))
+        self.assertEqual(len(res["summary"]), 1500)
+        first, second = res["positions"]
+        self.assertEqual((first["companyId"], first["current"], first["startedOn"]), ("111", True, {"year": 2021, "month": 3}))
+        self.assertEqual(len(first["description"]), 400)
+        self.assertEqual(second["endedOn"], {"year": 2021, "month": 2})
+        blob = json.dumps(res)
+        for gone in ("contactInfo", "pat@example.invalid", "555-0100", "crmStatus", "objectUrn", "posId", "companyUrnResolutionResult"):
+            self.assertNotIn(gone, blob)
+        self.assertNotIn("educations", res)
+
+    def test_profile_accepts_lead_url_and_triple(self):
+        for lead in (LEAD, "https://www.linkedin.com/sales/lead/FIXTUREID123,NAME_SEARCH,tok9?_ntb=abc",
+                     "urn%3Ali%3Afs_salesProfile%3A%28FIXTUREID123%2CNAME_SEARCH%2Ctok9%29"):
+            with self.subTest(lead=lead):
+                out = run_snippet("profile.js", {"lead": lead}, [{"status": 200, "body": {}}])
+                self.assertIn("(profileId:FIXTUREID123,authType:NAME_SEARCH,authToken:tok9)", out["calls"][0]["url"])
+        bad = run_snippet("profile.js", {"lead": "nonsense"})
+        self.assertEqual((bad["result"]["error"], bad["calls"]), ("lead_required", []))
+
+    def test_profile_extras_adds_second_call_and_slims(self):
+        out = run_snippet("profile.js", {"lead": LEAD, "extras": True, "delayMs": 0},
+                          [{"status": 200, "body": self.PROFILE_MAIN}, {"status": 200, "body": self.PROFILE_EXTRAS}])
+        self.assertEqual(len(out["calls"]), 2)
+        self.assertIn("educations*%28degree%2CeduId", out["calls"][1]["url"])
+        self.assertIn("inmailRestriction", out["calls"][1]["url"])
+        res = out["result"]
+        self.assertEqual(res["educations"], [{"schoolName": "State U", "degree": "BS", "fieldsOfStudy": ["Math"],
+                                              "startedOn": {"year": 2008}, "endedOn": {"year": 2012}}])
+        self.assertEqual(res["skills"], [{"name": "Ops", "endorsements": 5}, {"name": "Sales", "endorsements": 0}])
+        self.assertEqual(res["languages"], [{"name": "English", "proficiency": "NATIVE"}])
+        self.assertEqual((res["numOfConnections"], res["memberBadges"], res["inmailRestriction"]),
+                         (500, {"openLink": False, "premium": True}, "NO_RESTRICTION"))
+        for gone in ("jobSeeker", "volunteering", "profilePicture", "schoolResolutionResult"):
+            self.assertNotIn(gone, json.dumps(res))
+
+    def test_profile_errors_are_reported(self):
+        out = run_snippet("profile.js", {"lead": LEAD}, [{"status": 403, "body": {"m": "no"}}])
+        self.assertEqual(out["result"]["status"], 403)
+        self.assertIn("body", out["result"])
+        part = run_snippet("profile.js", {"lead": LEAD, "extras": True, "delayMs": 0},
+                           [{"status": 200, "body": self.PROFILE_MAIN}, {"status": 429, "body": {}}])
+        self.assertEqual((part["result"]["status"], part["result"]["partial"]), (429, True))
+        self.assertEqual(part["result"]["fullName"], "Pat Example")
+
+    ACTIVITY = {"paging": {"start": 0, "count": 4, "links": []}, "elements": [
+        {"createdAt": 1700000000000, "insightId": "i1",
+         "activityUnion": {"commentActivity": {"comment": {"text": "C" * 800}, "commentUrl": "https://example.invalid/c1", "x": 1}}},
+        {"createdAt": 1700000001000, "insightId": "i2",
+         "activityUnion": {"postActivity": {"commentary": "a post"}}},
+        {"createdAt": 1700000002000, "insightId": "i3", "activityUnion": {"commentActivity": {}}}]}
+
+    def test_activity_url_and_slimming(self):
+        import re
+        out = run_snippet("activity.js", {"lead": LEAD, "days": 30, "count": 50}, [{"status": 200, "body": self.ACTIVITY}])
+        url = out["calls"][0]["url"]
+        self.assertTrue(url.startswith(
+            "/sales-api/salesApiInsightsV2?insightTypes=List(LEAD_POST,LEAD_COMMENT)&q=findByMember"
+            "&profile=urn%3Ali%3Afs_salesProfile%3A%28FIXTUREID123%2CNAME_SEARCH%2Ctok9%29&timeRange=(start:"))
+        self.assertTrue(url.endswith("&start=0&count=10"))  # count clamped to 10
+        start, end = map(int, re.search(r"timeRange=\(start:(\d+),end:(\d+)\)", url).groups())
+        self.assertEqual(end - start, 30 * 86400000)
+        res = out["result"]
+        self.assertEqual((res["status"], res["rows"]), (200, 3))
+        c1, post, c2 = res["elements"]
+        self.assertEqual((c1["kind"], len(c1["text"]), c1["url"]), ("comment", 500, "https://example.invalid/c1"))
+        self.assertEqual((post["kind"], post["text"]), ("post", "a post"))
+        self.assertEqual(c2, {"createdAt": 1700000002000, "kind": "comment"})  # no text or url keys when absent
+        self.assertNotIn("insightId", json.dumps(res))
+
+    def test_activity_default_window_and_errors(self):
+        import re
+        out = run_snippet("activity.js", {"lead": LEAD}, [{"status": 200, "body": {}}])
+        url = out["calls"][0]["url"]
+        start, end = map(int, re.search(r"timeRange=\(start:(\d+),end:(\d+)\)", url).groups())
+        self.assertEqual(end - start, 90 * 86400000)
+        self.assertTrue(url.endswith("&count=4"))
+        self.assertEqual(out["result"]["elements"], [])
+        bad = run_snippet("activity.js", {"lead": LEAD}, [{"status": 429, "body": {}}])
+        self.assertEqual(bad["result"]["status"], 429)
+        self.assertEqual(run_snippet("activity.js", {})["result"]["error"], "lead_required")
+
+    COMPANY = {
+        "name": "Acme", "description": "d" * 2000, "website": "http://acme.example", "industry": "Software",
+        "type": "Privately Held", "yearFounded": 2001, "specialties": ["a", "b"],
+        "headquarters": {"city": "Austin", "geographicArea": "Texas", "country": "United States", "line1": "1 Main", "postalCode": "78701"},
+        "revenueRange": {"estimatedMinRevenue": {"amount": 1.0, "unit": "MILLION"}},
+        "employeeGrowthPercentages": [{"timespan": "SIX_MONTH", "percentage": 4}],
+        "employeesResolutionResults": {"k": {"fullName": "Someone"}}, "crmOpportunities": 0, "account": {"saved": True},
+        "companyPictureDisplayImage": {"rootUrl": "x"}}
+    COUNTS = {"employeeCount": 120, "employeeCountRange": "51-200", "decisionMakersDisplayCount": "9",
+              "personaResultCounts": [{"persona": {}}], "sharedAlumniSchoolIds": [1]}
+    INSIGHTS = {"medianTenure": 2.5, "monthlyHeadCounts": [
+        {"employeeCount": 120, "employeePercentageDifference": 3, "headCountsByDate": [{"date": "2026-01", "count": 110}]}]}
+    ALERTS = {"metadata": {"numUnseen": 1}, "elements": [
+        {"type": "NEWS_MENTION", "createdAt": 5, "headline": {"text": "Acme raises", "attributes": []}, "body": {"x": 1}},
+        {"type": "HIRING", "createdAt": 6, "headline": "plain headline", "image": {"a": 1}}]}
+
+    def test_account_main_only(self):
+        out = run_snippet("account.js", {"companyId": "urn:li:fs_salesCompany:123"}, [{"status": 200, "body": self.COMPANY}])
+        self.assertEqual(len(out["calls"]), 1)
+        url = out["calls"][0]["url"]
+        self.assertTrue(url.startswith("/sales-api/salesApiCompanies/123?decoration=%28entityUrn%2Cname%2Caccount%28saved"))
+        res = out["result"]
+        self.assertEqual((res["status"], res["name"], res["website"], res["yearFounded"]), (200, "Acme", "http://acme.example", 2001))
+        self.assertEqual(len(res["description"]), 1500)
+        self.assertEqual(res["headquarters"], {"city": "Austin", "geographicArea": "Texas", "country": "United States"})
+        self.assertEqual(res["employeeGrowthPercentages"], [{"timespan": "SIX_MONTH", "percentage": 4}])
+        self.assertNotIn("headcount", res)
+        self.assertNotIn("news", res)
+        for gone in ("employeesResolutionResults", "Someone", "crmOpportunities", "account", "companyPicture"):
+            self.assertNotIn(gone, json.dumps(res))
+
+    def test_account_headcount_and_news_urls_and_slimming(self):
+        out = run_snippet("account.js", {"companyId": 123, "headcount": True, "news": True, "count": 99, "delayMs": 0},
+                          [{"status": 200, "body": self.COMPANY}, {"status": 200, "body": self.COUNTS},
+                           {"status": 200, "body": self.INSIGHTS}, {"status": 200, "body": self.ALERTS}])
+        urls = [c["url"] for c in out["calls"]]
+        self.assertEqual(len(urls), 4)
+        self.assertIn("decoration=%28entityUrn%2CemployeeCount%2CemployeeDisplayCount%2CemployeeCountRange%2CdecisionMakersDisplayCount", urls[1])
+        self.assertEqual(urls[2], "/sales-api/salesApiEmployeeInsights/123?employeeInsightType=TOTAL_HEADCOUNT")
+        self.assertEqual(urls[3], "/sales-api/salesApiEntityAlerts?q=criteria&entityUrn=urn%3Ali%3Afs_salesCompany%3A123"
+                                  "&sortBy=TIME&buyerAlertsIndex=0&start=0&count=20")  # clamped to 20
+        res = out["result"]
+        self.assertEqual(res["headcount"], {
+            "employeeCount": 120, "employeeCountRange": "51-200", "decisionMakersDisplayCount": "9", "medianTenure": 2.5,
+            "employeePercentageDifference": 3, "monthly": [{"date": "2026-01", "count": 110}]})
+        self.assertEqual(res["news"], [{"type": "NEWS_MENTION", "headline": "Acme raises", "createdAt": 5},
+                                       {"type": "HIRING", "headline": "plain headline", "createdAt": 6}])
+        self.assertNotIn("personaResultCounts", json.dumps(res))
+
+    def test_account_errors_and_missing_id(self):
+        out = run_snippet("account.js", {"companyId": "1"}, [{"status": 403, "body": {}}])
+        self.assertEqual(out["result"]["status"], 403)
+        part = run_snippet("account.js", {"companyId": "1", "headcount": True, "delayMs": 0},
+                           [{"status": 200, "body": self.COMPANY}, {"status": 200, "body": self.COUNTS}, {"status": 429, "body": {}}])
+        self.assertEqual((part["result"]["status"], part["result"]["partial"], part["result"]["name"]), (429, True, "Acme"))
+        none = run_snippet("account.js", {})
+        self.assertEqual((none["result"]["error"], none["calls"]), ("company_id_required", []))
+
+    def test_detail_snippets_never_return_the_token_or_cookie(self):
+        cases = (("profile.js", {"lead": LEAD, "extras": True, "delayMs": 0}, [self.PROFILE_MAIN, self.PROFILE_EXTRAS]),
+                 ("activity.js", {"lead": LEAD}, [self.ACTIVITY]),
+                 ("account.js", {"companyId": "1", "headcount": True, "news": True, "delayMs": 0},
+                  [self.COMPANY, self.COUNTS, self.INSIGHTS, self.ALERTS]))
+        for name, params, bodies in cases:
+            with self.subTest(snippet=name):
+                out = run_snippet(name, params, [{"status": 200, "body": b} for b in bodies])
+                blob = json.dumps(out["result"])
+                for secret in (TOKEN, "JSESSIONID", "tok9", "ajax:"):
+                    self.assertNotIn(secret, blob)
+                self.assertTrue(all(c["headers"]["csrf-token"] == TOKEN for c in out["calls"]))
+                self.assertTrue(all(c["credentials"] == "include" for c in out["calls"]))
+
     # --- compact mode must not change what a snippet does
     CASES = {
         "lead_search.js": [
@@ -256,6 +450,20 @@ class PageSnippets(unittest.TestCase):
             ({"type": "BING_GEO", "term": "United States"},
              [{"status": 200, "body": {"elements": [{"id": "1", "displayValue": "US", "extra": 1}]}}]),
         ],
+        "profile.js": [
+            ({"lead": LEAD, "extras": True, "delayMs": 0},
+             [{"status": 200, "body": PROFILE_MAIN_CASE}, {"status": 200, "body": {"skills": [{"name": "Ops"}]}}]),
+            ({"lead": LEAD}, [{"status": 403, "body": {}}]),
+        ],
+        "activity.js": [
+            ({"lead": LEAD, "days": 1, "count": 2},
+             [{"status": 200, "body": {"elements": [{"createdAt": 1, "activityUnion": {"commentActivity": {"text": "hi"}}}]}}]),
+        ],
+        "account.js": [
+            ({"companyId": "5", "headcount": True, "news": True, "delayMs": 0},
+             [{"status": 200, "body": {"name": "N"}}, {"status": 200, "body": {"employeeCount": 3}},
+              {"status": 200, "body": {"medianTenure": 1}}, {"status": 200, "body": {"elements": [{"type": "T", "headline": "h"}]}}]),
+        ],
         "companies_websites.js": [
             ({"ids": ["urn:li:fs_salesCompany:1", "2", "x3"], "delayMs": 0},
              [{"status": 200, "body": {"results": {"1": {"name": "N1", "website": "http://n1.com"}}}}]),
@@ -268,6 +476,9 @@ class PageSnippets(unittest.TestCase):
             return {k: PageSnippets._without_ms(v) for k, v in value.items() if k != "ms"}
         if isinstance(value, list):
             return [PageSnippets._without_ms(v) for v in value]
+        if isinstance(value, str):  # activity.js stamps "now" into its timeRange
+            import re
+            return re.sub(r"timeRange=\(start:\d+,end:\d+\)", "timeRange=(now)", value)
         return value
 
     def test_compact_and_normal_forms_of_every_snippet_behave_identically(self):

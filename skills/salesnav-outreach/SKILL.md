@@ -49,7 +49,8 @@ to know where outreach stands. Drafting is the default; sending only on approval
 
 ## Tools and details
 
-`page/csrf_ready.js`, `page/lead_search.js`; `scripts/outreach_log.py`, `scripts/run_log.py`,
+`page/csrf_ready.js`, `page/lead_search.js`, `page/profile.js`, `page/activity.js` (research one lead before
+drafting: 1 small call each); `scripts/outreach_log.py`, `scripts/run_log.py`,
 `scripts/workspace.py`, `scripts/validate_csv.py`; `templates/drafts.csv`, `templates/company-profile.md`.
 Run a snippet: `python3 runtime/session.py --emit lead_search.js --params '{...}' --compact`. Caps, pacing,
 pending and degree rules: `reference.md`.

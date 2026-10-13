@@ -18,6 +18,21 @@ not being ready, not a block.
 | Websites | `/sales-api/salesApiCompanies?ids=List(id1,...,id25)&decoration=%28entityUrn%2Cname%2Cwebsite%29` | decoration must be URL-encoded; 25 ids per call |
 | Typeahead | `/sales-api/salesApiFacetTypeahead?q=query&start=0&count=10&type=<TYPE>&query=<term>` | geography is `BING_GEO`; a wrong shape returns 200 with empty `elements` |
 
+## Profile & account detail
+
+Verified on a live seat (GET, same headers). Decorations are URL-encoded exactly as in the snippets;
+`*` and `~` stay raw. `lead` is `profileId,authType,authToken` from a lead row's `entityUrn`.
+
+| Snippet | Path | Notes |
+|---|---|---|
+| `profile.js` | `/sales-api/salesApiProfiles/(profileId:<id>,authType:<t>,authToken:<k>)?decoration=...` | main decoration; `extras` adds a second one (educations, skills, languages, badges, `inmailRestriction`) |
+| `activity.js` | `/sales-api/salesApiInsightsV2?insightTypes=List(LEAD_POST,LEAD_COMMENT)&q=findByMember&profile=<urn, encoded>&timeRange=(start:<ms>,end:<ms>)&start=0&count=N` | **post item shape unverified** (only comments seen): text and url are read defensively, may be absent |
+| `account.js` | `/sales-api/salesApiCompanies/<id>?decoration=...` | main; `headcount` adds a counts decoration plus `/sales-api/salesApiEmployeeInsights/<id>?employeeInsightType=TOTAL_HEADCOUNT`; `news` adds `/sales-api/salesApiEntityAlerts?q=criteria&entityUrn=urn%3Ali%3Afs_salesCompany%3A<id>&sortBy=TIME&buyerAlertsIndex=0&start=0&count=N` |
+
+Each snippet run counts as 1 small call (extras, headcount and news add paced requests inside it).
+Profile `contactInfo` (email, phone) is in the page's decoration but is dropped, never returned or saved.
+Degrees are numbers (1, 2, 3). Alert `headline` can be text or an object with `text`.
+
 ## Query encoding
 
 ```

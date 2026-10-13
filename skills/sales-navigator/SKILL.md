@@ -23,6 +23,9 @@ JSON (never cookies or tokens):
 - `lead_search.js`, `account_search.js`: 25 rows per call, paged with `start`.
 - `companies_websites.js`: website for up to 25 company ids.
 - `typeahead.js`: resolve filter ids (geography, industry, titles).
+- `profile.js`: a lead's positions, summary, degree (`extras`: education, skills); no contact info.
+- `activity.js`: a lead's recent posts and comments.
+- `account.js`: a company's detail (`headcount`, `news`). Each run is 1 small call.
 
 **Run a snippet.** Browser JavaScript tool (Cowork built-in browser, Claude in Chrome):
 `python3 runtime/session.py --emit <snippet>.js --params '{...}' --compact` prints a paste-ready async
