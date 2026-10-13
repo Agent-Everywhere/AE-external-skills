@@ -2,7 +2,7 @@
 //   POST {baseUrl}/api/<command>   (JSON in, JSON out, Bearer gateway token + routing headers)
 //   GET  {baseUrl}/health
 //   GET  {baseUrl}/events          (server-sent events)
-// Command names and shapes come from the desktop app's own bridge schemas (see docs/host-commands.md).
+// Command names and shapes come from the desktop app's own bridge schemas (see ../../references/host-commands.md).
 import { randomUUID } from "node:crypto";
 import { redact, redactValue } from "./session.js";
 

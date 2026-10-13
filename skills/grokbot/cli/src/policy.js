@@ -11,7 +11,7 @@ import { boxGatewaySession, isInsideBox, redactValue } from "./session.js";
 import { UsageError } from "./output.js";
 
 export const DENIED_FOR_AGENTS = [
-  // agents/sections delete + groups members are ALLOWED under agent policy (decided 2026-09-15).
+  // agents/sections delete + groups members are ALLOWED under agent policy.
   // Deletes still need --yes / --confirm-count. Keep low-level surfaces denied.
   "agents duplicate",
   "agents interrupt",

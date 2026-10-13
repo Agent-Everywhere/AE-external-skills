@@ -39,6 +39,7 @@ From a checkout of this repo, or the unzipped skill folder:
 
 ```sh
 cd skills/grokbot/cli && npm install --omit=dev
+chmod +x bin/grokbot.js
 mkdir -p ~/.local/bin && ln -sfn "$PWD/bin/grokbot.js" ~/.local/bin/grokbot
 grokbot doctor      # on a Mac
 grokbot policy      # inside a box; should print "policy agent" and the box gateway.json path
@@ -57,13 +58,18 @@ grokbot policy      # inside a box; should print "policy agent" and the box gate
   `agents duplicate`, `agents interrupt`, `sections import`, `pins clear`, `settings set`, `gw`,
   `cursor`, `cdp`, `app`, `automations` (and `doctor`'s Cursor section is skipped).
 
-Inside a real box, `GROKBOT_POLICY=operator` cannot downgrade the policy, so do not try to route
-around a denial with an alias or a raw `gw` call; if a human needs a denied command run, ask them
-to run it from their Mac. Every agent-policy invocation, allowed or denied, appends one JSON line
-(timestamp, policy, command path, redacted argv, decision) to an audit log pinned next to the
-box's `gateway.json` (for example `/home/box/agent-data/grokbot-audit.jsonl`), which the agent
-cannot redirect. Removing pins one at a time reaches the same end state as the denied
-`pins clear`; it is allowed but audited, so do not treat "not denied" as "off the record."
+The agent policy is an **advisory guardrail with a best-effort audit log, not a security
+boundary or sandbox**. It is enforced only inside this CLI: an agent that can run arbitrary code
+in its box can still call the host gateway directly, so the policy catches accidents and casual
+overreach, not a determined actor. Do not try to route around a denial with an alias or a raw `gw`
+call; if a human needs a denied command run, ask them to run it from their Mac. Inside a real box
+the CLI ignores `GROKBOT_POLICY=operator` and stays on the agent policy. It also tries to append
+one JSON line (timestamp, policy, command path, redacted argv, decision) per agent-policy
+invocation to an audit log placed next to the box's `gateway.json` (for example
+`/home/box/agent-data/grokbot-audit.jsonl`). That logging is best-effort: write failures are
+silently ignored, and `--help` output and argument parse errors are not audited. Removing pins one
+at a time reaches the same end state as the denied `pins clear`; it is allowed (and logged on a
+best-effort basis), so do not treat "not denied" as "off the record."
 
 ## Common commands
 
@@ -97,8 +103,9 @@ Deleting never runs blind: `grokbot agents delete --name "test-*" --created-befo
 prints the exact targets first; the real run needs `--yes` plus `--confirm-count N` equal to the
 matched count when there is more than one target.
 
-On a Mac (operator policy) there are more surfaces: `events`, `gw <command>`, `cursor ...`,
-`cdp ...`, `app restart --debug`, `local ...`. See the references.
+Also available: `events` (live host event stream) and `local ...` (offline caches); both are
+allowed under agent policy. Operator-only surfaces (denied under agent policy): `gw <command>`,
+`cursor ...`, `cdp ...`, `app restart --debug`. See the references.
 
 ## References
 

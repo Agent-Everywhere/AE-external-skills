@@ -20,6 +20,7 @@ safeStorage ciphertext). Nothing is copied or printed; every error path is redac
 
 ```sh
 cd skills/grokbot/cli && npm install --omit=dev
+chmod +x bin/grokbot.js
 mkdir -p ~/.local/bin && ln -sfn "$PWD/bin/grokbot.js" ~/.local/bin/grokbot
 grokbot doctor
 ```
@@ -92,7 +93,7 @@ Available on `agents list|hide|unhide|read|unread|delete` and `sections move|una
 | Var | Purpose |
 |---|---|
 | `GROKBOT_GATEWAY_URL` + `GROKBOT_GATEWAY_TOKEN` (+ `GROKBOT_GATEWAY_HEADERS` JSON) | bypass the app's descriptor |
-| `GROKBOT_CDP_PORT` | default CDP port (9340; pwkit uses 9333+) |
+| `GROKBOT_CDP_PORT` | default CDP port (9340) |
 | `GROKBOT_SAFE_STORAGE_PASSWORD` | skip the Keychain lookup (CI/tests) |
 | `GROKBOT_APP_SUPPORT`, `GROKBOT_APP_BUNDLE`, `GROKBOT_HOME` | alternate paths |
 | `GROKBOT_DEBUG=1` | stack traces |
@@ -113,6 +114,7 @@ skips every Mac-only surface. `grokbot policy`/`grokbot doctor` print exactly wh
 ```sh
 # from a checkout of this repo, or the unzipped skill folder
 cd skills/grokbot/cli && npm install --omit=dev
+chmod +x bin/grokbot.js
 mkdir -p ~/.local/bin && ln -sfn "$PWD/bin/grokbot.js" ~/.local/bin/grokbot
 grokbot policy   # confirm: policy agent, box gateway /home/box/agent-data/gateway.json
 grokbot status
@@ -137,20 +139,27 @@ session sources that matter there.
   `doctor`'s Cursor section, which is skipped under agent policy). A denied command exits **77**
   and is never run.
 
-  **`GROKBOT_POLICY=operator` cannot downgrade a real box.** An agent controls its own process
-  environment, so once `resolvePolicy()` detects an actual box gateway file it always returns
-  `agent`, regardless of what `GROKBOT_POLICY` is set to — operator mode is only reachable
-  off-box. `GROKBOT_POLICY=agent` can still be forced off-box (useful for testing).
+  **This is an advisory guardrail plus a best-effort audit log, not a security boundary or
+  sandbox.** It is enforced only inside this CLI; an agent that can run arbitrary code in its box
+  can still reach the host gateway directly. It catches accidents and casual overreach, not a
+  determined actor.
+
+  **`GROKBOT_POLICY=operator` is ignored in a real box.** Once `resolvePolicy()` detects an
+  actual box gateway file it returns `agent` regardless of what `GROKBOT_POLICY` is set to, so
+  operator mode is normally only reachable off-box. `GROKBOT_POLICY=agent` can still be forced
+  off-box (useful for testing).
 
   **Removing every pin one at a time reaches the same end state as the denied `pins clear`.**
-  Per-item removal is allowed and audited individually, so the action stays visible in the audit
-  log even though it isn't blocked outright — the policy prevents casual wholesale resets, not a
-  deliberate loop.
+  Per-item removal is allowed and logged individually (best effort), so the action is visible in
+  the audit log even though it isn't blocked outright. The policy discourages casual wholesale
+  resets, not a deliberate loop.
 
 Run `grokbot policy` to see the active mode, the box gateway path (if any), and the full denylist.
-Every invocation under `agent` policy — allowed or denied — appends one JSONL record (timestamp,
-policy, command path, argv redacted, decision) to the audit log. Inside a real box the log always
-lives next to the host's own `gateway.json` (e.g. `/home/box/agent-data/grokbot-audit.jsonl`) and
-`$GROKBOT_AUDIT_LOG` is ignored there, so the agent cannot redirect or silence it via its own env;
-off-box, `$GROKBOT_AUDIT_LOG` (else `~/.grokbot/grokbot-audit.jsonl`) applies. Operator-mode runs
-are not audited.
+Invocations under `agent` policy — allowed or denied — are logged on a best-effort basis as one
+JSONL record each (timestamp, policy, command path, argv redacted, decision). Write failures are
+silently ignored, and `--help` output and argument parse errors are not audited. Inside a real box
+the log is placed next to the host's own `gateway.json` (e.g.
+`/home/box/agent-data/grokbot-audit.jsonl`) and `$GROKBOT_AUDIT_LOG` is ignored there, so the
+agent's own env does not redirect it; this does not stop a process with file access from editing
+or deleting the log. Off-box, `$GROKBOT_AUDIT_LOG` (else `~/.grokbot/grokbot-audit.jsonl`)
+applies. Operator-mode runs are not audited.
