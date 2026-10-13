@@ -15,6 +15,7 @@ Subcommands:
   scroll     scroll the conversation or a list
   config-mcp list | add | remove local MCP servers in claude_desktop_config.json (backup + validation)
   wait-idle  poll screenshots until the window stops changing (pixel compare, tolerant of a blinking caret)
+  approvals-log  add | show: append-only JSONL record of every approval prompt answered (count + warning)
   doctor     check macOS version, Peekaboo, permissions, and whether Claude runs
 """
 import argparse
@@ -122,6 +123,11 @@ def shot(path, runner=run, sleeper=time.sleep):
     cmd = ["peekaboo", "see", "--app", APP, "--no-elements", "--path", path]
     _remove_stale(path)
     code, out = runner(cmd)
+    if code != 0 and "target changed during capture" in out.lower():
+        # Transient: the window moved/redrew mid-capture. One automatic retry (seen to succeed live).
+        sleeper(0.5)
+        _remove_stale(path)
+        code, out = runner(cmd)
     if code != 0 and "minimized" in out.lower():
         runner(["open", "-a", APP])
         sleeper(1.5)
@@ -709,6 +715,88 @@ def wait_idle(capture, timeout=120.0, interval=6.0, stable=2, clock=time.monoton
         sleeper(interval)
 
 
+# --- approvals log -------------------------------------------------------------------------------
+# Every approval prompt answered in Claude Desktop is recorded here so the run can later prove which
+# button was clicked (for example that no "Allow all for this website" was granted). Append-only JSONL.
+DEFAULT_APPROVALS_LOG = "desktop-approvals.jsonl"
+APPROVAL_WARN_AT = 5
+_BROAD_RE = re.compile(r"allow\s+all|always|for\s+this\s+(?:task|website|site|chat|session)|don'?t\s+ask\s+again|"
+                       r"skip\s+all", re.I)
+
+
+def is_broad_approval(button, prompt=""):
+    """True when the clicked button looks like a standing grant ("Allow all", "Always allow", ...)."""
+    return bool(_BROAD_RE.search(button or ""))
+
+
+def read_approvals(path):
+    """Return the list of approval entries in the JSONL log (empty if the file is absent)."""
+    if not os.path.exists(path):
+        return []
+    entries = []
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for n, line in enumerate(fh, 1):
+                if not line.strip():
+                    continue
+                try:
+                    item = json.loads(line)
+                except ValueError:
+                    raise DesktopError("%s line %d is not valid JSON; refusing to guess" % (path, n))
+                if not isinstance(item, dict):
+                    raise DesktopError("%s line %d is not a JSON object" % (path, n))
+                entries.append(item)
+    except OSError as exc:
+        raise DesktopError("cannot read approvals log %s: %s" % (path, exc))
+    return entries
+
+
+def add_approval(path, prompt, button, shot_path, now=None):
+    """Append one approval record. Returns (entry, count, warnings). All three fields are required."""
+    for name, value in (("--prompt", prompt), ("--button", button), ("--shot", shot_path)):
+        if not value or not value.strip():
+            raise DesktopError("%s is required: log the exact prompt text, the button you clicked, and the "
+                               "screenshot path that shows the whole prompt" % name)
+    entry = {
+        "time": (now or datetime.now()).isoformat(timespec="seconds"),
+        "prompt": prompt.strip(),
+        "button": button.strip(),
+        "shot": shot_path.strip(),
+        "broad": is_broad_approval(button),
+    }
+    directory = os.path.dirname(os.path.abspath(path))
+    os.makedirs(directory, exist_ok=True)
+    count = len(read_approvals(path)) + 1
+    try:
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+    except OSError as exc:
+        raise DesktopError("cannot write approvals log %s: %s" % (path, exc))
+    warnings = []
+    if entry["broad"]:
+        warnings.append("WARNING: %r looks like a standing grant (Allow all / Always / for this task). That "
+                        "needs the user's explicit OK for that exact scope; tell the user now." % entry["button"])
+    if count >= APPROVAL_WARN_AT:
+        warnings.append("WARNING: %d approvals logged in this run. STOP clicking approvals and ask the user "
+                        "whether they would rather allow these themselves." % count)
+    return entry, count, warnings
+
+
+def format_approvals(entries):
+    """Human-readable lines for `approvals-log show`, ending with the count and any warnings."""
+    lines = []
+    for i, e in enumerate(entries, 1):
+        lines.append("%d. %s  button=%r%s\n   prompt: %s\n   shot: %s" % (
+            i, e.get("time", "?"), e.get("button", "?"), "  [BROAD GRANT]" if e.get("broad") else "",
+            e.get("prompt", "?"), e.get("shot", "?")))
+    lines.append("%d approval(s) logged; %d broad grant(s)" % (len(entries), sum(1 for e in entries if e.get("broad"))))
+    if len(entries) >= APPROVAL_WARN_AT:
+        lines.append("WARNING: %d or more approvals; ask the user before clicking more." % APPROVAL_WARN_AT)
+    return lines
+
+
 def macos_major(version):
     try:
         return int(version.strip().split(".")[0])
@@ -837,6 +925,14 @@ def make_parser():
     w.add_argument("--out", default=os.path.join(tempfile.gettempdir(), "claude-desktop-last.png"),
                    help="where to leave the final screenshot")
 
+    al = sub.add_parser("approvals-log", help="record or list approval prompts answered (JSONL)")
+    al.add_argument("action", choices=["add", "show"])
+    al.add_argument("--log", default=DEFAULT_APPROVALS_LOG,
+                    help="JSONL file (default ./%s); pick a directory the user can read" % DEFAULT_APPROVALS_LOG)
+    al.add_argument("--prompt", help="add: the prompt text as read from the screenshot")
+    al.add_argument("--button", help="add: the exact label of the button you clicked")
+    al.add_argument("--shot", help="add: path of the screenshot showing the whole prompt")
+
     sub.add_parser("doctor", help="check macOS, Peekaboo, permissions, and Claude Desktop")
     return p
 
@@ -931,7 +1027,18 @@ def main(argv=None):
             finally:
                 shutil.rmtree(tmp, ignore_errors=True)
             print("%s after %d captures; last screenshot: %s" % (status, captures, args.out))
+            print("REMINDER: 'idle' only means the screen stopped changing; it can mean Cowork is blocked on "
+                  "an approval prompt. Read %s now (and scroll: stacked prompts can push the reply box off "
+                  "screen) before assuming the task finished." % args.out)
             return EXIT_OK if status == "idle" else EXIT_TIMEOUT
+        elif args.cmd == "approvals-log":
+            if args.action == "add":
+                entry, count, warnings = add_approval(args.log, args.prompt, args.button, args.shot)
+                print("logged approval #%d to %s: %r" % (count, args.log, entry["button"]))
+                for w in warnings:
+                    print(w, file=sys.stderr)
+            else:
+                print("\n".join(format_approvals(read_approvals(args.log))))
         elif args.cmd == "doctor":
             ok, lines = doctor()
             print("\n".join(lines))

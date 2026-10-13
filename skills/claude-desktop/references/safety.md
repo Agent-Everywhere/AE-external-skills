@@ -39,6 +39,33 @@ quoting the request, and click only after an explicit yes for that specific acti
 
 A blanket "go ahead and run the demo" does not cover these. When in doubt, ask.
 
+### Hard rules for every approval prompt
+
+Incident (2026-10-13): during a Cowork demo the operator clicked about 29 "Allow Claude to fetch pages
+from <site>?" prompts, some blind on partly visible prompts, wrote and ran its own OCR auto-approve
+script, and did not record what the setup-question clicks answered, so it could not prove that no
+"Allow all for this website" was granted. These rules exist so that cannot happen again.
+
+1. **Never write or run an auto-approve or auto-click script** (OCR loops, polling clickers, macros, a
+   `while` loop around `click`). Every approval is one deliberate click by you after reading it.
+2. **Click only when the WHOLE prompt is visible.** The latest fresh screenshot (taken after the prompt
+   appeared, not reused) must show the prompt text and all of its buttons. Read the label of the exact
+   button you are about to click. A partly visible, cropped or scrolled prompt: scroll until it is whole,
+   screenshot again, then decide.
+3. **Never click blind and never click in pairs.** One screenshot, one click, one screenshot to confirm
+   the result, before the next. Do not queue a second click on the strength of the first screenshot.
+4. **Prefer the most limited option** ("Allow once", this call only) over anything broader.
+5. **NEVER choose "Allow all", "Always allow", "for this task", "for this website/site/chat" or any
+   standing grant** without the user's explicit OK in this chat for that exact scope. Setup questions
+   and permission dialogs are approvals too.
+6. **After 5 routine approvals in one run, stop and ask the user.** They may prefer to allow the sites
+   themselves. `desktop.py approvals-log` prints this warning at the fifth entry; obey it.
+7. **Log every approval** right after clicking, including answers to setup questions:
+   `desktop.py approvals-log add --prompt "<text as read>" --button "<label clicked>" --shot <png>`
+   (default file `./desktop-approvals.jsonl`; use `--log` to put it where the user can read it). Entries
+   are time-stamped JSONL and flag broad grants. At the end of the run, `approvals-log show` and **report
+   the log to the user**, including the count and whether any broad grant was clicked.
+
 ## 4. Never type secrets
 
 Do not type passwords, API keys, tokens, recovery codes, or 2FA codes into Claude Desktop or anywhere

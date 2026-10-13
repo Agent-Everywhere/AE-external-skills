@@ -778,5 +778,109 @@ class ConfigSafety(unittest.TestCase):
         self.assertIn("not an object", "\n".join(desktop.mcp_list(self.path)))
 
 
+class ShotTransientRetry(unittest.TestCase):
+    def test_target_changed_during_capture_retries_once_then_succeeds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "s.png")
+            rec = WritingRecorder(path, [(1, "Error: target changed during capture"), (0, "")])
+            self.assertEqual(desktop.shot(path, runner=rec, sleeper=lambda s: None), path)
+            self.assertEqual(len(rec.calls), 2)
+            self.assertEqual(rec.calls[0], rec.calls[1])
+
+    def test_target_changed_twice_fails_after_exactly_one_retry(self):
+        rec = Recorder([(1, "target changed during capture"), (1, "target changed during capture")])
+        with self.assertRaises(desktop.DesktopError):
+            desktop.shot("/nonexistent/never.png", runner=rec, sleeper=lambda s: None)
+        self.assertEqual(len(rec.calls), 2)
+
+
+class ApprovalsLog(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.log = os.path.join(self._tmp.name, "sub", "approvals.jsonl")
+
+    def add(self, button="Allow once", prompt="Allow Claude to fetch pages from example.com?", shot="/tmp/a.png"):
+        return desktop.add_approval(self.log, prompt, button, shot)
+
+    def test_add_appends_jsonl_with_all_fields_and_counts(self):
+        entry, count, warnings = self.add()
+        self.assertEqual((count, warnings), (1, []))
+        _, count, _ = self.add(button="Deny")
+        self.assertEqual(count, 2)
+        lines = Path(self.log).read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(lines), 2)
+        first = json.loads(lines[0])
+        self.assertEqual(set(first), {"time", "prompt", "button", "shot", "broad"})
+        self.assertEqual((first["button"], first["broad"]), ("Allow once", False))
+        self.assertEqual(json.loads(lines[1])["button"], "Deny")
+
+    def test_requires_prompt_button_and_shot(self):
+        for kw in ({"prompt": ""}, {"button": " "}, {"shot": None}):
+            with self.assertRaises(desktop.DesktopError):
+                self.add(**kw)
+        self.assertFalse(os.path.exists(self.log))
+
+    def test_warns_at_five_not_before(self):
+        for i in range(4):
+            _, count, warnings = self.add()
+            self.assertEqual(warnings, [], count)
+        _, count, warnings = self.add()
+        self.assertEqual(count, 5)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("ask the user", warnings[0])
+
+    def test_broad_buttons_are_flagged(self):
+        for label in ("Allow all for this website", "Always allow", "Allow for this task", "Allow all"):
+            entry, _, warnings = self.add(button=label)
+            self.assertTrue(entry["broad"], label)
+            self.assertTrue(any("standing grant" in w for w in warnings), label)
+        for label in ("Allow once", "Deny", "Cancel"):
+            self.assertFalse(desktop.is_broad_approval(label), label)
+
+    def test_show_lists_entries_count_and_warning(self):
+        for _ in range(5):
+            self.add()
+        self.add(button="Allow all for this website")
+        text = "\n".join(desktop.format_approvals(desktop.read_approvals(self.log)))
+        self.assertIn("6 approval(s) logged; 1 broad grant(s)", text)
+        self.assertIn("[BROAD GRANT]", text)
+        self.assertIn("WARNING", text)
+        self.assertEqual(desktop.read_approvals(os.path.join(self._tmp.name, "none.jsonl")), [])
+
+    def test_corrupt_log_is_refused(self):
+        os.makedirs(os.path.dirname(self.log))
+        Path(self.log).write_text("not json\n", encoding="utf-8")
+        with self.assertRaises(desktop.DesktopError):
+            self.add()
+
+    def test_cli_add_show_and_default_path(self):
+        args = desktop.make_parser().parse_args(["approvals-log", "show"])
+        self.assertEqual(args.log, "desktop-approvals.jsonl")
+        self.assertEqual(desktop.main(["approvals-log", "add", "--log", self.log, "--prompt", "p",
+                                       "--button", "Allow once", "--shot", "/tmp/x.png"]), 0)
+        self.assertEqual(desktop.main(["approvals-log", "add", "--log", self.log, "--prompt", "p"]), 1)
+        self.assertEqual(desktop.main(["approvals-log", "show", "--log", self.log]), 0)
+        self.assertEqual(len(desktop.read_approvals(self.log)), 1)
+
+
+class WaitIdleReminder(unittest.TestCase):
+    def test_wait_idle_prints_blocked_on_prompt_reminder(self):
+        import contextlib
+        import io
+        real_shot, real_wait = desktop.shot_recovering, desktop.wait_idle
+        desktop.shot_recovering = lambda path, **kw: Path(path).write_bytes(b"x")
+        desktop.wait_idle = lambda *a, **kw: ("idle", 2, b"x")
+        buf = io.StringIO()
+        try:
+            with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(buf):
+                code = desktop.main(["wait-idle", "--out", os.path.join(tmp, "o.png")])
+        finally:
+            desktop.shot_recovering, desktop.wait_idle = real_shot, real_wait
+        self.assertEqual(code, 0)
+        self.assertIn("idle after 2 captures", buf.getvalue())
+        self.assertIn("blocked on an approval prompt", buf.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

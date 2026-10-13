@@ -23,7 +23,7 @@ links, which prefill a prompt but never submit it.
 
 **Read `references/safety.md` before the first action.** The short version: the user must not touch the
 Mac while you drive it, you never click an outward-facing or destructive approval without the user's
-explicit OK in this chat, you never type secrets, and screenshots stay on this machine.
+explicit OK in this chat, you never write or run auto-approve scripts or click an approval you have not fully read, you log every approval, you never type secrets, and screenshots stay on this machine.
 
 ## Helper script
 
@@ -42,6 +42,8 @@ python3 <skill-dir>/scripts/desktop.py press cmd+a
 python3 <skill-dir>/scripts/desktop.py scroll down --amount 10 --at 900,400
 python3 <skill-dir>/scripts/desktop.py config-mcp list           # also: add NAME --command C --arg=A | remove NAME, --restart
 python3 <skill-dir>/scripts/desktop.py wait-idle --timeout 180 --interval 6 --out /tmp/cd-done.png
+python3 <skill-dir>/scripts/desktop.py approvals-log add --prompt "<text>" --button "Allow once" --shot /tmp/cd-2.png
+python3 <skill-dir>/scripts/desktop.py approvals-log show        # default file ./desktop-approvals.jsonl
 ```
 
 Every subcommand is a thin wrapper over the raw commands in `references/peekaboo.md`; use those
@@ -104,9 +106,11 @@ Before any of these, read the matching section of `references/ui-map.md` and the
 
 ## Reading replies and knowing when it is done
 
-`wait-idle` is a heuristic, not a signal. A still screen can mean finished, but also "waiting on an
-approval", "paused between tool calls", or "error banner". After every `wait-idle`, read the
-screenshot and look for:
+`wait-idle` is a heuristic, not a signal. **"idle" can mean "blocked on a prompt":** Cowork stalled on
+an approval prompt looks exactly like a finished task (the screen stops changing), and the command
+prints a reminder line saying so. A still screen can mean finished, but also "waiting on an
+approval", "paused between tool calls", or "error banner". After every `wait-idle`, ALWAYS read the
+screenshot (scroll up and down too: stacked approval prompts push the reply box off screen) and look for:
 
 - the **Stop** button where Send was (still generating) versus the Send arrow (finished);
 - an **approval or permission prompt** (Allow / Deny buttons) that is blocking progress;
@@ -128,9 +132,13 @@ For long follow-ups, prefer `open --mode ... --prompt-file` for a new task over 
 
 When Desktop asks for permission (run a tool, access a folder or connector, edit a file):
 
+- **Follow the "Hard rules for every approval prompt" in `references/safety.md`**: no auto-click scripts,
+  whole prompt visible in a fresh screenshot, one click at a time, most limited button ("Allow once"),
+  never "Allow all"/"Always"/"for this task" without the user's explicit OK, stop and ask after 5, and
+  log each one with `desktop.py approvals-log add`.
 - **Read what it is asking.** Screenshot, read the full text of the request.
 - **Routine and local, inside what the user asked for** (for example reading a file in the task folder):
-  you may click Allow, and tell the user you did.
+  you may click the most limited Allow, log it, and tell the user you did.
 - **Outward-facing or destructive** (sending a message or email, posting, payments or purchases,
   deleting or overwriting, granting a connector or new permission, anything touching other people's
   data): **stop and ask the user in this chat.** Show them the exact request. Click only after an
@@ -145,7 +153,8 @@ When Desktop asks for permission (run a tool, access a folder or connector, edit
 | `window minimized` / `target not found` although Claude runs | Claude is not frontmost (or is on another Space). `desktop.py activate` (System Events `set frontmost`; `open -a` and AppleScript `activate` do not work for this). `shot`, `click`, `type`, `press`, `scroll` and `wait-idle` call it for you |
 | `activate` fails mentioning Automation / -1743 | The terminal app lacks Automation permission for System Events; the user enables it in System Settings > Privacy & Security > Automation, then rerun `doctor` |
 | `type "-text"` is rejected by the CLI | Put `--` first: `desktop.py type -- "-text"` (the helper passes `--` on to Peekaboo itself) |
-| `type` says "indeterminate" | Normal with Peekaboo 4.9.2: the text usually landed. Screenshot to confirm; do not retype blindly |
+| `type` says "indeterminate" | Expected with Peekaboo 4.9.2 on every call: it is not an error, the text usually landed. Verify by screenshot; do not retype blindly |
+| `shot` fails with "target changed during capture" | Transient. `shot` retries once by itself; if it still fails, run it again |
 | A native file picker is open and `shot` shows a dimmed Claude | The picker is a separate window; drive it with System Events (see `references/ui-map.md`) and look with `screencapture -x` |
 | Screenshot is blank, or `see` fails with a permission error | Screen Recording not granted to the terminal app; grant it, restart the terminal, rerun `doctor` |
 | Clicks land in the wrong place | Re-derive the scale from a fresh screenshot; the window may have moved or resized; use `--foreground`; see `references/peekaboo.md` |
