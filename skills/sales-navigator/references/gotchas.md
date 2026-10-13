@@ -178,7 +178,8 @@ changes without notice.
     that recommends "raise the cap" or "pull more" would spend calls unattended.
     → Make the recommended/default option the safe one (use rows already pulled, never raise a
     cap, never spend calls, never send) and say "the safe default is X" in the question
-    (`references/guardrails.md`).
+    (`references/guardrails.md`). A send is never approved by a card: only a typed yes to the
+    exact batch in chat (`references/outreach.md`); no answer means nothing is sent.
 44. **"Set up" is not "run".** A setup request that also pulls accounts, qualifies and finds
     decision-makers burns the whole 40-page daily budget and leaves nothing for the next prompt.
     → One step per request (`SKILL.md`): setup writes the profile and workspace only, sizing is

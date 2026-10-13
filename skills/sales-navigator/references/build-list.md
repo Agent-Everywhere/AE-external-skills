@@ -2,25 +2,28 @@
 
 Turn the Company Profile into a clean list of accounts and/or decision-makers. This is the
 original, read-only action; every other action starts from its CSVs. Preflight (runtime, session,
-profile, budget) is in `SKILL.md` and has already been done.
+profile, budget) is in `SKILL.md` and has already been done, except for Setup, which skips
+runtime, session and budget and needs only the workspace. If a request needs a profile and none
+exists, run Setup and stop; do not carry on to the request.
 
 **One step per request.** build-list covers four separate requests; do only the one asked, then
 stop with a short result and "Next, you can: ...":
 
 | The user asks | You do | You do not |
 |---|---|---|
-| **Set up** | Section 1: write the profile + workspace | any search page or count call |
-| **Size my market** / "how big is it" | Sections 2-3 counting only: `count=1` calls, shard counts, the `## Sub-list plan` | pull any rows, qualify, find decision-makers |
-| **Pull** N accounts / leads | Sections 4-6 for only that list and size (samples are 2 pages) | the rest of the market, qualify, decision-makers, save to a list |
+| **Set up** | Section 1: write the profile + workspace | any LinkedIn page, count or typeahead call |
+| **Size my market** / "how big is it" | Sections 2-3 counting only: `count=1` calls (and typeahead lookups for ids), shard counts, the `## Sub-list plan` | pull any rows, qualify, find decision-makers |
+| **Pull** N accounts / leads | Section 3 for that list only (reuse the `## Sub-list plan` counts if they exist; else at most 10 count calls) plus the 2-page sample, then sections 4-6 for only that list and size | the rest of the market, qualify, decision-makers, save to a list |
 | **Find decision-makers** | Section 5 for only the accounts named | pull more accounts |
 
 Chaining (pull, then qualify, then decision-makers) happens only through `run-my-day`
-(`run-my-day.md`) or when the user explicitly asks to continue. The next step is a suggestion.
+(`run-my-day.md`). The next step is a suggestion; a bare "continue" means one step, the one
+named or the single one offered (ask which if several).
 
 ## 1. Intake = the Setup action (one turn, no search pages)
 
 "Set up my prospecting" does **one thing: write `company-profile.md` and create the workspace.**
-It makes **zero LinkedIn search pages and zero count calls** (at most a sign-in check), and it
+It makes **zero LinkedIn search pages, zero count or typeahead calls and no sign-in check**, and it
 does **not** size the market, qualify, or find decision-makers. When it is done, stop and say
 "Next, you can: size my market (counts only) / pull a first 25 accounts / run my day".
 Target: setup done in 1-2 turns, not a 15-minute interview.
@@ -33,14 +36,18 @@ If there is none, do **not** ask the questions one by one. **Propose a filled pr
 message:**
 
 1. Take the user's one-line description of what they sell and to whom. If they gave a website
-   (or you can name it), take a quick read of the homepage (one page fetch is enough; it is not a
-   LinkedIn call) for the offer, who it serves, and any facts we may state.
+   (or you can name it), optionally read the homepage (one fetch, not a LinkedIn call; Cowork asks
+   "Allow Claude to fetch pages?" once, `gotchas.md` item 42, so skip it if the user's line is enough)
+   for the offer, who it serves, and any facts we may state.
 2. Fill every row of the table below from that, with a sensible default and a short rationale
    where you guessed (buyer types, headcount band, titles, keywords, size goal 25, tone, default
    caps from `guardrails.md`).
 3. Show it as a **short numbered list** (one line per row, 1-9) and ask exactly one question:
    **"Confirm, or correct by number."** Accept "looks good", "yes", "use defaults" or "skip" as
-   a confirmation; apply any corrections and do not ask a second round.
+   a confirmation; apply any corrections and do not ask a second round. A guessed profile never
+   grants permissions: "create lists" stays **no**, and no outreach is enabled, until the user says
+   yes to that row by number. If the workspace folder is unknown, fold that question into this
+   same message.
 4. Save the profile and workspace (`scripts/workspace.py init`), show the path, and stop with the
    "Next, you can: ..." line.
 

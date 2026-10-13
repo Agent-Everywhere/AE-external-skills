@@ -36,20 +36,21 @@ reference**. Actions chain through CSV files in the user's folder, so any can st
 | **follow-ups** | "who accepted / replied", "what's pending", "draft follow-ups" | [`references/followups.md`](references/followups.md) | No (drafts only) |
 | **run-my-day** | "run my day", "do today's routine", "set this up on a schedule" | [`references/run-my-day.md`](references/run-my-day.md) | No (drafts only; never sends unattended) |
 
-Nothing is sent unless the user explicitly asks to send, and then only under `outreach.md`.
-Sending is described nowhere else; the caps and stop rules are in `references/guardrails.md`.
+Nothing is sent unless the user explicitly asks, and then only under `outreach.md` (the only file that describes sending); caps and stop rules: `references/guardrails.md`.
 
 ## One step per request (the rule that overrides "being helpful")
 
 **Do exactly the one action the user asked for, then stop.** Never chain into the next action,
 even when it is obvious and the budget allows. **Setup writes the Company Profile and the
-workspace only: zero search pages, at most a sign-in check.** Market sizing is count calls only
-(no page pulls). A pull gets only the list and size asked for. End every step with a short
-result (numbers, file path, the `quota` line) and **"Next, you can: ..."** with two or three
-suggestions; the user picks. Only **run-my-day** chains, and only when asked ("run my day", or an
-explicit "continue"). When you ask a choice (question card, "raise the cap?"), the card may
-auto-select the recommended option after a few minutes: make the recommended/default the **safe**
-one (never raise a cap, never spend calls) and say so in the question.
+workspace only: zero search pages, no sign-in check.** Market sizing is count calls only (plus
+typeahead lookups for filter ids; no page pulls). A pull gets only the list asked for. End every
+step with a short result (numbers, file path, the `quota` line) and **"Next, you can: ..."** with
+two or three suggestions; the user picks. Only **run-my-day** chains, and only on the literal "run
+my day" or a schedule. A bare "continue" or "go on" means exactly ONE step: the one named, or the
+single one you offered (several offered: ask which). Choices (question cards) may auto-select the
+recommended option after a few minutes, so the recommended/default is always the **safe** one
+(never raise a cap, never spend calls, never send) and the question says so. A send is never
+approved by a card (`references/outreach.md`).
 
 ## Always read first
 
@@ -61,7 +62,9 @@ one (never raise a cap, never spend calls) and say so in the question.
 Loaded by the action that needs them: [`filters.md`](references/filters.md) (ICP to filters, sharding),
 [`geo-us-states.md`](references/geo-us-states.md) (state ids), [`output.md`](references/output.md) (CSV columns).
 
-## Preflight (every run)
+## Preflight (every run except setup)
+
+Setup needs only step 3's workspace; it skips steps 1, 2 and 5.
 
 1. **Pick the runtime** (say which, and why, in one line):
 
@@ -71,12 +74,12 @@ Loaded by the action that needs them: [`filters.md`](references/filters.md) (ICP
    | Agent Browser connector (`browser`, `workspace`) **and** code execution | **agent-browser** (cloud browser, saved profile) — for schedules and laptop-off runs, or when there is no JS tool | `runtime/agent-browser.md` |
    | Neither | **slow path**: read result pages with whatever page-reading tools exist | `references/build-list.md` section 4b |
 
-   Fast runtimes give exact counts and ~2 s per 25-row page (page reading: 30 s or more, incomplete
-   rows). **Warn the user that a local run uses their own seat, session and IP**; offer the cloud browser.
+   Fast runtimes: exact counts, ~2 s per 25-row page (page reading: 30 s or more, incomplete rows).
+   **Warn the user that a local run uses their own seat, session and IP**; offer the cloud browser.
 2. **Session.** The browser must be signed in to Sales Navigator (`linkedin.com/sales/home`).
-   - Not signed in → the user signs in themselves (their own window, or `open_browser` for the cloud
+   - Not signed in → the user signs in themselves (own window, or `open_browser` for the cloud
      browser). **Never ask for, type, or store a password or 2FA code.**
-   - Signed in but no Sales Nav (upsell redirect) → say so, stop; no classic-search fallback unless the user accepts it.
+   - Signed in but no Sales Nav (upsell redirect) → say so, stop; no classic-search fallback unless accepted.
 3. **Workspace** (so the caps and the outreach ledger survive across tasks and days). All state lives in
    one folder the host always has access to: `company-profile.md`, `quota.md`, `run_log.csv`,
    `outreach_log.csv`, `lists/`, `drafts/`, `results/`. Locate it in this order (the scripts do the same):
@@ -85,38 +88,36 @@ Loaded by the action that needs them: [`filters.md`](references/filters.md) (ICP
    folder is, run `python3 scripts/workspace.py init <that folder>` and save the path in
    `company-profile.md` as `workspace:`. Pass `--profile FILE` (or `--workspace DIR`) on EVERY script call.
    `python3 scripts/workspace.py locate` shows what was found; with nothing found the scripts REFUSE
-   (exit 4): treat that as "ask the user", not as a fresh start. Never start a fresh `outreach_log.csv`
-   silently (`references/outreach.md`).
+   (exit 4): ask the user, never start a fresh `outreach_log.csv` silently (`references/outreach.md`).
+   Setup folds this question into its one profile message.
 4. **Company Profile.** Load the user's filled `company-profile.md` (workspace, else an attached or
    project file) and ask only for fields it lacks. If none exists, run **setup** (`references/build-list.md`
-   section 1): propose a filled profile in ONE message, the user confirms or corrects by number, then save
-   it in the workspace. `templates/company-profile.md` is the blank form and
-   `templates/company-profile.example.md` a filled fictional one (its seller facts are placeholders,
-   never used in drafts; a profile still titled EXAMPLE has no usable facts).
+   section 1) and stop, even if the user asked for something else: propose a filled profile in ONE
+   message, the user confirms or corrects by number, then save it in the workspace.
+   `templates/company-profile.md` is the blank form and `templates/company-profile.example.md` a
+   filled fictional one (its seller facts are placeholders, never used in drafts).
 5. **Budget.** Run `python3 scripts/run_log.py quota --workspace DIR` first and read the line it prints
    (`Today: 87/150 calls · 12/20 invites · week 41/100`). Tell the user the planned volume (calls, rows,
-   pages) against `references/guardrails.md` and, for the cloud browser, roughly how much browser time
-   it bills. Get a "go" for anything above the default run size. If the page budget would be exceeded,
-   offer the three options in `references/guardrails.md`, safe default first (use rows already pulled).
+   pages) against `references/guardrails.md` (cloud browser: roughly the browser time billed). Get a
+   "go" for anything above the default run size. If the page budget would be exceeded, offer the
+   three options in `references/guardrails.md`, safe default first (use rows already pulled).
 
 **End of every action:** log what you used (`run_log.py add ...`), run `run_log.py quota` (it rewrites
-`quota.md`), and show its one-line summary in chat, then the "Next, you can: ..." line. The local CSV
-files stay the source of truth (mirroring to a Google Sheet is optional).
+`quota.md`), show its one-line summary, then the "Next, you can: ..." line. The local CSVs are the source of truth.
 
 ## Helper scripts
 
 Python 3 standard library, no network; run them on the run's files, or apply the same rules by hand.
-
 - `scripts/salesnav_rows.py` — search results (JSONL or saved JSON) to `leads.csv` / `accounts.csv` per `references/output.md`.
 - `scripts/shard_plan.py` — per-dimension result counts to a shard plan under the cap.
 - `scripts/dedupe.py` — normalize LinkedIn URLs and domains, dedupe, apply exclusions.
 - `scripts/validate_csv.py` — check an accounts/leads CSV against `references/output.md`.
 - `scripts/workspace.py` — `locate` / `init`: find or create the workspace folder (above).
-- `scripts/run_log.py` — `add` / `today` / `quota`: the usage log (`run_log.csv`) against the limits, and `quota.md` with the one-line summary. Takes `--workspace` / `--profile`; `quota` also takes the user's lowered `--daily` / `--weekly` / `--followup-daily` invite caps.
+- `scripts/run_log.py` — `add` / `today` / `quota`: the usage log (`run_log.csv`) against the limits, and `quota.md` with the one-line summary. Takes `--workspace` / `--profile`; `quota` also takes `--daily` / `--weekly` / `--followup-daily`: pass the same lowered invite caps you pass to `outreach_log.py`.
 - `scripts/outreach_log.py` — the outreach ledger (`check`, `add`, `status`, `followup`, `caps`, `summary`); outreach and follow-ups only; refuses (exit 4) when the ledger is missing or the workspace unlocated.
 
-Page snippets (`page/*.js`, run inside the signed-in page): `csrf_ready.js`, `count.js`, `lead_search.js`,
-`account_search.js`, `companies_websites.js`, `typeahead.js` (`runtime/local.md`).
+Page snippets (`page/*.js`, run in the signed-in page; `runtime/local.md`): `csrf_ready.js`, `count.js`,
+`lead_search.js`, `account_search.js`, `companies_websites.js`, `typeahead.js`.
 
 ## What this skill never does
 
@@ -125,5 +126,4 @@ Page snippets (`page/*.js`, run inside the signed-in page): `csrf_ready.js`, `co
 - Exports via unofficial bulk tools, runs multiple browsers on one seat, or works around a LinkedIn
   warning, captcha, or limit.
 - Enters credentials or 2FA codes, or prints, logs, or saves cookies and tokens.
-- Collects personal emails/phones from profiles or adds data the user didn't ask for.
-- Imports a user's search URL unless they ask.
+- Collects personal emails/phones or data the user didn't ask for, or imports their search URL unasked.

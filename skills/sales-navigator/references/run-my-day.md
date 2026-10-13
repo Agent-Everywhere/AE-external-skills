@@ -2,11 +2,14 @@
 
 **The only action that chains.** Every other action does one step and stops
 (`SKILL.md`, "One step per request"); this one runs several in a row, and only when the user
-says "run my day" (or schedules it, or explicitly asks to continue). A setup, sizing or pull
-request never turns into a run-my-day on its own, and finishing setup is not a reason to start it.
+says "run my day" (or schedules it). A bare "continue" is not that: it means one step. A setup,
+sizing or pull request never turns into a run-my-day on its own, and finishing setup is not a
+reason to start it.
 It also stays inside the day's page budget (`guardrails.md`): when the budget would be exceeded
 it stops at the point reached and offers the three budget options there (use rows already pulled,
-continue tomorrow, raise only with the user's explicit OK), safe default first.
+continue tomorrow, raise only with the user's explicit OK), safe default first. **Unattended
+(scheduled) runs have nobody to answer: they take option 1 automatically** (no new calls past the
+budget, mark the sub-list `partial`, never raise a cap, never send) and say so in the day report.
 
 One routine that chains the other actions into a day's work, and ends with drafts and a short
 report for the user to act on. It reads, qualifies, saves to a list the user already allowed, and
@@ -42,7 +45,7 @@ each step save its files, and stop the routine (not just the step) on any stop s
    leave the rest for them to review.
 3. **Decision-makers.** For accounts marked `keep`, find 1–3 decision-makers (`build-list.md`,
    section 5). Remove anyone already in the ledger: `outreach_log.py check`.
-4. **Save to list.** If the profile allows it, save the qualified rows to the named list
+4. **Save to list.** Only if the profile says "create lists: yes" (the user's own answer, never a guessed default), save the qualified rows to the named list
    (`lists.md`) and verify the count. If it does not, leave the file and say so.
 5. **Draft for approval.** Draft up to the room left under today's caps (`outreach_log.py caps`)
    following `references/outreach.md` Part A. Write `drafts/<yyyy-mm-dd>.csv`. Do not click
@@ -69,7 +72,8 @@ and every day sees the same logs; it holds the Company Profile, `run_log.csv`, `
 the CSVs), and give it this prompt:
 
 > Run the sales-navigator skill's run-my-day action using the Company Profile in the sales-navigator workspace folder.
-> Draft only: do not send, connect or message anyone. Stop and report on any LinkedIn warning,
+> Draft only: do not send, connect or message anyone. If the page budget would be exceeded, use the
+> rows already pulled and do not raise any cap. Stop and report on any LinkedIn warning,
 > captcha or limit. Finish with the day report.
 
 What the runtime needs to be true when the task fires:

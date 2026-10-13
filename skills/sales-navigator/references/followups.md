@@ -56,6 +56,6 @@ suggested action, draft text. Show the user the table.
 ## 4. Report
 
 Counts by status (sent, accepted, replied, withdrawn), who is due, replies needing the user, the
-draft file path. Ask what they want next. If they ask to send the drafts, load
+draft file path. Stop with "Next, you can: ..." and start none of them. If they ask to send the drafts, load
 `references/outreach.md` Part B and follow it from the start (a new explicit approval of the
 exact batch); nothing in this file authorizes a send.

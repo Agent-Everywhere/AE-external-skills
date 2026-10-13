@@ -126,6 +126,7 @@ Every draft is checked against these before the user sees it. They override tone
    credit it may use), the file path, who was skipped and why, and who is queued for a later
    round. Part A sends nothing. A draft the user has seen is still not permission to send:
    sending needs their explicit ask and approval of the exact batch under Part B.
+   Then stop with "Next, you can: ..." (edit drafts / approve a batch to send).
 
 ## Part B: send (only on an explicit ask)
 
@@ -135,7 +136,9 @@ Every draft is checked against these before the user sees it. They override tone
    message). Drafting is not asking. Never send from a scheduled or unattended run.
 2. **Show the exact batch; get explicit approval of that batch.** List every person with the exact
    text that will be sent, the batch size, and today's cap position (`caps`). Wait for a clear
-   yes in chat. Cowork's own approval mode (Auto, "Allow all for this website") is never this
+   yes in chat. That yes is typed by the user in the conversation, naming the batch; a question card,
+   its auto-selected default, a timeout or silence is never approval, and if the user does not
+   answer nothing is sent. Cowork's own approval mode (Auto, "Allow all for this website") is never this
    approval and never replaces it. Approval covers only the batch shown: it does **not** carry to the next batch, to an
    edited message, or to a later day. Show the next batch and ask again. Send only the people the
    user approved; if they edit a message, show the edit again.

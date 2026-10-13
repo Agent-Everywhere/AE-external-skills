@@ -49,7 +49,12 @@ offer exactly these three options, **in this order, with the first as the recomm
 choice after a few minutes with nobody answering. So the recommended/default option of any choice
 this skill asks must be the **safe** one: never raise a cap, never spend calls, never send. Say
 "the safe default is X" in the question. Never recommend raising a cap, and never raise one on
-your own or because a card timed out.
+your own or because a card timed out. **A send approval is never a card:** it is the user's own
+typed message in chat approving the exact batch (`outreach.md`); a card's auto-selected default,
+a timeout or silence is not approval, and with no typed approval nothing is sent.
+
+**Unattended runs** (scheduled tasks, nobody to answer) take the safe option automatically: no
+new calls beyond the budget, no raised cap, no send. Report what was skipped.
 
 ## Where the counters live (they must persist)
 
