@@ -11,6 +11,15 @@ A skill opts in through skills/<name>/skill.yaml:  runtimes: [local, agent-brows
                                           or a skill with `runtimes: []` still has a runtime/ folder
 
 packages/browser-runtime is the single source of truth: edit it there, then run this script.
+
+Purpose skills (salesnav-*) also bundle the toolkit files they need, so each works installed alone.
+A skill opts in through skills/<name>/skill.yaml:
+  uses_toolkit: [page/count.js, scripts/run_log.py, reference.md]
+The listed paths are copied from skills/sales-navigator (the single source) to the same relative path
+inside the purpose skill. Directories such as page/ or scripts/ that hold listed files are managed:
+a file there that is not listed is stale. --check fails on a missing, differing or stale file, and on a
+listed path the source does not have. Never edit a bundled copy.
+
 Python 3 standard library only, no network.
 """
 import argparse
@@ -21,6 +30,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 PACKAGE_REL = Path("packages") / "browser-runtime"
+TOOLKIT_SKILL = "sales-navigator"  # the single source of the files a purpose skill lists in uses_toolkit
+RESERVED_FILES = {"skill.yaml", "SKILL.md"}  # a skill's own files, never vendored from the toolkit
 IGNORED_DIRS = {"__pycache__"}
 IGNORED_SUFFIXES = {".pyc", ".pyo", ".swp", ".swo"}
 IGNORED_NAMES = {".DS_Store", "Thumbs.db", "desktop.ini"}  # OS litter, never vendored and never drift
@@ -112,6 +123,82 @@ def orphan_runtimes(repo):
     return found
 
 
+def toolkit_list(skill_dir):
+    """The validated `uses_toolkit` paths of one skill (relative POSIX paths, no .. or absolute)."""
+    names = load_manifest(skill_dir).get("uses_toolkit") or []
+    if isinstance(names, str):
+        raise ValueError("%s: uses_toolkit must be a list like [page/count.js, reference.md]" % Path(skill_dir).name)
+    out = []
+    for name in names:
+        rel = Path(name)
+        if rel.is_absolute() or ".." in rel.parts or not rel.parts or is_ignored(rel):
+            raise ValueError("%s: bad uses_toolkit path %r" % (Path(skill_dir).name, name))
+        if rel.parts[0] == "runtime" or str(rel) in RESERVED_FILES:
+            raise ValueError("%s: uses_toolkit path %r is owned elsewhere (runtime/ is vendored from "
+                             "packages/browser-runtime; skill.yaml and SKILL.md are the skill's own)"
+                             % (Path(skill_dir).name, name))
+        if rel not in out:
+            out.append(rel)
+    return out
+
+
+def skills_with_toolkit(repo):
+    """Skill directories whose skill.yaml lists uses_toolkit paths (never the toolkit skill itself)."""
+    found = []
+    for skill_dir in sorted((Path(repo) / "skills").iterdir()):
+        if skill_dir.is_dir() and (skill_dir / "skill.yaml").is_file():
+            if load_manifest(skill_dir).get("uses_toolkit") and skill_dir.name != TOOLKIT_SKILL:
+                found.append(skill_dir)
+    return found
+
+
+def toolkit_drift(repo, skill_dir):
+    """Differences between the toolkit source files a skill lists and its bundled copies."""
+    source = Path(repo) / "skills" / TOOLKIT_SKILL
+    wanted = toolkit_list(skill_dir)
+    problems = []
+    for rel in wanted:
+        src, dst = source / rel, Path(skill_dir) / rel
+        if not src.is_file():
+            problems.append("source missing: %s/%s" % (TOOLKIT_SKILL, rel.as_posix()))
+        elif not dst.is_file():
+            problems.append("missing: %s" % rel.as_posix())
+        elif src.read_bytes() != dst.read_bytes():
+            problems.append("differs: %s" % rel.as_posix())
+    for rel in toolkit_stale(skill_dir, wanted):
+        problems.append("stale: %s" % rel.as_posix())
+    return problems
+
+
+def toolkit_stale(skill_dir, wanted):
+    """Files inside the managed directories (page/, scripts/, ...) that are not listed."""
+    stale = []
+    for top in sorted({rel.parts[0] for rel in wanted if len(rel.parts) > 1}):
+        base = Path(skill_dir) / top
+        if base.is_dir():
+            for path in sorted(base.rglob("*")):
+                rel = path.relative_to(skill_dir)
+                if path.is_file() and not is_ignored(rel.relative_to(top)) and rel not in wanted:
+                    stale.append(rel)
+    return stale
+
+
+def sync_toolkit(repo, skill_dir):
+    """Copy the listed toolkit files into the skill and remove stale files from managed directories."""
+    source = Path(repo) / "skills" / TOOLKIT_SKILL
+    wanted = toolkit_list(skill_dir)
+    for rel in wanted:
+        if not (source / rel).is_file():
+            raise ValueError("%s: %s/%s does not exist" % (Path(skill_dir).name, TOOLKIT_SKILL, rel.as_posix()))
+    for rel in toolkit_stale(skill_dir, wanted):
+        (Path(skill_dir) / rel).unlink()
+    for rel in wanted:
+        dst = Path(skill_dir) / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source / rel, dst)
+    return len(wanted)
+
+
 def sync(source, copy):
     """Replace `copy` with the package files: build in a temp dir beside it, then swap by rename.
 
@@ -164,13 +251,30 @@ def main(argv=None):
         else:
             sync(source, copy)
             print("synced %s/runtime (%d files)" % (skill_dir.name, len(package_files(source))))
+    failed = 0
+    for skill_dir in skills_with_toolkit(repo):
+        try:
+            if args.check:
+                problems = toolkit_drift(repo, skill_dir)
+                if problems:
+                    bad += 1
+                    print("DRIFT %s/toolkit: %s" % (skill_dir.name, "; ".join(problems)))
+                else:
+                    print("ok    %s/toolkit" % skill_dir.name)
+            else:
+                print("synced %s/toolkit (%d files)" % (skill_dir.name, sync_toolkit(repo, skill_dir)))
+        except ValueError as exc:
+            failed += 1
+            print("ERROR %s" % exc, file=sys.stderr)
     for skill_dir in orphan_runtimes(repo):
         print("%s %s/runtime: the skill lists no runtimes (`runtimes: []`) but has a runtime/ folder: "
               "delete it or list a runtime in skill.yaml" % ("ORPHAN" if args.check else "warning:", skill_dir.name))
         bad += 1
     if args.check and bad:
-        print("runtime copies are out of date: run `python3 build/sync_runtime.py` (and fix any ORPHAN above)",
+        print("vendored copies are out of date: run `python3 build/sync_runtime.py` (and fix any ORPHAN above)",
               file=sys.stderr)
+        return 1
+    if failed:
         return 1
     if not targets:
         print("no skill lists a browser runtime", file=sys.stderr)

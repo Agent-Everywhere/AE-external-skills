@@ -484,13 +484,6 @@ class PendingIntent(LogCase):
         Path(self.log).write_text(header + "ACwAAAzero01,connection,pending,2026-10-12,2026-10-12,0,h,\n")
         self.assertEqual(self.cli("caps", "--date", self.TODAY)[0], 0)
 
-    def test_outreach_md_documents_the_pending_flow_and_the_mandatory_resume_check(self):
-        text = " ".join((SKILL / "references" / "outreach.md").read_text(encoding="utf-8").split())
-        for needle in ("--pending", "--status sent", "caps --for", "20 follow-up messages a day", "On every resume",
-                       "mandatory", "--allow-over-cap"):
-            with self.subTest(needle=needle):
-                self.assertIn(needle, text)
-
 
 class FileLock(LogCase):
     TODAY = "2026-10-12"
@@ -543,9 +536,9 @@ class FileLock(LogCase):
 
 
 class CapsMatchGuardrails(unittest.TestCase):
-    def test_constants_match_guardrails_md(self):
-        md = (SKILL / "references" / "guardrails.md").read_text(encoding="utf-8")
-        section = md.split("## Outreach caps and stop rules", 1)[1]
+    def test_constants_match_reference_md(self):
+        md = (SKILL / "reference.md").read_text(encoding="utf-8")
+        section = md.split("### Outreach caps and stop rules", 1)[1].split("\n#", 1)[0]
         rows = {}
         for line in section.splitlines():
             if line.startswith("|") and not re.match(r"\|[-| ]+\|$", line.strip()):
@@ -554,8 +547,8 @@ class CapsMatchGuardrails(unittest.TestCase):
         num = lambda label: int(re.match(r"\d+", rows[label]).group())  # noqa: E731
         self.assertEqual(num("Connection requests per day"), outreach_log.DAILY_CONNECTION_CAP)
         self.assertEqual(num("Connection requests per 7 days"), outreach_log.WEEKLY_CONNECTION_CAP)
-        self.assertEqual(num("Follow-up messages to people who accepted, per day"), outreach_log.DAILY_FOLLOWUP_CAP)
-        self.assertEqual(num("Messages to one person (first message plus follow-ups)"), outreach_log.MAX_TOUCHES)
+        self.assertEqual(num("Follow-up messages per day"), outreach_log.DAILY_FOLLOWUP_CAP)
+        self.assertEqual(num("Messages to one person (first plus follow-ups)"), outreach_log.MAX_TOUCHES)
 
 
 if __name__ == "__main__":

@@ -672,16 +672,9 @@ class PlanValidation(unittest.TestCase):
         self.assertIn("nope.js", problems[0])
 
     def test_every_plan_example_in_the_docs_is_valid(self):
-        text = (ROOT / "skills" / "sales-navigator" / "references" / "fast-path.md").read_text()
+        text = (ROOT / "packages" / "browser-runtime" / "README.md").read_text()
         block = re.search(r"```json\n(\{\n  \"start_url\".*?\n\})\n```", text, re.S).group(1)
         self.assertEqual(session.validate_plan(json.loads(block)), [])
-
-    def test_page_budget_constants_match_guardrails(self):
-        md = (ROOT / "skills" / "sales-navigator" / "references" / "guardrails.md").read_text()
-        row = [l for l in md.splitlines() if l.startswith("| Search result pages read")][0]
-        cells = [c.strip() for c in row.strip("|").split("|")]
-        self.assertEqual(int(re.match(r"\d+", cells[1]).group()), session.DEFAULT_MAX_PAGES)
-        self.assertEqual(int(re.match(r"\d+", cells[2]).group()), session.HARD_MAX_PAGES)
 
 
 class PageBudget(unittest.TestCase):

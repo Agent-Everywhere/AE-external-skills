@@ -25,7 +25,7 @@
     {
       "name": "claude-desktop",
       "source": "./skills/claude-desktop",
-      "description": "Operate the Claude Desktop app on your Mac from Claude Code: open Chat, Cowork, or Code tasks with a prompt, send, read replies, follow up, and click approvals; manage projects, skills, custom connectors, local MCP config, and scheduled tasks. Unofficial; needs macOS 15+ and Peekaboo.",
+      "description": "Operate the Claude Desktop app on your Mac from Claude Code: tasks, replies, approvals, projects, skills, connectors. Unofficial; needs macOS 15+ and Peekaboo.",
       "skills": ["."],
       "category": "productivity",
       "tags": ["claude-desktop", "cowork", "peekaboo", "macos"]
@@ -33,10 +33,42 @@
     {
       "name": "sales-navigator",
       "source": "./skills/sales-navigator",
-      "description": "Build account, lead, and decision-maker lists in LinkedIn Sales Navigator with guardrails, fast through the in-page API. Runs in your own browser (local) or in a cloud browser via the Agent Browser connector.",
+      "description": "Sales Navigator toolkit: exact counts, account and lead searches through the in-page API, CSV and cap-tracking scripts. Runs in your own browser (local) or Agent Browser.",
       "skills": ["."],
       "category": "sales",
       "tags": ["linkedin", "sales-navigator", "lead-generation"]
+    },
+    {
+      "name": "salesnav-tam-accounts",
+      "source": "./skills/salesnav-tam-accounts",
+      "description": "Size a company-side market on Sales Navigator: build account filters and keywords, count variants exactly, compare options and pick a master search. Runs in your own browser (local) or Agent Browser.",
+      "skills": ["."],
+      "category": "sales",
+      "tags": ["linkedin", "sales-navigator", "tam"]
+    },
+    {
+      "name": "salesnav-tam-people",
+      "source": "./skills/salesnav-tam-people",
+      "description": "Size a people-side market on Sales Navigator: title, seniority, function, geography and headcount filters, exact counts and a master lead search. Runs in your own browser (local) or Agent Browser.",
+      "skills": ["."],
+      "category": "sales",
+      "tags": ["linkedin", "sales-navigator", "tam"]
+    },
+    {
+      "name": "salesnav-tam-tracker",
+      "source": "./skills/salesnav-tam-tracker",
+      "description": "Split a Sales Navigator search that is over the viewable cap into sub-lists, pull them, dedupe across them and track coverage in a CSV. Runs in your own browser (local) or Agent Browser.",
+      "skills": ["."],
+      "category": "sales",
+      "tags": ["linkedin", "sales-navigator", "tam"]
+    },
+    {
+      "name": "salesnav-outreach",
+      "source": "./skills/salesnav-outreach",
+      "description": "Daily Sales Navigator outreach with a ledger: sourced drafts, send only after typed approval of the exact batch, caps and follow-ups. Runs in your own browser (local) or Agent Browser.",
+      "skills": ["."],
+      "category": "sales",
+      "tags": ["linkedin", "sales-navigator", "outreach"]
     }
   ]
 }

@@ -14,6 +14,10 @@ for any company, asks the user only for what it needs, and runs inside the user'
 /plugin install grokbot-box@ae-external-skills
 /plugin install claude-desktop@ae-external-skills
 /plugin install sales-navigator@ae-external-skills
+/plugin install salesnav-tam-accounts@ae-external-skills
+/plugin install salesnav-tam-people@ae-external-skills
+/plugin install salesnav-tam-tracker@ae-external-skills
+/plugin install salesnav-outreach@ae-external-skills
 ```
 
 **Other Claude apps** (Claude Desktop, claude.ai): download the skill folder you want from
@@ -28,19 +32,23 @@ mkdir -p ~/.local/bin && curl -fsSL https://github.com/Agent-Everywhere/AE-exter
 ```
 
 Skills that list `agent-browser` in their `skill.yaml` `runtimes` can drive Agent Everywhere's
-cloud-browser MCP; `sales-navigator` can also run in the user's own browser (`local`). Other skills
+cloud-browser MCP; `sales-navigator` and the `salesnav-*` purpose skills can also run in the user's own browser (`local`). Other skills
 (such as `grokbot`) ship their own tooling and do not need that connector.
 
 ## Skills
 
 | Skill | What it does |
 |---|---|
-| [`sales-navigator`](skills/sales-navigator/SKILL.md) | Work LinkedIn Sales Navigator with guardrails: build account, lead, and decision-maker lists, qualify accounts from their websites, save to named lists, draft outreach, track follow-ups, or run it as a daily routine. Fast in-page API through your browser's JavaScript tool (Cowork built-in browser, Claude in Chrome) or a cloud browser (Agent Browser), slow page-reading fallback. Read-only unless you explicitly ask it to send, and then only for batches you approve |
+| [`sales-navigator`](skills/sales-navigator/SKILL.md) | A slim toolkit for your own LinkedIn Sales Navigator seat: exact counts, account and lead searches through the in-page API (your browser's JavaScript tool or a cloud browser), website lookups, CSV and cap-tracking scripts, and example flows to adapt. Read-only unless you explicitly ask it to send, and then only for batches you approve |
+| [`salesnav-tam-accounts`](skills/salesnav-tam-accounts/SKILL.md) | Size a company-side market on your Sales Navigator seat: build account filters and keywords with typeahead, count variants exactly, compare options and pick one master search. Counts only; installs alone |
+| [`salesnav-tam-people`](skills/salesnav-tam-people/SKILL.md) | Size a people-side market: title, seniority, function, geography and company-headcount filters, exact counts per variant and a master lead search under the 2,500 cap. Counts and samples only; installs alone |
+| [`salesnav-tam-tracker`](skills/salesnav-tam-tracker/SKILL.md) | Cut a master search that is over the viewable cap into sub-lists (state, headcount, metro), pull them, dedupe across shards and track coverage in `tam_tracker.csv`. Installs alone |
+| [`salesnav-outreach`](skills/salesnav-outreach/SKILL.md) | Daily connection requests, InMails, messages and follow-ups with an outreach ledger: sourced drafts, a send only after you type approval of the exact batch, caps and a quota line. Drafts by default; installs alone |
 | [`grokbot`](skills/grokbot/SKILL.md) | Your own Claude Code operates your Grok Bot desktop app on your Mac: status/doctor, agents, groups, sections, pins, transcripts, `send --wait`, app restart (bundled Node CLI, no `npm install`) |
 | [`grokbot-box`](skills/grokbot-box/SKILL.md) | For a Grok Bot agent inside its own cloud box: list, create, organize, send to, and delete its sibling workers under an advisory, audited agent policy (uses the `grokbot` CLI) |
 | [`claude-desktop`](skills/claude-desktop/SKILL.md) | Your Claude Code operates the Claude Desktop app on your Mac: open Chat, Cowork, or Code tasks with a prompt, send, read replies, follow up, and click approvals, plus projects, skills, custom connectors, local MCP config, and scheduled tasks, for example to dry-run skills in Cowork, hand work off to Desktop, or run a demo. Uses the official `claude://` deep links plus Peekaboo (screenshots and clicks); needs macOS 15+ |
 
-> **Unofficial.** `claude-desktop` is not affiliated with or endorsed by Anthropic. It drives the app by screenshots and clicks, which may break when the app's layout changes, and it takes over your mouse and keyboard while it runs: read its `references/safety.md` first.
+> **Unofficial.** `claude-desktop` is not affiliated with or endorsed by Anthropic. It drives the app by screenshots and clicks, which may break when the app's layout changes, and it takes over your mouse and keyboard while it runs: read the rules in its [`SKILL.md`](skills/claude-desktop/SKILL.md) first.
 
 > **Unofficial.** `grokbot` and `grokbot-box` are not affiliated with or endorsed by Cursor or xAI. It uses Grok Bot's private, undocumented interfaces, which may change or break at any time. Use at your own risk: some commands can delete agents and sections.
 
@@ -50,13 +58,16 @@ cloud-browser MCP; `sales-navigator` can also run in the user's own browser (`lo
 .claude-plugin/
   marketplace.json  # Claude Code marketplace: one plugin per skill, each rooted at skills/<name>
 packages/
-  browser-runtime/  # SOURCE OF TRUTH for the shared browser runtime (session.py + runtime docs)
+  browser-runtime/  # SOURCE OF TRUTH for the shared browser runtime (session.py + one README)
 build/
-  sync_runtime.py   # vendors packages/browser-runtime into each skill that lists a runtime; --check fails on drift
+  sync_runtime.py   # vendors packages/browser-runtime into each skill that lists a runtime, and the
+                    # sales-navigator files a purpose skill lists in `uses_toolkit`; --check fails on drift
 skills/<skill-name>/
   SKILL.md          # entry point: frontmatter (name, description) + procedure
   skill.yaml        # manifest: name, version, category, runtimes ([] or [local, agent-browser])
-  references/       # loaded on demand: guardrails, gotchas, schemas
+  reference.md, recipes.md, references/   # optional on-demand docs, kept small
+                    # (purpose skills `salesnav-*` hold generated copies of the toolkit files listed in
+                    # their skill.yaml `uses_toolkit`; the source stays in skills/sales-navigator)
   scripts/          # optional helpers (Python 3 stdlib only, no network), run in the user's Claude
   page/             # optional JS snippets run inside the signed-in page by the browser runtime
   runtime/          # vendored copy of packages/browser-runtime (generated; never edit here)
@@ -67,6 +78,10 @@ tests/              # Python tests for scripts, the runtime, page snippets, mani
 
 Browser-runtime changes are made once, in `packages/browser-runtime/`, then propagated with
 `python3 build/sync_runtime.py`, then run `python3 build/sync_runtime.py --check` before committing.
+The `salesnav-*` purpose skills each work installed alone: their `skill.yaml` lists the files it needs
+in `uses_toolkit` (for example `[page/count.js, scripts/run_log.py]`), and the same script copies them from
+`skills/sales-navigator` to the same relative paths (a stale or edited copy fails `--check`). Fix a tool in
+`skills/sales-navigator`, never in a purpose skill.
 The tests run the same check and fail if a skill's `runtime/` copy has drifted (or a skill with
 `runtimes: []` still has a `runtime/` folder).
 
