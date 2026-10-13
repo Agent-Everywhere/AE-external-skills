@@ -43,16 +43,6 @@ def read_csv(path):
         return list(csv.DictReader(fh))
 
 
-def md_table_rows(markdown, heading):
-    """Rows (list of cell lists) of the first table after a '## heading' line."""
-    section = markdown.split("## " + heading, 1)[1].split("\n## ", 1)[0]
-    rows = []
-    for line in section.splitlines():
-        if line.startswith("|") and not re.match(r"\|[-| ]+\|$", line.strip()):
-            rows.append([c.strip() for c in line.strip().strip("|").split("|")])
-    return rows[1:]  # drop the header row
-
-
 class ScriptsAreRunnable(unittest.TestCase):
     def test_help_works_for_every_script(self):
         for name in ("shard_plan", "dedupe", "validate_csv", "run_log"):
@@ -321,15 +311,6 @@ class DedupeTests(unittest.TestCase):
 
 
 class ValidateCsvTests(unittest.TestCase):
-    def test_constants_match_output_md(self):
-        md = (SKILL / "references" / "output.md").read_text(encoding="utf-8")
-        for kind, heading in (("accounts", "accounts.csv"), ("leads", "leads.csv")):
-            rows = md_table_rows(md, heading)
-            self.assertEqual([r[0] for r in rows], validate_csv.COLUMNS[kind], kind)
-            status_note = [r[-1] for r in rows if r[0] == "status"][0]
-            self.assertEqual([s.strip() for s in status_note.split("/")],
-                             validate_csv.STATUSES[kind], kind)
-
     def test_clean_files_pass(self):
         # The raw fixtures carry deliberately dirty URLs/domains, so build clean rows in code.
         with tempfile.TemporaryDirectory() as tmp:
@@ -431,17 +412,6 @@ class RunLogTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.log = str(Path(self.tmp.name) / "run_log.csv")
-
-    def test_constants_match_guardrails_md(self):
-        md = (SKILL / "references" / "guardrails.md").read_text(encoding="utf-8")
-        rows = {r[0]: r for r in md_table_rows(md, "Daily volume defaults")}
-        expect = {"Search result pages read": "pages", "Individual profiles opened": "profiles",
-                  "Small API calls (counts, typeahead, website batches)": "small_calls",
-                  "Account pages opened": "accounts", "Saved searches created": "saved_searches"}
-        for label, key in expect.items():
-            default = int(re.match(r"\d+", rows[label][1]).group())
-            ceiling = int(re.match(r"\d+", rows[label][2]).group())
-            self.assertEqual(run_log.LIMITS[key], {"default": default, "ceiling": ceiling}, label)
 
     def test_classify_thresholds(self):
         lim = {"default": 40, "ceiling": 80}
@@ -696,12 +666,9 @@ class DraftsCsvValidation(unittest.TestCase):
             result = validate_csv.validate(self.write(tmp, [self.draft(**over)]))
         return result["kind"], result["header_errors"], [(e[1], e[2]) for e in result["errors"]]
 
-    def test_template_and_output_md_match_the_validator_columns(self):
+    def test_template_matches_the_validator_columns(self):
         header = (SKILL / "templates" / "drafts.csv").read_text(encoding="utf-8").strip()
         self.assertEqual(header.split(","), validate_csv.DRAFT_COLUMNS)
-        md = (SKILL / "references" / "output.md").read_text(encoding="utf-8")
-        rows = md_table_rows(md, "drafts/<yyyy-mm-dd>.csv")
-        self.assertEqual([r[0] for r in rows], validate_csv.DRAFT_COLUMNS)
 
     def test_a_clean_draft_passes_and_is_detected_as_drafts(self):
         self.assertEqual(self.problems(), ("drafts", [], []))

@@ -103,10 +103,10 @@ class RuntimeVendoring(unittest.TestCase):
             self.assertEqual(r.returncode, 1)
             self.assertIn("differs: session.py", r.stdout)
             (runtime / "extra.md").write_text("stale")
-            (runtime / "local.md").unlink()
+            (runtime / "README.md").unlink()
             r = check()
             self.assertIn("stale: extra.md", r.stdout)
-            self.assertIn("missing: local.md", r.stdout)
+            self.assertIn("missing: README.md", r.stdout)
             fix = subprocess.run([sys.executable, script, "--root", tmp], capture_output=True, text=True)
             self.assertEqual(fix.returncode, 0, fix.stderr)
             self.assertEqual(check().returncode, 0)
@@ -188,7 +188,7 @@ class SyncHardening(unittest.TestCase):
 
         def flaky(src, dst, *a, **k):
             calls.append(dst)
-            if len(calls) == 3:
+            if len(calls) == 2:
                 raise OSError("disk full")
             return real_copy2(src, dst, *a, **k)
 

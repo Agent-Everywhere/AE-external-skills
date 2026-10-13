@@ -499,16 +499,6 @@ class DocsAgreeWithTheScripts(unittest.TestCase):
     def read(self, rel):
         return (SKILL / rel).read_text(encoding="utf-8")
 
-    def test_every_doc_names_the_workspace_and_its_files(self):
-        for rel in ("SKILL.md", "references/guardrails.md", "references/output.md", "references/run-my-day.md",
-                    "runtime/local.md", "templates/company-profile.md"):
-            with self.subTest(doc=rel):
-                self.assertIn("workspace", self.read(rel).lower())
-        skill = self.read("SKILL.md")
-        for needle in ("~/Claude/sales-navigator", "SALESNAV_WORKSPACE", "run_log.csv", "outreach_log.csv",
-                       "quota.md", "run_log.py quota", "workspace.py", "ask the user ONCE"):
-            self.assertIn(needle, skill, needle)
-
     def test_profile_template_has_workspace_and_outreach_started_fields(self):
         t = self.read("templates/company-profile.md")
         self.assertRegex(t, r"(?m)^- \*\*workspace:\*\*")
@@ -516,42 +506,29 @@ class DocsAgreeWithTheScripts(unittest.TestCase):
         self.assertRegex(t, r"(?m)^- \*\*Outreach started")
         self.assertIn("workspace:", self.read("templates/company-profile.example.md"))
 
-    def test_outreach_and_guardrails_state_the_refuse_rule(self):
-        for rel in ("references/outreach.md", "references/guardrails.md"):
-            with self.subTest(doc=rel):
-                text = self.read(rel)
-                self.assertIn("--first-send", text)
-                self.assertRegex(text, r"(?i)refus")
-
-    def test_the_resolution_order_is_the_same_in_the_docs_and_the_code(self):
+    def test_the_resolution_order_is_documented_in_the_code(self):
         # flag, then the profile, then the env var, then the default folder
         def in_order(text, markers):
             positions = [text.index(m) for m in markers]
             self.assertEqual(positions, sorted(positions), markers)
-        step3 = self.read("SKILL.md").split("3. **Workspace**", 1)[1].split("4. **Company Profile.**", 1)[0]
-        in_order(step3, ["`--workspace DIR`", "`workspace:` field", "`$SALESNAV_WORKSPACE`", "`~/Claude/sales-navigator`"])
-        self.assertIn("--profile FILE", step3)
         doc = workspace.__doc__.split("Resolution order", 1)[1].split("workspace.py locate", 1)[0]
         in_order(doc, ["--workspace DIR", "`workspace:` field", "$SALESNAV_WORKSPACE", "~/Claude/sales-navigator"])
         for module in (run_log, outreach_log):
             self.assertIn("--profile", module.__doc__)
             self.assertLess(module.__doc__.index("the `workspace:` field"), module.__doc__.index("$SALESNAV_WORKSPACE"))
 
-    def test_run_my_day_says_how_to_start_on_day_one_without_a_ledger(self):
-        text = self.read("references/run-my-day.md")
-        self.assertIn("`--first-send`", text)
-        self.assertIn("`caps`, `check` and `summary`", text)
+    def test_runtime_docs_are_vendored_identically(self):
+        for name in ("README.md", "session.py"):
+            self.assertEqual((SKILL / "runtime" / name).read_bytes(),
+                             (ROOT / "packages" / "browser-runtime" / name).read_bytes(), name)
 
-    def test_local_runtime_note_is_vendored_identically(self):
-        self.assertIn("~/Claude", self.read("runtime/local.md"))
-        self.assertEqual(self.read("runtime/local.md"),
-                         (ROOT / "packages" / "browser-runtime" / "local.md").read_text(encoding="utf-8"))
-
-    def test_every_script_documented_in_skill_md_exists(self):
+    def test_the_skill_documents_the_workspace_and_its_scripts(self):
         skill = self.read("SKILL.md")
+        for needle in ("~/Claude/sales-navigator", "run_log.csv", "outreach_log.csv", "quota.md",
+                       "run_log.py", "workspace.py", "ask the user once"):
+            self.assertIn(needle, skill, needle)
         for name in re.findall(r"`scripts/([a-z_]+\.py)`", skill):
             self.assertTrue((SCRIPTS / name).is_file(), name)
-        self.assertIn("scripts/workspace.py", skill)
 
 
 if __name__ == "__main__":

@@ -25,7 +25,7 @@
     {
       "name": "claude-desktop",
       "source": "./skills/claude-desktop",
-      "description": "Operate the Claude Desktop app on your Mac from Claude Code: open Chat, Cowork, or Code tasks with a prompt, send, read replies, follow up, and click approvals; manage projects, skills, custom connectors, local MCP config, and scheduled tasks. Unofficial; needs macOS 15+ and Peekaboo.",
+      "description": "Operate the Claude Desktop app on your Mac from Claude Code: tasks, replies, approvals, projects, skills, connectors. Unofficial; needs macOS 15+ and Peekaboo.",
       "skills": ["."],
       "category": "productivity",
       "tags": ["claude-desktop", "cowork", "peekaboo", "macos"]
@@ -33,7 +33,7 @@
     {
       "name": "sales-navigator",
       "source": "./skills/sales-navigator",
-      "description": "Build account, lead, and decision-maker lists in LinkedIn Sales Navigator with guardrails, fast through the in-page API. Runs in your own browser (local) or in a cloud browser via the Agent Browser connector.",
+      "description": "Sales Navigator toolkit: exact counts, account and lead searches through the in-page API, CSV and cap-tracking scripts. Runs in your own browser (local) or Agent Browser.",
       "skills": ["."],
       "category": "sales",
       "tags": ["linkedin", "sales-navigator", "lead-generation"]
