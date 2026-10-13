@@ -538,15 +538,31 @@ class RunLogTests(unittest.TestCase):
         self.assertEqual(out.count("OK"), 5)
 
     def test_small_calls_are_counted_against_their_guardrail(self):
-        code, out, _ = run_main(run_log, ["add", "--small-calls", "85", "--log", self.log])
+        code, out, _ = run_main(run_log, ["add", "--small-calls", "125", "--log", self.log])
         row = [l for l in out.splitlines() if l.startswith("small_calls")][0].split()
-        self.assertEqual((code, row[1], row[2], row[3], row[4]), (0, "85", "100", "150", "NEAR"))
-        code, out, _ = run_main(run_log, ["add", "--small-calls", "20", "--log", self.log])
+        self.assertEqual((code, row[1], row[2], row[3], row[4]), (0, "125", "150", "200", "NEAR"))
+        code, out, _ = run_main(run_log, ["add", "--small-calls", "30", "--log", self.log])
         self.assertEqual(code, 0)
         self.assertIn("OVER DEFAULT", [l for l in out.splitlines() if l.startswith("small_calls")][0])
         code, out, _ = run_main(run_log, ["add", "--small-calls", "50", "--log", self.log])
         self.assertEqual(code, 2)
         self.assertIn("OVER CEILING", out)
+
+    def test_small_call_default_is_150_with_a_200_ceiling(self):
+        self.assertEqual(run_log.LIMITS["small_calls"], {"default": 150, "ceiling": 200})
+        # 150 calls (a 50-account pull plus sizing and lookups) is still inside the default
+        code, out, _ = run_main(run_log, ["add", "--small-calls", "150", "--log", self.log])
+        line = [l for l in out.splitlines() if l.startswith("small_calls")][0]
+        self.assertEqual(code, 0)
+        self.assertNotIn("OVER", line)
+
+    def test_cap_messages_tell_the_agent_to_report_remaining_rows_and_offer_a_choice(self):
+        _, out, _ = run_main(run_log, ["add", "--small-calls", "151", "--log", self.log])
+        self.assertIn("how many rows remain", out)
+        self.assertIn("continue tomorrow or raise today's cap with their explicit OK", out)
+        _, out, _ = run_main(run_log, ["add", "--small-calls", "60", "--log", self.log])
+        self.assertIn("how many rows remain", out)
+        self.assertIn("offer to continue tomorrow", out)
 
     def test_saved_searches_flag_is_recorded(self):
         run_main(run_log, ["add", "--saved-searches", "9", "--log", self.log])
@@ -637,6 +653,67 @@ class DedupeKeepsOptionalLeadColumns(unittest.TestCase):
         for want, have in zip(rows, got):
             for col in validate_csv.LEAD_OPTIONAL_COLUMNS:
                 self.assertEqual(have[col], want[col], col)
+
+
+class DraftsCsvValidation(unittest.TestCase):
+    """drafts/<date>.csv (outreach.md Part A): every claim cited in `sources`, counted length."""
+
+    def draft(self, **over):
+        text = "Hi Jane, I saw you lead product development at Acme. Do you make liquids?"
+        base = dict(lead_id="https://www.linkedin.com/sales/lead/ACw1,NAME_SEARCH,x",
+                    full_name="Jane Doe", company_name="Acme", kind="connection", text=text,
+                    char_count=str(len(text)), sources="title; facts: sells gummies")
+        base.update(over)
+        return base
+
+    def write(self, tmp, rows, headers=None):
+        headers = headers or validate_csv.DRAFT_COLUMNS
+        path = Path(tmp) / "drafts.csv"
+        with open(path, "w", newline="", encoding="utf-8") as fh:
+            w = csv.writer(fh)
+            w.writerow(headers)
+            for row in rows:
+                w.writerow([row[h] for h in headers])
+        return str(path)
+
+    def problems(self, **over):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = validate_csv.validate(self.write(tmp, [self.draft(**over)]))
+        return result["kind"], result["header_errors"], [(e[1], e[2]) for e in result["errors"]]
+
+    def test_template_and_output_md_match_the_validator_columns(self):
+        header = (SKILL / "templates" / "drafts.csv").read_text(encoding="utf-8").strip()
+        self.assertEqual(header.split(","), validate_csv.DRAFT_COLUMNS)
+        md = (SKILL / "references" / "output.md").read_text(encoding="utf-8")
+        rows = md_table_rows(md, "drafts/<yyyy-mm-dd>.csv")
+        self.assertEqual([r[0] for r in rows], validate_csv.DRAFT_COLUMNS)
+
+    def test_a_clean_draft_passes_and_is_detected_as_drafts(self):
+        self.assertEqual(self.problems(), ("drafts", [], []))
+
+    def test_sources_are_required(self):
+        self.assertEqual(self.problems(sources="")[2], [("sources", "required")])
+
+    def test_old_header_without_sources_fails(self):
+        old = validate_csv.DRAFT_COLUMNS[:-1]
+        with tempfile.TemporaryDirectory() as tmp:
+            result = validate_csv.validate(self.write(tmp, [self.draft()], headers=old), "drafts")
+        self.assertTrue(any("missing columns: sources" in e for e in result["header_errors"]))
+
+    def test_inmail_kind_is_allowed_and_bad_kind_is_not(self):
+        self.assertEqual(self.problems(kind="inmail")[2], [])
+        self.assertEqual(self.problems(kind="dm")[2], [("kind", "enum")])
+
+    def test_char_count_must_equal_the_counted_length(self):
+        self.assertEqual(self.problems(char_count="10")[2], [("char_count", "count")])
+        self.assertEqual(self.problems(char_count="ten")[2], [("char_count", "int")])
+
+    def test_connection_note_over_300_fails_but_an_inmail_may_be_longer(self):
+        long = "x" * 301
+        self.assertEqual(self.problems(text=long, char_count="301")[2], [("text", "length")])
+        self.assertEqual(self.problems(text=long, char_count="301", kind="inmail")[2], [])
+        edge = "x" * 300
+        self.assertEqual(self.problems(text=edge, char_count="300")[2], [])
 
 
 if __name__ == "__main__":

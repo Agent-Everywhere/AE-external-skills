@@ -6,13 +6,20 @@ profile, budget) is in `SKILL.md` and has already been done.
 
 ## 1. Intake (only what is missing)
 
-Ask in **one short batch**: the sections of the Company Profile (`templates/company-profile.md`)
-that are still blank, nothing else. Offer examples, accept "skip", never interrogate. The table
-and the template are the same set; if one changes, change the other.
+**Read before asking.** If a `company-profile.md` already exists (an attached file, a project
+file, or in the user's folder), read it and ask only for the fields still blank. Do not re-ask
+what it answers. A filled generic example to copy is `templates/company-profile.example.md`.
+
+If there is none, ask the short set below in **one short batch**, as ONE plain message with the
+questions numbered (no multi-step question screen, no one-question-at-a-time flow). Offer
+examples, accept "skip", and accept **"use defaults"**: then fill blanks with the template's
+defaults (caps and pacing from `guardrails.md`, 1 person per account for a first touch, a 3-day
+follow-up wait), say which you assumed, and go. Never interrogate. The table and the template
+are the same set; if one changes, change the other.
 
 | Ask | Profile section | Used for |
 |---|---|---|
-| **Offer**: "In one line, what do you sell and to whom?" | 1 | filter choice, relevance |
+| **Offer**: "In one line, what do you sell and to whom?" and any facts we may state about you (location, certifications) | 1 | filter choice, relevance |
 | **Buyer types**: 2–3 kinds ("already buys this from someone else" vs "doesn't have it yet"), and which kinds are **not a buyer** | 3 | separate searches, tags, qualify drops |
 | **Firmographics**: industry, headcount band, geography (HQ or person), company type, growth signals | 2 | account filters |
 | **Decision-maker titles by company size** (and title words to avoid: intern, assistant, student) | 4 | lead filters, title map |
@@ -159,7 +166,10 @@ Per-account flow: **account → website → decision-makers → hand to CRM dedu
 ## 6. Clean and hand off
 
 - De-duplicate within the run (same person from two shards; same company spelled twice;
-  `scripts/dedupe.py`).
+  `scripts/dedupe.py`). **State and metro lists overlap** (a company with sites in several states
+  is in each list), so when you combine shard files, dedupe by company id (the id in
+  `salesnav_account_url`) and tell the user: "the lists add up to X rows; Y are unique" (the
+  script prints rows in and rows out). Do not quote the sum as the market size.
 - Apply exclusions on the collected rows (customers, competitors, title words) and show what was removed.
 - Tag each row: buyer type, shard, mode, signal(s), fit notes. Type each row per company when the
   buyer types differ by account (`salesnav_rows.py --buyer-type-map`, `references/output.md`), and

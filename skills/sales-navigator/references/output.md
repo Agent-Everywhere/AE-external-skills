@@ -76,6 +76,21 @@ optional, and `scripts/validate_csv.py` accepts them.
 | fit_reason | contract-manufactures for brands = buyer type A | one line against the Company Profile |
 | keep | keep | keep / drop / unsure. `keep` sets `status` to `qualified`, `drop` to `rejected`; `unsure` stays `collected` |
 
+## drafts/<yyyy-mm-dd>.csv
+
+Written by the `outreach` action, Part A (`references/outreach.md`), from `templates/drafts.csv`.
+`scripts/validate_csv.py` checks it (`--kind drafts`, or detected from the `lead_id` column).
+
+| Column | Example | Notes |
+|---|---|---|
+| lead_id | https://www.linkedin.com/sales/lead/ACw…,NAME_SEARCH,… | Sales Nav lead id or URL; quote the cell |
+| full_name | Jane Doe | |
+| company_name | Acme Wellness | |
+| kind | connection | connection / inmail. `inmail` for people a connection request cannot reach (out of network) |
+| text | Hi Jane, … | for an InMail the subject is the first line |
+| char_count | 212 | counted length of `text`; at most 300 for `connection` |
+| sources | facts: sells gummies; title; profile s1 | where each claim in `text` came from (the row's `facts`, a search-data column, or a Company Profile section). Required: a draft with no sources is not shown |
+
 ## Filling the columns from the fast path
 
 `scripts/salesnav_rows.py` writes these files from API results. It fills what the search returns

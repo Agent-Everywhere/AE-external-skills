@@ -75,6 +75,11 @@ most the one call in flight. To resume, list `results/` and continue from the ne
 - Stop on `status` 403 or 429 after `csrf_ready` was true, on a sign-in or checkpoint page, or on
   a limit banner. Do not retry in a loop.
 - The snippets never return the cookie or token; never ask the tool to.
+- **Fetching other websites in Cowork prompts the user once per site** ("Allow Claude to fetch
+  pages from <site>?"). Reading dozens of sites stacks the prompts and blocks the task. Read the
+  fewest sites you can, state the count first, and offer the user one choice up front: Auto
+  approval mode for the task, "Allow all for this website" per prompt, or Allow once per site
+  (`references/qualify.md` in the skill).
 
 The disadvantage: every call is a tool round trip, so a large pull costs more context and time
 than a script. Prefer option 2 or the Agent Browser runtime when you can run code and the job is

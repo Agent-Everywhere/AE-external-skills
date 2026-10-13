@@ -27,7 +27,7 @@ from datetime import date, datetime
 # Keep in sync with that table (a test checks it).
 LIMITS = {
     "pages": {"default": 40, "ceiling": 80},            # search result pages read
-    "small_calls": {"default": 100, "ceiling": 150},    # counts, typeahead, website batches
+    "small_calls": {"default": 150, "ceiling": 200},    # counts, typeahead, website batches
     "profiles": {"default": 80, "ceiling": 150},        # individual profiles opened
     "accounts": {"default": 60, "ceiling": 120},        # account pages opened
     "saved_searches": {"default": 10, "ceiling": 25},   # saved searches created
@@ -118,9 +118,12 @@ def report(totals, limits, day):
         lines.append("%-15s %6d %8d %8d  %s" % (action, totals[action], limits[action]["default"],
                                                 limits[action]["ceiling"], statuses[action]))
     if "OVER CEILING" in statuses.values():
-        lines.append("STOP: a hard ceiling is exceeded. End the run and wait for tomorrow.")
+        lines.append("STOP: a hard ceiling is exceeded. End the run and wait for tomorrow. "
+                     "Tell the user how many rows remain and offer to continue tomorrow.")
     elif "OVER DEFAULT" in statuses.values():
-        lines.append("Above the daily default: continue only with the user's explicit go.")
+        lines.append("Above the daily default: continue only with the user's explicit go. "
+                     "If this stopped a pull, tell the user how many rows remain and offer to "
+                     "continue tomorrow or raise today's cap with their explicit OK.")
     return "\n".join(lines), statuses
 
 

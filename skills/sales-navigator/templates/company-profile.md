@@ -4,12 +4,21 @@ Fill this in once and keep it in your working folder as `company-profile.md`. Ev
 it, so it never has to ask you the same question twice. The list-building intake
 (`references/build-list.md`, section 1) asks for exactly these sections, in one short batch.
 Leave a field blank or write "skip" if you do not know yet. Do not put passwords, cookies or
-personal data in this file.
+personal data in this file. A filled generic example is `company-profile.example.md` next to this
+file; copy it and change the answers.
+
+**Outreach drafts use only what is written here.** Every claim about us in a message (what we
+make, where, certifications, capacity, customers, results) must come from this file. Put real,
+usable facts in section 1 and in "Facts we may state" below; anything not written here is never
+claimed.
 
 ## 1. Offer
 
 - **What we sell, and to whom, in one line:**
 - **The next step we want from a prospect** (a reply, a call, a sample):
+- **Facts we may state about ourselves** (one per line; only true, checkable, safe to say. Leave
+  blank to say nothing beyond the offer line. Examples: a location, a certification we hold,
+  a minimum order size. Never customer names unless you list them as usable references):
 
 ## 2. ICP (firmographics)
 
@@ -79,6 +88,7 @@ Defaults are in the skill's guardrails; write here only what you want **lower**.
 | Search pages per day | default |
 | Connection requests per day / per 7 days | default (20 / 100) |
 | Follow-up messages per day | default (20) |
+| People per account for the first touch (the others are queued) | 1 |
 | Days to wait after someone accepts before a follow-up | 3 |
 | Create Sales Nav lists without asking each time | no |
 | Working hours (your time zone) | |
