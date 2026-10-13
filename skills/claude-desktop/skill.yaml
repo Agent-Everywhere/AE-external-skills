@@ -1,0 +1,6 @@
+# Per-skill manifest. Keep in step with .claude-plugin/marketplace.json (checked by tests).
+name: claude-desktop
+version: 0.1.0
+category: productivity
+# No browser runtime: this skill drives a local desktop app with Peekaboo.
+runtimes: []
