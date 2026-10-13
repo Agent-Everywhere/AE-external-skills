@@ -8,8 +8,8 @@ task (and one day) to the next, so they all live in ONE folder the host always h
 Claude Desktop Cowork's user-files folder is ~/Claude by default, so the default workspace is
 ~/Claude/sales-navigator. Resolution order (first hit wins), used by run_log.py and outreach_log.py:
   1. --workspace DIR
-  2. $SALESNAV_WORKSPACE
-  3. the `workspace:` field of company-profile.md (locate --profile FILE passes it in)
+  2. the `workspace:` field of company-profile.md (--profile FILE, accepted by every script)
+  3. $SALESNAV_WORKSPACE
   4. ~/Claude/sales-navigator, if that folder exists
   5. the current folder, with a WARNING that nothing will persist (the agent must then ask the user)
 
@@ -58,31 +58,38 @@ def profile_workspace(text):
     return None
 
 
+def read_profile(path):
+    """The text of company-profile.md (None when no --profile was given); a missing file is an error."""
+    return Path(path).read_text(encoding="utf-8-sig") if path else None
+
+
 def resolve(flag=None, env=None, profile_text=None, home=None, cwd=None):
     """-> Workspace(path, source, persistent). source: flag|env|profile|default|cwd."""
     env = os.environ if env is None else env
     if flag:
         return Workspace(Path(os.path.expanduser(flag)), "flag", True)
-    if (env.get(ENV_VAR) or "").strip():
-        return Workspace(Path(os.path.expanduser(env[ENV_VAR].strip())), "env", True)
     from_profile = profile_workspace(profile_text)
     if from_profile:
         return Workspace(Path(os.path.expanduser(from_profile)), "profile", True)
+    if (env.get(ENV_VAR) or "").strip():
+        return Workspace(Path(os.path.expanduser(env[ENV_VAR].strip())), "env", True)
     default = default_dir(home)
     if default.is_dir():
         return Workspace(default, "default", True)
     return Workspace(Path(cwd or os.getcwd()), "cwd", False)
 
 
-def state_file(filename, log=None, workspace_flag=None, stream=None):
+def state_file(filename, log=None, workspace_flag=None, stream=None, profile=None):
     """-> (path, located). `log` (an explicit --log) wins; otherwise <workspace>/<filename>.
+
+    `profile` is the path of company-profile.md: its `workspace:` field is used when no --workspace is given.
 
     located is False only when no workspace could be found and the current folder is the fallback;
     the WARNING is printed once to `stream` (default stderr).
     """
     if log:
         return log, True
-    ws = resolve(workspace_flag)
+    ws = resolve(workspace_flag, profile_text=read_profile(profile))
     if not ws.persistent:
         print(NOT_PERSISTENT_WARNING, file=stream or sys.stderr)
     return str(ws.path / filename), ws.persistent
@@ -113,8 +120,7 @@ def main(argv=None):
             print("created/kept: %s" % ", ".join(SUBDIRS))
             print("Save it in company-profile.md as:  workspace: %s" % ws)
             return EXIT_OK
-        text = Path(args.profile).read_text(encoding="utf-8") if args.profile else None
-        ws = resolve(args.workspace, profile_text=text)
+        ws = resolve(args.workspace, profile_text=read_profile(args.profile))
     except OSError as exc:
         print("error: %s" % exc, file=sys.stderr)
         return EXIT_BAD

@@ -49,9 +49,10 @@ in the **workspace** folder (`SKILL.md` preflight; default `~/Claude/sales-navig
 user-files folder): `run_log.csv` (pulls), `outreach_log.csv` (sends), and `quota.md`, which
 `scripts/run_log.py quota` rewrites from both with today's and the last 7 days' usage against the caps.
 Start every action by reading it and end every action by regenerating it, then show the user the
-one-line summary (`Today: 87/150 calls · 12/20 invites · week 41/100`). If the scripts print a
-**WARNING that no workspace was found**, the counters are not persisting: ask the user where their
-Cowork folder is instead of carrying on, because a fresh log makes every cap look untouched.
+one-line summary (`Today: 87/150 calls · 12/20 invites · week 41/100`). If the scripts refuse
+(exit 4: **no workspace found**, or the workspace folder does not exist), the counters would not persist
+or would restart from zero: ask the user where their Cowork folder is instead of carrying on, because a
+fresh log makes every cap look untouched.
 
 ## Pace
 

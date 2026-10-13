@@ -43,12 +43,14 @@ can lower a limit; a value above the default is ignored (with a note) unless --a
 given, and --allow-over-cap is only for the user's explicit go. Likewise --max-touches is clamped
 to the default maximum, and add / followup stop at a reached cap, unless --allow-over-cap.
 
-Where the ledger lives: the workspace folder (workspace.py): --workspace DIR, else $SALESNAV_WORKSPACE, else
-~/Claude/sales-navigator when it exists, else the current folder with a WARNING that nothing persists.
---log FILE overrides the path.
+Where the ledger lives: the workspace folder (workspace.py): --workspace DIR, else the `workspace:` field of
+the profile (--profile FILE), else $SALESNAV_WORKSPACE, else ~/Claude/sales-navigator when it exists. With none
+of those the workspace is NOT located (the current folder is only a fallback that cannot persist). --log FILE
+overrides the path and is trusted as located.
 
 A missing ledger is never read as "nobody was contacted": every command REFUSES (exit 4, ask the user) when
-the ledger is not found, and always when the workspace could not be located. Only the very first send
+the ledger is not found, and ALWAYS (even if a stray outreach_log.csv sits in the current folder, and even
+with --first-send) when the workspace could not be located. Only the very first send
 ever (the profile's `Outreach started` is blank) may start a new ledger: pass --first-send to add / check
 / caps / summary, and tell the user a new ledger is being created. status and followup never create one.
 
@@ -142,7 +144,7 @@ def read_events(path):
     p = Path(path)
     if not p.is_file() or p.stat().st_size == 0:
         return []
-    with open(p, newline="", encoding="utf-8") as fh:
+    with open(p, newline="", encoding="utf-8-sig") as fh:  # utf-8-sig: Excel re-saves add a BOM
         reader = csv.DictReader(fh)
         if reader.fieldnames != COLUMNS:
             raise LogError("%s: header must be %s" % (path, ",".join(COLUMNS)))
@@ -456,8 +458,10 @@ def build_parser():
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--log", metavar="FILE", help="ledger CSV, overriding <workspace>/%s" % DEFAULT_LOG)
     common.add_argument("--workspace", metavar="DIR",
-                        help="workspace folder (default: $SALESNAV_WORKSPACE, else ~/Claude/sales-navigator "
-                             "if it exists, else the current folder with a WARNING)")
+                        help="workspace folder (default: the profile's workspace:, else $SALESNAV_WORKSPACE, else "
+                             "~/Claude/sales-navigator if it exists; none of them = not located, refused)")
+    common.add_argument("--profile", metavar="FILE",
+                        help="company-profile.md: its `workspace:` field locates the workspace when --workspace is absent")
     first = argparse.ArgumentParser(add_help=False)
     first.add_argument("--first-send", action="store_true",
                        help="ONLY for the very first send ever (profile `Outreach started` blank), with the user "
@@ -540,12 +544,12 @@ def ledger_gate(args, located):
 
     A ledger that cannot be found must never read as an empty one: that would clear everyone.
     """
-    if ledger_present(args.log):
-        return None
     if not located:
         return ("the workspace could not be located, so there is no way to know who was contacted before. "
                 "Do not send. Ask the user where their Cowork folder is (workspace.py init <folder>) and "
                 "pass --workspace")
+    if ledger_present(args.log):
+        return None
     if getattr(args, "first_send", False):
         return None  # the very first send: the ledger is created explicitly (announced in main)
     return ("no outreach ledger at %s. Do not send. If outreach was done before, the ledger is missing "
@@ -557,7 +561,7 @@ def ledger_gate(args, located):
 def main(argv=None):
     args = build_parser().parse_args(argv)
     try:
-        args.log, located = workspace.state_file(DEFAULT_LOG, args.log, args.workspace)
+        args.log, located = workspace.state_file(DEFAULT_LOG, args.log, args.workspace, profile=args.profile)
         why = ledger_gate(args, located)
         if why:
             print("refused: %s" % why, file=sys.stderr)

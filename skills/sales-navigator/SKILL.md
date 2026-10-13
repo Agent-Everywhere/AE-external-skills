@@ -69,14 +69,15 @@ Other references, loaded by the action that needs them: [`filters.md`](reference
      LinkedIn search unless the user explicitly accepts the lower-quality path.
 3. **Workspace** (so the caps and the outreach ledger survive across tasks and days). All state lives in
    one folder the host always has access to: `company-profile.md`, `quota.md`, `run_log.csv`,
-   `outreach_log.csv`, `lists/`, `drafts/`, `results/`. Locate it, in this order:
-   the profile's `workspace:` field, then `$SALESNAV_WORKSPACE`, then `~/Claude/sales-navigator` if it
-   exists (Claude Desktop Cowork's user-files folder is `~/Claude`), else **ask the user ONCE** where
-   their Cowork folder is, run `python3 scripts/workspace.py init <that folder>` (creates
-   `<folder>/sales-navigator/`) and save the path in `company-profile.md` as `workspace:`. Pass it to
-   the scripts as `--workspace DIR`. `python3 scripts/workspace.py locate` shows what was found; with
-   nothing found the scripts fall back to the current folder and WARN that the caps will not persist:
-   treat that as "ask the user", not as a fresh start. Never start a fresh `outreach_log.csv` silently
+   `outreach_log.csv`, `lists/`, `drafts/`, `results/`. Locate it, in this order
+   (the scripts use the same order): `--workspace DIR`, then the profile's `workspace:` field, then
+   `$SALESNAV_WORKSPACE`, then `~/Claude/sales-navigator` if it exists (Claude Desktop Cowork's user-files
+   folder is `~/Claude`), else **ask the user ONCE** where their Cowork folder is, run
+   `python3 scripts/workspace.py init <that folder>` (creates `<folder>/sales-navigator/`) and save the path
+   in `company-profile.md` as `workspace:`. Pass the profile to the scripts as `--profile FILE` (or the folder
+   as `--workspace DIR`) on EVERY call, so they cannot land in another folder. `python3 scripts/workspace.py locate` shows what was found; with
+   nothing found the scripts REFUSE (exit 4; `run_log.py` and `outreach_log.py` alike, also for a workspace
+   folder that does not exist): treat that as "ask the user", not as a fresh start. Never start a fresh `outreach_log.csv` silently
    (`references/outreach.md`).
 4. **Company Profile.** Load the user's filled `company-profile.md` (from the workspace, else an attached
    file or project file) and ask only for the fields it lacks. If none exists, ask the short
@@ -107,7 +108,7 @@ otherwise apply the same rules by hand.
 - `scripts/dedupe.py` — normalize LinkedIn URLs and domains, dedupe, apply exclusions.
 - `scripts/validate_csv.py` — check an accounts/leads CSV against `references/output.md`.
 - `scripts/workspace.py` — `locate` / `init`: find or create the workspace folder (above).
-- `scripts/run_log.py` — `add` / `today` / `quota`: the CSV usage log (`run_log.csv`) against the limits, and `quota.md` with the one-line summary. Takes `--workspace`.
+- `scripts/run_log.py` — `add` / `today` / `quota`: the CSV usage log (`run_log.csv`) against the limits, and `quota.md` with the one-line summary. Takes `--workspace` / `--profile`; `quota` also takes the user's lowered `--daily` / `--weekly` / `--followup-daily` invite caps (pass what you pass to `outreach_log.py`).
 - `scripts/outreach_log.py` — the outreach ledger: `check` (already contacted?), `add` (`--pending` before a send), `status`, `followup`, `caps`, `summary`. Used only by outreach and follow-ups; it refuses (exit 4) when the ledger is missing or the workspace unlocated.
 
 Page snippets (`page/*.js`, one async function each, run inside the signed-in page): `csrf_ready.js`,

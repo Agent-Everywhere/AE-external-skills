@@ -24,7 +24,7 @@ python3 scripts/outreach_log.py status --lead-id <id> --status sent           # 
 python3 scripts/outreach_log.py caps --for connection|followup                # exit 2 = a cap for that kind is reached
 ```
 
-**The ledger must be found before anything is sent.** Pass `--workspace DIR` (the profile's `workspace:`)
+**The ledger must be found before anything is sent.** Pass `--profile FILE` (or `--workspace DIR`, the profile's `workspace:`)
 to every call. If the script exits **4**, it refused: the ledger is missing or the workspace could not
 be located. Stop and ask the user where it is; never start a fresh ledger, because an empty one clears
 everyone and resets the caps. If the profile's `Outreach started` line has a date, outreach has been

@@ -15,7 +15,10 @@ drafts. **It never sends.** Sending needs the user, awake, in a conversation, ap
   `scripts/run_log.py quota` and `scripts/outreach_log.py caps` so the day starts with the limits in
   view. Every file below is read from and written to the workspace folder, which is what lets
   tomorrow's task see today's usage; if it cannot be located, stop and report instead of starting a
-  fresh log.
+  fresh log. Day one (the profile's `Outreach started` is blank): there is no ledger yet, so add
+  `--first-send` to the read-only `caps`, `check` and `summary` calls (they create nothing); never use it
+  once `Outreach started` has a date, because then a missing ledger is lost state. `run_log.py quota` works
+  either way.
 
 ## The routine
 

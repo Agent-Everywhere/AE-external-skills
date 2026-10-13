@@ -10,9 +10,13 @@
 
 End every action with `quota`: it is how the next task (tomorrow, another Cowork task) sees what is left.
 
-Where the files live: the workspace folder (workspace.py): --workspace DIR, else $SALESNAV_WORKSPACE,
-else ~/Claude/sales-navigator when it exists, else the current folder with a WARNING that the caps will
-not persist. The log is <workspace>/run_log.csv; --log FILE overrides it.
+Where the files live: the workspace folder (workspace.py): --workspace DIR, else the `workspace:` field of
+the profile (--profile FILE), else $SALESNAV_WORKSPACE, else ~/Claude/sales-navigator when it exists. The
+log is <workspace>/run_log.csv; --log FILE overrides it (and is trusted as is).
+A wrong workspace must never read as "nothing used yet", so every command REFUSES (exit 4) when no workspace
+could be located (the current folder is only a fallback that cannot persist) or the workspace folder does not
+exist (a typo, an unmounted drive: `workspace.py init` creates a new one). An existing folder without a
+run_log.csv is a new workspace: it starts from zero and says so.
 
 CSV columns: date,time,pages,profiles,accounts,saved_searches,small_calls,note  (local date and time).
 A legacy salesnav_run_log.jsonl beside the log is read until the CSV exists, then migrated into the CSV
@@ -29,17 +33,19 @@ Override the limits with --limits-file, e.g.
   {"pages": {"default": 30, "ceiling": 60}}   (keys: pages, small_calls, profiles, accounts, saved_searches)
 
 Exit codes: 0 fine (incl. NEAR / OVER DEFAULT), 2 if any action is OVER CEILING (add, today),
-1 on bad input.
+1 on bad input, 4 workspace not located or missing (ask the user).
 """
 import argparse
 import csv
 import json
+import os
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import workspace  # noqa: E402
+import outreach_log  # noqa: E402  (its file lock; quota also reads its ledger)
 
 # Daily per-seat limits from references/guardrails.md ("Daily volume defaults").
 # Keep in sync with that table (a test checks it).
@@ -56,6 +62,7 @@ DEFAULT_LOG = "run_log.csv"
 LEGACY_LOG = "salesnav_run_log.jsonl"
 QUOTA_FILE = "quota.md"
 OUTREACH_LOG = "outreach_log.csv"
+EXIT_NO_WORKSPACE = 4
 COLUMNS = ["date", "time", "pages", "profiles", "accounts", "saved_searches", "small_calls", "note"]
 
 
@@ -126,15 +133,25 @@ def _write_rows(fh, rows, header):
 
 
 def append_entry(path, counts, note="", now=None):
-    """Append one row, creating the folder and the header. The first write migrates a legacy jsonl log."""
+    """Append one row, creating the folder and the header. The first write migrates a legacy jsonl log.
+
+    Under a file lock (two tasks cannot both migrate), and the first write goes to a temp file that is
+    renamed into place, so a crash never leaves a CSV that is half migrated.
+    """
     now = now or datetime.now()
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    fresh = not _csv_ready(p)
-    old = legacy_entries(legacy_path(p)) if fresh else []
     entry = dict(date=now.date().isoformat(), time=now.strftime("%H:%M:%S"), note=note or "", **counts)
-    with open(p, "a", newline="", encoding="utf-8") as fh:
-        _write_rows(fh, old + [entry], header=fresh)
+    with outreach_log.locked(p):
+        if _csv_ready(p):
+            with open(p, "a", newline="", encoding="utf-8") as fh:
+                _write_rows(fh, [entry], header=False)
+        else:
+            tmp = p.with_name("." + p.name + ".tmp")
+            with open(tmp, "w", newline="", encoding="utf-8") as fh:
+                _write_rows(fh, legacy_entries(legacy_path(p)) + [entry], header=True)
+                os.fsync(fh.fileno())
+            os.replace(tmp, p)
     return entry
 
 
@@ -147,7 +164,7 @@ def read_entries(path):
     if not _csv_ready(p):
         return legacy_entries(legacy_path(p))
     entries = []
-    with open(p, newline="", encoding="utf-8") as fh:
+    with open(p, newline="", encoding="utf-8-sig") as fh:  # utf-8-sig: Excel re-saves add a BOM
         reader = csv.DictReader(fh)
         if reader.fieldnames != COLUMNS:
             raise ValueError("%s: header must be %s" % (path, ",".join(COLUMNS)))
@@ -208,21 +225,21 @@ def report(totals, limits, day):
 
 # ----------------------------------------------------------------------------- quota.md
 
-def quota_data(pull_entries, outreach_events, limits, today, outreach_found=True):
+def quota_data(pull_entries, outreach_events, limits, today, outreach_found=True, caps=None):
     """Everything quota.md and the summary line show, as plain numbers."""
     import outreach_log as ol
     week_first = today - timedelta(days=WEEK_DAYS - 1)
     day_t = totals_for(pull_entries, today)
     week_t = totals_between(pull_entries, week_first, today)
     used = ol.usage(outreach_events, today)
+    daily, weekly, followup = caps or (ol.DAILY_CONNECTION_CAP, ol.WEEKLY_CONNECTION_CAP, ol.DAILY_FOLLOWUP_CAP)
     return {"today": today, "day": day_t, "week": week_t, "limits": limits,
             "statuses": {a: classify(day_t[a], limits[a]) for a in LIMITS},
             "outreach_found": outreach_found, "used": used,
-            "caps": {"daily": ol.DAILY_CONNECTION_CAP, "weekly": ol.WEEKLY_CONNECTION_CAP,
-                     "followup": ol.DAILY_FOLLOWUP_CAP},
-            "invite_status": {"day": ol.classify(used["day_n"], ol.DAILY_CONNECTION_CAP),
-                              "week": ol.classify(used["week_n"], ol.WEEKLY_CONNECTION_CAP),
-                              "followup": ol.classify(used["followups_day"], ol.DAILY_FOLLOWUP_CAP)}}
+            "caps": {"daily": daily, "weekly": weekly, "followup": followup},
+            "invite_status": {"day": ol.classify(used["day_n"], daily),
+                              "week": ol.classify(used["week_n"], weekly),
+                              "followup": ol.classify(used["followups_day"], followup)}}
 
 
 def summary_line(q):
@@ -284,10 +301,19 @@ def cmd_quota(args, log_path, limits):
     import outreach_log as ol
     today = date.fromisoformat(args.today) if args.today else date.today()
     ws_dir = Path(log_path).resolve().parent
-    out_path = args.outreach_log or str(Path(log_path).with_name(OUTREACH_LOG))
+    if args.outreach_log:
+        out_path = args.outreach_log
+    elif args.workspace:  # the ledger lives in the named workspace even when --log moves the run log
+        out_path = str(workspace.resolve(args.workspace).path / OUTREACH_LOG)
+    else:
+        out_path = str(Path(log_path).with_name(OUTREACH_LOG))
     found = Path(out_path).is_file() and Path(out_path).stat().st_size > 0
     events = ol.read_events(out_path)
-    q = quota_data(read_entries(log_path), events, limits, today, found)
+    daily, weekly, followup, notes = ol.resolve_limits(argparse.Namespace(
+        daily=args.daily, weekly=args.weekly, followup_daily=args.followup_daily, allow_over_cap=False))
+    for note in notes:
+        print(note, file=sys.stderr)
+    q = quota_data(read_entries(log_path), events, limits, today, found, (daily, weekly, followup))
     quota_path = Path(args.quota_file) if args.quota_file else ws_dir / QUOTA_FILE
     quota_path.parent.mkdir(parents=True, exist_ok=True)
     quota_path.write_text(quota_markdown(q, ws_dir, datetime.now()), encoding="utf-8")
@@ -298,11 +324,31 @@ def cmd_quota(args, log_path, limits):
 
 # ----------------------------------------------------------------------------- command line
 
+def ol_default(name):
+    return getattr(outreach_log, name)
+
+
+def workspace_refusal(log_path, located, explicit_log=False):
+    """Why the run log must not be used (exit 4), or "". An unknown or missing workspace must never read as zero usage."""
+    if explicit_log:
+        return ""
+    if not located:
+        return ("the workspace could not be located, so the usage counted so far is unknown. Ask the user where "
+                "their Cowork folder is (workspace.py init <folder>) and pass --workspace")
+    folder = Path(log_path).parent
+    if not folder.is_dir():
+        return ("the workspace folder %s does not exist (a typo, or a drive that is not mounted?). Check the path "
+                "with the user; a brand-new workspace is made with `workspace.py init <folder>`" % folder)
+    return ""
+
+
 def main(argv=None):
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--workspace", metavar="DIR",
-                        help="workspace folder (default: $SALESNAV_WORKSPACE, else ~/Claude/sales-navigator "
-                             "if it exists, else the current folder with a WARNING)")
+                        help="workspace folder (default: the profile's workspace:, else $SALESNAV_WORKSPACE, else "
+                             "~/Claude/sales-navigator if it exists; none of them = not located, refused)")
+    common.add_argument("--profile", metavar="FILE",
+                        help="company-profile.md: its `workspace:` field locates the workspace when --workspace is absent")
     common.add_argument("--log", metavar="FILE",
                         help="log file, overriding <workspace>/%s" % DEFAULT_LOG)
     common.add_argument("--limits-file", metavar="FILE",
@@ -325,10 +371,20 @@ def main(argv=None):
     quota.add_argument("--outreach-log", metavar="FILE", help="outreach ledger (default <workspace>/outreach_log.csv)")
     quota.add_argument("--quota-file", metavar="FILE", help="where to write quota.md (default beside the log)")
     quota.add_argument("--today", metavar="YYYY-MM-DD", help=argparse.SUPPRESS)
+    for flag, default in (("daily", ol_default("DAILY_CONNECTION_CAP")), ("weekly", ol_default("WEEKLY_CONNECTION_CAP")),
+                          ("followup-daily", ol_default("DAILY_FOLLOWUP_CAP"))):
+        quota.add_argument("--" + flag, type=int, metavar="N",
+                           help="the user's lowered outreach limit to show (default %d); pass what you pass to outreach_log.py" % default)
     args = p.parse_args(argv)
     try:
         limits = load_limits(args.limits_file)
-        log_path, _ = workspace.state_file(DEFAULT_LOG, args.log, args.workspace)
+        log_path, located = workspace.state_file(DEFAULT_LOG, args.log, args.workspace, profile=args.profile)
+        refusal = workspace_refusal(log_path, located, explicit_log=bool(args.log))
+        if refusal:
+            print("refused: %s" % refusal, file=sys.stderr)
+            return EXIT_NO_WORKSPACE
+        if not _csv_ready(log_path) and not legacy_path(log_path).is_file() and args.command != "add":
+            print("note: no run_log.csv found at %s: a new workspace, counting from zero" % log_path, file=sys.stderr)
         if args.command == "quota":
             return cmd_quota(args, log_path, limits)
         if args.command == "add":
