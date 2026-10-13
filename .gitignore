@@ -1,6 +1,6 @@
 __pycache__/
 *.pyc
 .DS_Store
-dist/
+/dist/
 salesnav_run_log.jsonl
 node_modules/

@@ -1,7 +1,7 @@
 import { Command, Option } from "commander";
 import { readFileSync, writeFileSync } from "node:fs";
 import { CursorClient } from "./cursor.js";
-import { Cdp, DEFAULT_CDP_PORT, appState, cdpTargets, ensureDebugApp, launchApp, quitApp, sleep } from "./cdp.js";
+import { Cdp, DEFAULT_CDP_PORT, MAX_TIMER_MS, appState, cdpTargets, ensureDebugApp, launchApp, quitApp, sleep } from "./cdp.js";
 import { Gateway } from "./gateway.js";
 import * as local from "./local.js";
 import { UsageError, pluralize, printJson, relTime, shortId, table } from "./output.js";
@@ -155,13 +155,45 @@ function entryTime(e) {
   const t = Number(e?.createdAt ?? e?.at ?? e?.timestamp ?? e?.createdAtMs);
   return Number.isFinite(t) && t > 0 ? t : null;
 }
-/** Entries from the sent message onward (2s clock-skew slack); falls back to the last few when entries carry no usable timestamps. */
-export function entriesSince(entries, sentAt) {
+function entryText(e) {
+  return local.transcriptText({ entries: [e] })[0]?.text ?? "";
+}
+function isUserEntry(e) {
+  const who = String(e?.role ?? e?.author ?? e?.authorKind ?? e?.kind ?? e?.type ?? "").toLowerCase();
+  return who === "" || who === "user" || who === "human";
+}
+const SENT_SLACK_MS = 2000;
+/**
+ * Entries from the sent message onward. Anchors on the sent message itself: the entry id returned by send or the clientNonce
+ * (both clock-independent), else the last user entry whose text equals the prompt. A prompt-text match must be no older than
+ * the send (sentAt minus 2s slack) or carry no timestamp, so the same prompt sent earlier never anchors on the old turn.
+ * Falls back to timestamps (2s slack) and then to the last few entries. Untimestamped entries after the anchor are kept.
+ */
+export function entriesSince(entries, sentAt, sent = {}) {
+  const { nonce, prompt, entryIds = [] } = sent;
+  const want = typeof prompt === "string" ? prompt.trim() : "";
+  const ids = entryIds.filter(Boolean).map(String);
+  let anchor = -1;
+  for (let i = entries.length - 1; i >= 0 && anchor < 0; i--) {
+    const e = entries[i];
+    if (ids.length && e?.id != null && ids.includes(String(e.id))) anchor = i;
+    else if (typeof nonce === "string" && nonce.length >= 8 && JSON.stringify(e ?? null).includes(nonce)) anchor = i;
+    else if (want && isUserEntry(e) && entryText(e).trim() === want && (entryTime(e) === null || entryTime(e) >= sentAt - SENT_SLACK_MS)) anchor = i;
+  }
+  if (anchor >= 0) return entries.slice(anchor);
   if (entries.some((e) => entryTime(e) !== null)) {
-    const since = entries.filter((e) => (entryTime(e) ?? 0) >= sentAt - 2000);
+    const since = entries.filter((e) => (entryTime(e) ?? 0) >= sentAt - SENT_SLACK_MS);
     if (since.length) return since;
   }
   return entries.slice(-FALLBACK_TAIL);
+}
+function cdpTimeoutMs(o) {
+  if (o?.timeout === undefined) return undefined;
+  const sec = Number(o.timeout);
+  if (!(Number.isFinite(sec) && sec > 0)) throw new UsageError(`--timeout must be a positive number of seconds (got "${o.timeout}").`);
+  const ms = Math.round(sec * 1000);
+  if (ms > MAX_TIMER_MS) throw new UsageError(`--timeout is too large (max ${Math.floor(MAX_TIMER_MS / 1000)} seconds; got "${o.timeout}").`);
+  return ms;
 }
 function formatEntry(e) {
   const flat = local.transcriptText({ entries: [e] })[0];
@@ -476,7 +508,11 @@ export function buildProgram() {
         // Never saw the agent start within 20s: give up waiting rather than spin to the timeout.
         if (!sawRunning && Date.now() - r.sentAt > 20_000) break;
       }
-      const tail = entriesSince(tailEntries(await gw.transcriptTail(a.id, WAIT_TRANSCRIPT_WINDOW)), r.sentAt);
+      const tail = entriesSince(tailEntries(await gw.transcriptTail(a.id, WAIT_TRANSCRIPT_WINDOW)), r.sentAt, {
+        nonce: r.clientNonce,
+        prompt,
+        entryIds: [r.entryId, r.messageId, r.userEntryId],
+      });
       out(cmd, { sent: r, tail }, tail.map(formatEntry).join("\n") + "\n");
     });
 
@@ -822,10 +858,12 @@ export function buildProgram() {
   cdp
     .command("eval <expression>")
     .description("Evaluate JS in the renderer (promises awaited)")
-    .action(async (expr, _, cmd) => {
+    .option("--timeout <sec>", "per-call timeout in seconds (default 30)")
+    .action(async (expr, o, cmd) => {
+      const timeoutMs = cdpTimeoutMs(o);
       const c = await Cdp.connect({ port: await cdpPort(cmd) });
       try {
-        printJson(await c.evaluate(expr));
+        printJson(await c.evaluate(expr, { timeoutMs }));
       } finally {
         c.close();
       }
@@ -833,10 +871,12 @@ export function buildProgram() {
   cdp
     .command("desktop <path> [jsonArgs]")
     .description("Call window.desktop.<path>(...args), e.g. agent.getSidebarSections")
-    .action(async (path, jsonArgs, _, cmd) => {
+    .option("--timeout <sec>", "per-call timeout in seconds (default 30; known-slow calls get 120)")
+    .action(async (path, jsonArgs, o, cmd) => {
+      const timeoutMs = cdpTimeoutMs(o);
       const c = await Cdp.connect({ port: await cdpPort(cmd) });
       try {
-        printJson(await c.callDesktop(path, jsonArgs ? JSON.parse(jsonArgs) : []));
+        printJson(await c.callDesktop(path, jsonArgs ? JSON.parse(jsonArgs) : [], { timeoutMs }));
       } finally {
         c.close();
       }

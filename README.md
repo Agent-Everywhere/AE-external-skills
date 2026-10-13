@@ -4,6 +4,22 @@ Agent Everywhere's shareable skills for subscribers and readers. Each skill is p
 for any company, asks the user only for what it needs, and runs inside the user's own Claude
 (Claude Desktop, claude.ai, Claude Code, Codex, and other MCP clients).
 
+## Install
+
+**Claude Code** (pick only the skills you need):
+
+```
+/plugin marketplace add Agent-Everywhere/AE-external-skills
+/plugin install grokbot@ae-external-skills
+/plugin install grokbot-box@ae-external-skills
+/plugin install sales-navigator@ae-external-skills
+```
+
+**Other Claude apps** (Claude Desktop, claude.ai): download the skill folder you want from
+`skills/<skill-name>/` as a zip and add it as a skill. Note that `grokbot` runs a local CLI and
+needs Claude Code (or another agent with shell access) on the Mac that has Grok Bot installed;
+`grokbot-box` runs inside a Grok Bot box.
+
 The **Agent Browser** skills drive Agent Everywhere's cloud-browser MCP. Other skills (such as
 `grokbot`) ship their own tooling and do not need that connector.
 
@@ -12,19 +28,28 @@ The **Agent Browser** skills drive Agent Everywhere's cloud-browser MCP. Other s
 | Skill | What it does |
 |---|---|
 | [`sales-navigator`](skills/sales-navigator/SKILL.md) | Build account, lead, and decision-maker lists in LinkedIn Sales Navigator, with guardrails (Agent Browser) |
-| [`grokbot`](skills/grokbot/SKILL.md) | Operate Cursor's Grok Bot desktop app and agents from the terminal: agents, sections, pins, transcripts, groups, sending prompts (Node CLI) |
+| [`grokbot`](skills/grokbot/SKILL.md) | Your own Claude Code operates your Grok Bot desktop app on your Mac: status/doctor, agents, groups, sections, pins, transcripts, `send --wait`, app restart (bundled Node CLI, no `npm install`) |
+| [`grokbot-box`](skills/grokbot-box/SKILL.md) | For a Grok Bot agent inside its own cloud box: list, create, organize, send to, and delete its sibling workers under an advisory, audited agent policy (uses the `grokbot` CLI) |
 
-> **Unofficial.** `grokbot` is not affiliated with or endorsed by Cursor or xAI. It uses Grok Bot's private, undocumented interfaces, which may change or break at any time. Use at your own risk: some commands can delete agents and sections.
+> **Unofficial.** `grokbot` and `grokbot-box` are not affiliated with or endorsed by Cursor or xAI. It uses Grok Bot's private, undocumented interfaces, which may change or break at any time. Use at your own risk: some commands can delete agents and sections.
 
 ## Layout
 
 ```
+.claude-plugin/
+  marketplace.json  # Claude Code marketplace: one plugin per skill, each rooted at skills/<name>
 skills/<skill-name>/
   SKILL.md          # entry point: frontmatter (name, description) + procedure
   references/       # loaded on demand: guardrails, gotchas, schemas
   scripts/          # optional helpers (Python 3 stdlib only), run in the user's Claude
   cli/              # optional Node CLI (Node >= 20), for skills that wrap a command-line tool
+  cli/dist/         # committed single-file bundle of the CLI (no npm install needed); rebuild with `npm run build`
 ```
+
+Each marketplace entry uses its own skill folder as the plugin source (`"source": "./skills/<name>"`,
+`"skills": ["."]`), so a plugin installs only its own skill. Do not point a plugin at the repo root:
+the `skills` key adds to the default `skills/` scan, so every skill would load. `grokbot-box` does not
+ship the CLI; it installs it inside the box by cloning this repo.
 
 ## Conventions
 
@@ -39,7 +64,8 @@ skills/<skill-name>/
 - **Scripts:** Python 3 standard library only, no network, tested under `tests/`. (The `tests/`
   convention applies to Python scripts; `grokbot`'s CLI tests live in `skills/grokbot/cli/tests/` and run with `npm test`.)
 - **Exception: Node CLI.** A skill may ship a Node CLI under `cli/` (Node >= 20, with its own
-  `package.json` and lockfile; install with `npm install --omit=dev`). This is the one exception
+  `package.json` and lockfile; install with `npm install --omit=dev`, or run the committed bundle
+  `cli/dist/grokbot.mjs` directly). This is the one exception
   to the Python-stdlib scripts rule, and the skill's `SKILL.md` documents the install.
 
 ## Packaging
@@ -50,10 +76,13 @@ Each skill folder zips into an installable skill:
 cd skills && zip -r ../dist/<skill-name>.zip <skill-name> -x '*/node_modules/*'
 ```
 
+`grokbot-box` does not bundle the CLI or the `grokbot` references; its install section clones this
+repo inside the box, and the zip needs nothing else.
+
 ## Requirements for users
 
 - Agent Browser skills only: the Agent Browser connector,
   `https://browser-mcp-production-6535.up.railway.app/mcp` (Google sign-in).
 - Any other connector the skill names (e.g. their CRM's MCP).
 - Skills with a `cli/`: Node >= 20, plus whatever the skill's `SKILL.md` lists (`grokbot` needs
-  the Grok Bot desktop app, or to run inside a Grok Bot box).
+  the Grok Bot desktop app on a Mac; `grokbot-box` runs inside a Grok Bot box).
