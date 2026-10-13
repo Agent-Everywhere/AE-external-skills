@@ -25,7 +25,7 @@
     {
       "name": "sales-navigator",
       "source": "./skills/sales-navigator",
-      "description": "Build account, lead, and decision-maker lists in LinkedIn Sales Navigator with guardrails (uses the Agent Browser connector).",
+      "description": "Build account, lead, and decision-maker lists in LinkedIn Sales Navigator with guardrails, fast through the in-page API. Runs in your own browser (local) or in a cloud browser via the Agent Browser connector.",
       "skills": ["."],
       "category": "sales",
       "tags": ["linkedin", "sales-navigator", "lead-generation"]

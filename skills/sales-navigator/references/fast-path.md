@@ -1,0 +1,127 @@
+# Fast path — Sales Navigator's in-page API
+
+Sales Navigator's own pages call a same-origin JSON API. From a signed-in page you can call it
+directly: **exact totals, 25 rows in about 2 seconds**, against 30 seconds or more per page (and
+incomplete rows) when reading the rendered page. The snippets in `page/` wrap the calls; the
+runtime in `runtime/` delivers them to the page.
+
+Everything here was proven on live seats; the API is private and can change. If a call that used
+to work returns 400 or an unexpected shape, say so and fall back to the slow path rather than
+guessing.
+
+## Runtimes
+
+| Runtime | Use when | Doc |
+|---|---|---|
+| agent-browser | Agent Browser connector + code execution | `runtime/agent-browser.md` |
+| local | A browser JavaScript tool, or Playwright on the user's Chrome | `runtime/local.md` |
+| neither | Plain chat with no code and no browser JS tool | slow path in `SKILL.md` 4b |
+
+Both fast runtimes run the same snippets. Plain chat cannot do the fast path.
+
+## The call, exactly
+
+Run inside a loaded `linkedin.com/sales/...` page:
+
+- Header `csrf-token` = the `JSESSIONID` cookie value **with its quotes stripped**. Read it in the
+  page; never log it, return it, or save it.
+- Header `x-restli-protocol-version: 2.0.0`, header `accept: application/json`, `credentials: 'include'`.
+- **Wait for `networkidle` plus about 3 seconds after the page loads before the first call.**
+  Earlier, the token is not ready and the call returns 403 in about 100 ms. That is timing, not a
+  block; `session.py` and `csrf_ready.js` handle it.
+
+| Purpose | Endpoint | Notes |
+|---|---|---|
+| Lead search | `/sales-api/salesApiLeadSearch?q=searchQuery&query=<restli>&start=N&count=25&decorationId=com.linkedin.sales.deco.desktop.searchv2.LeadSearchResult-14` | `paging.total` exact; `count=1` to size; viewable cap 2,500 (100 pages) |
+| Account search | `/sales-api/salesApiAccountSearch?q=searchQuery&query=<restli>&start=N&count=25&decorationId=com.linkedin.sales.deco.desktop.searchv2.AccountSearchResult-4` | viewable cap 1,000; **no website in the result** |
+| Websites | `/sales-api/salesApiCompanies?ids=List(id1,...,id25)&decoration=%28entityUrn%2Cname%2Cwebsite%29` | decoration **must** be URL-encoded (raw parentheses return 400); richer decorations return 400; 25 ids per call |
+| Typeahead | `/sales-api/salesApiFacetTypeahead?q=query&start=0&count=10&type=<TYPE>&query=<term>` | geography is `type=BING_GEO`; a wrong shape returns 200 with empty `elements` |
+
+Query construction, filter types and ids: `references/filters.md`.
+
+## Plans
+
+A plan is a JSON list of snippet calls. The runtime runs them in order inside one browser
+session, waits and heartbeats for you, and writes one JSONL record per call.
+
+```json
+{
+  "start_url": "https://www.linkedin.com/sales/home",
+  "settle_ms": 3000,
+  "ready": {"snippet": "csrf_ready.js", "retries": 5, "interval_ms": 2000},
+  "delay_ms": [3000, 5000],
+  "calls": [
+    {"id": "size", "snippet": "count.js",
+     "params": {"kind": "account", "queries": [
+        {"label": "master", "query": "(filters:List((type:REGION,values:List((id:103644278,selectionType:INCLUDED)))),keywords:supplement%20OR%20vitamin)"}]}},
+    {"id": "sample", "snippet": "account_search.js",
+     "params": {"query": "(filters:List(...),keywords:...)"},
+     "pages": {"param": "start", "step": 25, "max_pages": 2}},
+    {"id": "accts", "snippet": "account_search.js",
+     "params": {"query": "(filters:List(...),keywords:...)"},
+     "pages": {"param": "start", "step": 25, "cap": 1000}}
+  ]
+}
+```
+
+Run it (cloud browser shown; `runtime/local.md` has the local command). Snippet names resolve
+against this skill's `page/` folder automatically:
+
+```
+python3 runtime/session.py --runtime agent-browser --base "<base>" --claim "<claim>" \
+        --plan plan.json --out results.jsonl
+```
+
+Then turn the results into the standard CSVs:
+
+```
+python3 scripts/salesnav_rows.py accounts results.jsonl -o accounts.csv --mode B --buyer-type "<type>" --shard "<shard>"
+python3 scripts/salesnav_rows.py leads    results.jsonl -o leads.csv    --mode A --buyer-type "<type>" --shard "<shard>"
+python3 scripts/validate_csv.py accounts.csv
+```
+
+Rules for plans:
+
+- **A cloud browser session is one process.** Put every call for the session in one plan. Close
+  and reopen near the 40-minute ceiling (`session.py` checkpoints and exits 4; re-run with
+  `--skip-done`).
+- Write the plan **before** opening a cloud session: the claim expires in 60 seconds.
+- Keep plans to the call budget in `references/guardrails.md`. Size first (`count.js`, `count=1`
+  responses are tiny), then sample, then collect.
+- For many companies or ids, generate the plan with a short script; do not hand-write hundreds of calls.
+
+## Per-account flow
+
+1. Account search → rows with company id (`entityUrn` = `urn:li:fs_salesCompany:<id>`).
+2. Websites: `companies_websites.js` with up to 25 ids per call (the snippet chunks longer lists
+   with a pause). The domain is derived from `website` (`http://www.x.com` → `x.com`).
+3. Decision-makers: one lead search per qualified company, filtered to that company and to the
+   buying seniority levels:
+
+   ```
+   (filters:List((type:CURRENT_COMPANY,values:List((id:urn%3Ali%3Aorganization%3A<company id>,selectionType:INCLUDED))),(type:SENIORITY_LEVEL,values:List((id:320,selectionType:INCLUDED),(id:310,selectionType:INCLUDED),(id:300,selectionType:INCLUDED),(id:220,selectionType:INCLUDED)))))
+   ```
+
+   Seniority ids: `320` Owner/Partner, `310` CXO, `300` VP, `220` Director. One page (25) is
+   plenty per company; rank and keep 1–3.
+4. Convert (`salesnav_rows.py leads ... --company-ids ids.csv` keeps a lead-to-company join), then
+   hand `leads.csv` + `accounts.csv` to CRM dedupe.
+
+## Timings and expectations
+
+| | Fast path | Page reading |
+|---|---|---|
+| 25 rows | about 2 s per call (plus 3–5 s pacing) | 30 s or more, often incomplete |
+| Count | exact `paging.total`, tiny response | rounded and approximate in the UI |
+| 1,000 rows | about 40 calls, a few minutes | most of an hour, rows missing |
+
+## When it fails
+
+| Symptom | Cause | Do |
+|---|---|---|
+| 403 within ~100 ms of the first call | token not ready yet | wait for networkidle + 3 s; `csrf_ready.js` |
+| 403/429 later | throttling or a block | stop, tell the user (guardrails) |
+| 400 on a copied URL query | `recentSearchParam` / double encoding | the search snippets clean it; better, build the query yourself |
+| 400 on websites | decoration not encoded, or a richer decoration | use the exact encoded `(entityUrn,name,website)` |
+| 200 with no elements from typeahead | wrong `type` or shape | `gotchas.md` |
+| Total looks wrong / cap hit | viewable cap | shard (`filters.md`) |

@@ -43,6 +43,14 @@ from any file. Leave unknown fields blank; never guess.
 | status | collected | collected / qualified / rejected |
 | collected_at | 2026-10-13 | |
 
+## Filling the columns from the fast path
+
+`scripts/salesnav_rows.py` writes these files from API results. It fills what the search returns
+and leaves the rest blank on purpose: `linkedin_url` (the search has no public profile URL),
+`hq_location` and `seniority` (unless you pass the level you filtered on), and `company_domain`
+until website records are included. Accounts get `salesnav_account_url` from the company id, and
+`headcount_band` is the range without the word "employees".
+
 ## Run summary (to the user)
 
 - Searches/shards run, total results per shard, rows collected, rows excluded (by reason).
