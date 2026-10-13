@@ -42,6 +42,8 @@ class LogCase(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.log = str(Path(self.tmp.name) / "outreach_log.csv")
+        # an existing ledger (header only): a missing ledger is refused, see LedgerGate
+        Path(self.log).write_text(",".join(outreach_log.COLUMNS) + "\n", encoding="utf-8")
 
     def cli(self, *argv):
         args = list(argv)
@@ -392,7 +394,7 @@ class DateWindow(LogCase):
                 code, _, err = self.attempt(bad)
                 self.assertEqual(code, 1)
                 self.assertTrue("future" in err or "days in the past" in err, err)
-        self.assertFalse(Path(self.log).exists())
+        self.assertEqual(self.rows(), [])
         for good, lead in (("2026-10-12", ID1), ("2026-10-11", ID2), ("2026-10-10", "ACwAAAexample3")):
             with self.subTest(date=good):
                 self.assertEqual(self.attempt(good, lead=lead)[0], 0)
@@ -514,7 +516,7 @@ class FileLock(LogCase):
             proc = self.spawn(*self.add_args(ID1))
             with self.assertRaises(subprocess.TimeoutExpired):
                 proc.wait(timeout=1.0)
-            self.assertFalse(Path(self.log).exists())  # blocked before writing anything
+            self.assertEqual(self.rows(), [])  # blocked before writing anything
         self.assertEqual(self.finish([proc]), [0])
         self.assertEqual(len(self.rows()), 1)
 

@@ -430,7 +430,7 @@ class RunLogTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.log = str(Path(self.tmp.name) / "log.jsonl")
+        self.log = str(Path(self.tmp.name) / "run_log.csv")
 
     def test_constants_match_guardrails_md(self):
         md = (SKILL / "references" / "guardrails.md").read_text(encoding="utf-8")
@@ -465,33 +465,48 @@ class RunLogTests(unittest.TestCase):
         profiles = [l for l in out.splitlines() if l.startswith("profiles")][0].split()
         self.assertEqual(profiles[1:], ["5", "80", "150", "OK"])
         lines = Path(self.log).read_text().splitlines()
-        self.assertEqual(len(lines), 2)
-        self.assertEqual(json.loads(lines[0])["pages"], 10)
+        self.assertEqual(lines[0], "date,time,pages,profiles,accounts,saved_searches,small_calls,note")
+        self.assertEqual(len(lines), 3)
+        self.assertEqual(read_csv(self.log)[0]["pages"], "10")
+        self.assertEqual(read_csv(self.log)[0]["date"], date.today().isoformat())
+
+    def write_rows(self, *rows):
+        with open(self.log, "w", newline="") as fh:
+            w = csv.writer(fh)
+            w.writerow(run_log.COLUMNS)
+            for r in rows:
+                w.writerow(r)
 
     def test_other_days_are_not_counted(self):
-        now = datetime.now().astimezone()
-        yesterday = (now - timedelta(days=1)).isoformat(timespec="seconds")
-        with open(self.log, "w") as fh:
-            fh.write(json.dumps({"ts": yesterday, "pages": 79, "profiles": 0, "accounts": 0,
-                                 "saved_searches": 0}) + "\n")
-            fh.write("not json\n")
-            fh.write(json.dumps({"ts": now.isoformat(), "pages": 3}) + "\n")
+        today = date.today()
+        yesterday = today - timedelta(days=1)
+        self.write_rows((yesterday.isoformat(), "09:00:00", 79, 0, 0, 0, 0, ""),
+                        ("not-a-date", "09:00:00", 5, 0, 0, 0, 0, ""),
+                        (today.isoformat(), "10:00:00", 3, 0, 0, 0, 0, "x"))
         with contextlib.redirect_stderr(io.StringIO()):
             entries = run_log.read_entries(self.log)
         self.assertEqual(len(entries), 2)
-        self.assertEqual(run_log.totals_for(entries, now.date())["pages"], 3)
-        self.assertEqual(run_log.totals_for(entries, now.date() - timedelta(days=1))["pages"], 79)
+        self.assertEqual(run_log.totals_for(entries, today)["pages"], 3)
+        self.assertEqual(run_log.totals_for(entries, yesterday)["pages"], 79)
         code, out, err = run_main(run_log, ["today", "--log", self.log])
         self.assertEqual(code, 0)
-        self.assertIn("line 2 skipped", err)
+        self.assertIn("line 3 skipped", err)
 
-    def test_local_date_boundary_uses_local_time_not_utc(self):
-        # 23:30 local on some day must count for that local day regardless of the UTC date.
-        local_tz = datetime.now().astimezone().tzinfo
-        late = datetime(2026, 3, 10, 23, 30, tzinfo=local_tz)
-        entries = [{"ts": late.isoformat(), "pages": 7}]
+    def test_dates_are_local_calendar_dates_written_as_text(self):
+        entries = [{"date": "2026-03-10", "time": "23:30:00", "pages": 7}]
         self.assertEqual(run_log.totals_for(entries, date(2026, 3, 10))["pages"], 7)
         self.assertEqual(run_log.totals_for(entries, date(2026, 3, 11))["pages"], 0)
+        # the row written by `add` carries the local date and time
+        now = datetime(2026, 3, 10, 23, 30, 5)
+        run_log.append_entry(self.log, dict(dict.fromkeys(run_log.LIMITS, 0), pages=2), "late", now=now)
+        row = read_csv(self.log)[0]
+        self.assertEqual((row["date"], row["time"], row["pages"], row["note"]), ("2026-03-10", "23:30:05", "2", "late"))
+
+    def test_wrong_header_is_an_error_not_silently_empty(self):
+        Path(self.log).write_text("a,b\n1,2\n")
+        code, _, err = run_main(run_log, ["today", "--log", self.log])
+        self.assertEqual(code, 1)
+        self.assertIn("header must be", err)
 
     def test_over_ceiling_exits_2_and_over_default_exits_0(self):
         code, out, _ = run_main(run_log, ["add", "--pages", "41", "--log", self.log])

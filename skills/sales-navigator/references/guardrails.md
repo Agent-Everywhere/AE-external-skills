@@ -42,6 +42,18 @@ options: continue tomorrow (the CSV and `--skip-done` / the next page number res
 the cap for today. Raising needs the user's explicit OK in that conversation, only up to the hard
 ceiling, and never after a stop signal below. Do not raise a cap on your own.
 
+## Where the counters live (they must persist)
+
+The caps only protect the seat if the numbers survive from one task and one day to the next. They live
+in the **workspace** folder (`SKILL.md` preflight; default `~/Claude/sales-navigator`, Cowork's
+user-files folder): `run_log.csv` (pulls), `outreach_log.csv` (sends), and `quota.md`, which
+`scripts/run_log.py quota` rewrites from both with today's and the last 7 days' usage against the caps.
+Start every action by reading it and end every action by regenerating it, then show the user the
+one-line summary (`Today: 87/150 calls · 12/20 invites · week 41/100`). If the scripts refuse
+(exit 4: **no workspace found**, or the workspace folder does not exist), the counters would not persist
+or would restart from zero: ask the user where their Cowork folder is instead of carrying on, because a
+fresh log makes every cap look untouched.
+
 ## Pace
 
 - **About 3–5 seconds between API calls**, randomized (the runtime's `delay_ms`); a longer pause
@@ -106,4 +118,5 @@ Stop sending, report to the user, and send nothing more that day when:
 - any LinkedIn warning, captcha, "unusual activity" or checkpoint page appears,
 - a "weekly invitation limit", "you've reached the limit" or similar banner appears,
 - the daily or 7-day cap is reached (`scripts/outreach_log.py caps` exits 2),
+- the outreach ledger is missing or the workspace cannot be located (`outreach_log.py` exits 4 and refuses): never start a fresh ledger to get past it, ask the user where it is; only the very first send ever creates one, with `--first-send` and the user told (`outreach.md`),
 - the result of a send is unknown (never click again; log it with `--note unverified` so nobody retries, and ask the user).
