@@ -67,11 +67,20 @@ export class Gateway {
     return data;
   }
 
-  async health() {
-    const res = await this.fetch(`${this.baseUrl}/health`, { headers: this.headers() });
-    const text = await res.text();
-    if (!res.ok) throw new GatewayError(`health failed: ${res.status} ${text.slice(0, 200)}`, { status: res.status });
-    return JSON.parse(text);
+  async health({ timeoutMs = this.timeoutMs } = {}) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await this.fetch(`${this.baseUrl}/health`, { headers: this.headers(), signal: ctrl.signal });
+      const text = await res.text();
+      if (!res.ok) throw new GatewayError(`health failed: ${res.status} ${text.slice(0, 200)}`, { status: res.status });
+      return JSON.parse(text);
+    } catch (err) {
+      if (err instanceof GatewayError) throw err;
+      throw new GatewayError(`health: ${err.name === "AbortError" ? `timed out after ${timeoutMs}ms` : err.message}`, { command: "health" });
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   hostStatus() {

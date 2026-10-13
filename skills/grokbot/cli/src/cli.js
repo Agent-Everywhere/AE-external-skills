@@ -20,6 +20,12 @@ async function gateway(opts) {
   _gw = new Gateway(session);
   return _gw;
 }
+/** Test seam: inject a gateway (or null to reset). */
+export function setGatewayForTests(gw) {
+  _gw = gw;
+}
+/** Test seam: the renderer-nudge dependencies. */
+export const nudgeDeps = { appState, connect: (o) => Cdp.connect(o) };
 function cursor(opts) {
   const auth = loadCursorAuth({ accountScope: opts.account ?? null });
   if (!auth) throw new UsageError("No Cursor account found in the Grok Bot secret store. Sign in to Grok Bot first.");
@@ -81,13 +87,13 @@ export function hasSelectionFlags(o) {
 }
 
 /** Resolve positional refs and/or selection flags into concrete roster rows. */
-async function selectAgents(gw, refs, o, { requireSome = true } = {}) {
+async function selectAgents(gw, refs, o, { requireSome = true, strict = false } = {}) {
   const roster = await gw.listAgents({ fresh: true });
   const sections = o.section !== undefined ? await gw.getSections() : [];
   const allRefs = [...(refs ?? []), ...(o.idsFile ? readLines(o.idsFile) : [])];
   let rows;
   if (allRefs.length > 0) {
-    rows = resolveMany(roster, allRefs);
+    rows = resolveMany(roster, allRefs, { strict });
     if (hasSelectionFlags({ ...o, idsFile: undefined })) {
       const keep = new Set(filterAgents(roster, { ...selectionFromOpts(o, sections), includeHidden: true }, sections).map((a) => a.id));
       rows = rows.filter((a) => keep.has(a.id));
@@ -142,6 +148,21 @@ function tailEntries(data) {
   const entries = Array.isArray(data) ? data : data?.entries ?? data?.rows ?? data?.items ?? data?.transcript ?? [];
   return Array.isArray(entries) ? entries : [];
 }
+/** How many transcript entries `send --wait` scans for the reply (a long turn can emit many tool entries). */
+export const WAIT_TRANSCRIPT_WINDOW = 200;
+const FALLBACK_TAIL = 20;
+function entryTime(e) {
+  const t = Number(e?.createdAt ?? e?.at ?? e?.timestamp ?? e?.createdAtMs);
+  return Number.isFinite(t) && t > 0 ? t : null;
+}
+/** Entries from the sent message onward (2s clock-skew slack); falls back to the last few when entries carry no usable timestamps. */
+export function entriesSince(entries, sentAt) {
+  if (entries.some((e) => entryTime(e) !== null)) {
+    const since = entries.filter((e) => (entryTime(e) ?? 0) >= sentAt - 2000);
+    if (since.length) return since;
+  }
+  return entries.slice(-FALLBACK_TAIL);
+}
 function formatEntry(e) {
   const flat = local.transcriptText({ entries: [e] })[0];
   const when = e.createdAt ?? e.at ?? e.timestamp ?? e.createdAtMs;
@@ -158,10 +179,12 @@ async function writeSections(cmd, gw, before, after, label) {
 }
 async function nudgeRenderer() {
   // The desktop app re-reads host settings on window focus/reconnect; a CDP bringToFront is the cheapest nudge.
+  // Under the agent policy `cdp` is denied, so the nudge (a CDP call) must not run either.
+  if (resolvePolicy() === "agent") return;
   try {
-    const st = await appState();
+    const st = await nudgeDeps.appState();
     if (!st.cdpReachable) return;
-    const cdp = await Cdp.connect({ port: st.debugPort });
+    const cdp = await nudgeDeps.connect({ port: st.debugPort });
     await cdp.callDesktop("agent.getSidebarSections").catch(() => {});
     cdp.close();
   } catch {}
@@ -315,13 +338,19 @@ export function buildProgram() {
     .option("--kickstart", "ask the agent to start working immediately")
     .action(async (name, o, cmd) => {
       const gw = await gateway(cmd.optsWithGlobals());
+      // Validate the target section before creating anything, so a bad --section cannot leave an orphan agent.
+      const sectionName = o.section ? S.requireSection(await gw.getSections(), o.section).name : null;
       const created = await gw.createAgent({ name, description: o.description, title: o.title, purpose: o.purpose, avatarShape: o.shape, avatarColor: o.color, isIntroductionSuppressed: o.intro === false ? true : undefined, isKickstartRequested: o.kickstart || undefined });
       const id = created?.id ?? created?.agentId ?? created?.agent?.id;
+      if (o.section && !id) {
+        out(cmd, created, `created ${name} (no id in the create response)\n`);
+        throw new Error(`Agent "${name}" was created but the response had no id, so it was NOT placed in section "${sectionName}". Find it with \`grokbot agents list\` and use \`grokbot sections move\`.`);
+      }
       if (o.section && id) {
         const before = await gw.getSections();
         await gw.setSections(S.assignAgents(before, o.section, [id]));
       }
-      out(cmd, created, `created ${name} ${id ?? ""}${o.section ? ` → section ${o.section}` : ""}\n`);
+      out(cmd, created, `created ${name} ${id ?? ""}${sectionName ? ` → section ${sectionName}` : ""}\n`);
     });
 
   agents
@@ -394,7 +423,7 @@ export function buildProgram() {
       out(cmd, r ?? { ok: true }, `interrupted ${a.name}\n`);
     });
 
-  selectionOptions(agents.command("delete [refs...]").alias("rm").description("Delete agents. Prints the exact targets; needs --yes (and --confirm-count N for more than one)"))
+  selectionOptions(agents.command("delete [refs...]").alias("rm").description("Delete agents (full id or exact name only; no prefix matching). Prints the exact targets; needs --yes (and --confirm-count N for more than one)"))
     .option("--dry-run", "list targets and exit")
     .option("--yes", "actually delete")
     .option("--confirm-count <n>", "must equal the number of matched targets when deleting more than one")
@@ -402,7 +431,7 @@ export function buildProgram() {
     .option("--allow-empty", "allow the delete to empty the whole roster")
     .action(async (refs, o, cmd) => {
       const gw = await gateway(cmd.optsWithGlobals());
-      const { rows, sections } = await selectAgents(gw, refs, { ...o, all: true });
+      const { rows } = await selectAgents(gw, refs, { ...o, all: true }, { strict: true });
       if (!(await confirmDestructive(cmd, rows, o, { verb: "delete" }))) return;
       const ids = rows.map((a) => a.id);
       const batch = Math.max(1, Number(o.batch));
@@ -414,7 +443,8 @@ export function buildProgram() {
         process.stderr.write(`deleted ${Math.min(i + batch, ids.length)}/${ids.length}\n`);
       }
       // Drop only the deleted ids from sections; other stale memberships are left for `sections prune`.
-      const current = sections.length ? sections : await gw.getSections();
+      // Refetch: the pre-delete snapshot can be stale by now, and writing it back would clobber concurrent section edits.
+      const current = await gw.getSections();
       const deletedSet = new Set(ids);
       const touched = current.some((s) => s.agentIds.some((id) => deletedSet.has(id)));
       if (touched) await gw.setSections(S.assignAgents(current, null, ids));
@@ -428,12 +458,14 @@ export function buildProgram() {
     .option("--wait", "wait for the turn to finish and print the tail")
     .option("--timeout <sec>", "max seconds to wait", "300")
     .action(async (ref, promptParts, o, cmd) => {
+      const timeoutSec = Number(o.timeout);
+      if (o.wait && !(Number.isFinite(timeoutSec) && timeoutSec > 0)) throw new UsageError(`--timeout must be a positive number of seconds (got "${o.timeout}").`);
       const gw = await gateway(cmd.optsWithGlobals());
       const a = resolveAgent(await gw.listAgents({ fresh: true }), ref);
       const prompt = promptParts.join(" ");
       const r = await gw.sendPrompt(a.id, prompt, { replyToId: o.replyTo });
       if (!o.wait) return out(cmd, r, `sent to ${a.name} (${shortId(a.id)}) accepted=${r?.accepted ?? "?"} nonce=${r.clientNonce}\n`);
-      const deadline = Date.now() + Number(o.timeout) * 1000;
+      const deadline = Date.now() + timeoutSec * 1000;
       let sawRunning = false;
       while (Date.now() < deadline) {
         await sleep(1500);
@@ -444,7 +476,7 @@ export function buildProgram() {
         // Never saw the agent start within 20s: give up waiting rather than spin to the timeout.
         if (!sawRunning && Date.now() - r.sentAt > 20_000) break;
       }
-      const tail = tailEntries(await gw.transcriptTail(a.id, 6));
+      const tail = entriesSince(tailEntries(await gw.transcriptTail(a.id, WAIT_TRANSCRIPT_WINDOW)), r.sentAt);
       out(cmd, { sent: r, tail }, tail.map(formatEntry).join("\n") + "\n");
     });
 
