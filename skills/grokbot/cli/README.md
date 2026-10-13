@@ -18,6 +18,15 @@ safeStorage ciphertext). Nothing is copied or printed; every error path is redac
 
 ## Install
 
+One command, no clone (single bundled file; rerun to update):
+
+```sh
+mkdir -p ~/.local/bin && curl -fsSL https://raw.githubusercontent.com/Agent-Everywhere/AE-external-skills/main/skills/grokbot/cli/dist/grokbot.mjs -o ~/.local/bin/grokbot && chmod +x ~/.local/bin/grokbot
+grokbot doctor
+```
+
+Make sure `~/.local/bin` is on your `PATH`. Or from a clone of this repo:
+
 ```sh
 cd skills/grokbot/cli && npm install --omit=dev
 chmod +x bin/grokbot.js

@@ -20,6 +20,12 @@ for any company, asks the user only for what it needs, and runs inside the user'
 needs Claude Code (or another agent with shell access) on the Mac that has Grok Bot installed;
 `grokbot-box` runs inside a Grok Bot box.
 
+**Just the `grokbot` CLI** (no Claude needed; Node 20+; rerun to update):
+
+```
+mkdir -p ~/.local/bin && curl -fsSL https://raw.githubusercontent.com/Agent-Everywhere/AE-external-skills/main/skills/grokbot/cli/dist/grokbot.mjs -o ~/.local/bin/grokbot && chmod +x ~/.local/bin/grokbot
+```
+
 The **Agent Browser** skills drive Agent Everywhere's cloud-browser MCP. Other skills (such as
 `grokbot`) ship their own tooling and do not need that connector.
 
