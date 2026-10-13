@@ -37,7 +37,7 @@ skills/<skill-name>/
 - **Safe by default.** Read-only unless the skill's purpose is to act; outward actions (sending,
   posting) require the user's approval and documented limits.
 - **Scripts:** Python 3 standard library only, no network, tested under `tests/`. (The `tests/`
-  convention applies to Python scripts; `grokbot`'s CLI tests are not included in this repo.)
+  convention applies to Python scripts; `grokbot`'s CLI tests live in `skills/grokbot/cli/tests/` and run with `npm test`.)
 - **Exception: Node CLI.** A skill may ship a Node CLI under `cli/` (Node >= 20, with its own
   `package.json` and lockfile; install with `npm install --omit=dev`). This is the one exception
   to the Python-stdlib scripts rule, and the skill's `SKILL.md` documents the install.

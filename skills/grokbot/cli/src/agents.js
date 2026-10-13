@@ -4,32 +4,39 @@ import { sectionIdByAgent } from "./sections.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Resolve one ref: full id, unique id prefix (>=4), exact name (ci), or unique name substring. */
-export function resolveAgent(roster, ref) {
+/**
+ * Resolve one ref. Order: full id, exact name (ci), then (unless `strict`) unique id prefix (>=4)
+ * and unique name substring. An exact name or full id always beats an id-prefix match.
+ * `strict` is for destructive commands: only a full id or an exact name may select an agent.
+ */
+export function resolveAgent(roster, ref, { strict = false } = {}) {
   const r = String(ref ?? "").trim();
   if (!r) throw new UsageError("Empty agent reference.");
   const byId = roster.find((a) => a.id === r);
   if (byId) return byId;
+  const exact = roster.filter((a) => (a.name ?? "").toLowerCase() === r.toLowerCase());
+  if (exact.length === 1) return exact[0];
+  if (exact.length > 1) throw new UsageError(`Name "${r}" matches ${exact.length} agents (${exact.map((a) => a.id.slice(0, 8)).join(", ")}); use an id.`);
+  if (strict) {
+    throw new UsageError(`No agent with exact id or name "${r}". Destructive commands need the full agent id or the exact name (no prefix or partial matching).`);
+  }
   if (r.length >= 4 && /^[0-9a-f-]+$/i.test(r)) {
     const pref = roster.filter((a) => a.id.toLowerCase().startsWith(r.toLowerCase()));
     if (pref.length === 1) return pref[0];
     if (pref.length > 1) throw new UsageError(`Id prefix "${r}" matches ${pref.length} agents; use more characters.`);
     if (UUID_RE.test(r)) throw new UsageError(`No agent with id ${r}.`);
   }
-  const exact = roster.filter((a) => (a.name ?? "").toLowerCase() === r.toLowerCase());
-  if (exact.length === 1) return exact[0];
-  if (exact.length > 1) throw new UsageError(`Name "${r}" matches ${exact.length} agents (${exact.map((a) => a.id.slice(0, 8)).join(", ")}); use an id.`);
   const partial = roster.filter((a) => (a.name ?? "").toLowerCase().includes(r.toLowerCase()));
   if (partial.length === 1) return partial[0];
   if (partial.length > 1) throw new UsageError(`"${r}" matches ${partial.length} agents: ${partial.map((a) => `${a.name} (${a.id.slice(0, 8)})`).join(", ")}`);
   throw new UsageError(`No agent matches "${r}".`);
 }
 
-export function resolveMany(roster, refs) {
+export function resolveMany(roster, refs, opts = {}) {
   const out = [];
   const seen = new Set();
   for (const ref of refs) {
-    const a = resolveAgent(roster, ref);
+    const a = resolveAgent(roster, ref, opts);
     if (!seen.has(a.id)) {
       seen.add(a.id);
       out.push(a);

@@ -102,21 +102,44 @@ export async function ensureDebugApp({ port = DEFAULT_CDP_PORT, restart = false 
   return { ...(await appState(port)), relaunched: true };
 }
 
+export const DEFAULT_SEND_TIMEOUT_MS = 30_000;
+
 export class Cdp {
-  constructor(ws) {
+  constructor(ws, { timeoutMs = DEFAULT_SEND_TIMEOUT_MS } = {}) {
     this.ws = ws;
     this.id = 0;
+    this.timeoutMs = timeoutMs;
     this.pending = new Map();
     this.listeners = new Set();
+    this.closed = false;
     ws.onmessage = (ev) => {
-      const msg = JSON.parse(typeof ev.data === "string" ? ev.data : ev.data.toString());
+      let msg;
+      try {
+        msg = JSON.parse(typeof ev.data === "string" ? ev.data : ev.data.toString());
+      } catch {
+        return;
+      }
       if (msg.id && this.pending.has(msg.id)) {
-        this.pending.get(msg.id)(msg);
+        const entry = this.pending.get(msg.id);
         this.pending.delete(msg.id);
+        clearTimeout(entry.timer);
+        entry.settle(msg);
       } else if (msg.method) {
         for (const l of this.listeners) l(msg);
       }
     };
+    ws.onclose = () => this.rejectAll(new CdpError("CDP websocket closed"));
+    ws.onerror = (e) => this.rejectAll(new CdpError(`CDP websocket error: ${e?.message ?? "error"}`));
+  }
+
+  /** Reject every in-flight call (socket closed/errored) and refuse new ones. */
+  rejectAll(err) {
+    this.closed = true;
+    for (const [id, entry] of this.pending) {
+      clearTimeout(entry.timer);
+      this.pending.delete(id);
+      entry.reject(err);
+    }
   }
 
   static async connect({ port = DEFAULT_CDP_PORT, target = "page" } = {}) {
@@ -136,11 +159,22 @@ export class Cdp {
     return cdp;
   }
 
-  send(method, params = {}) {
+  send(method, params = {}, { timeoutMs = this.timeoutMs } = {}) {
     return new Promise((resolve, reject) => {
+      if (this.closed) return reject(new CdpError(`${method}: CDP websocket is closed`));
       const id = ++this.id;
-      this.pending.set(id, (msg) => (msg.error ? reject(new CdpError(`${method}: ${msg.error.message}`)) : resolve(msg.result)));
-      this.ws.send(JSON.stringify({ id, method, params }));
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new CdpError(`${method}: timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+      this.pending.set(id, { timer, reject, settle: (msg) => (msg.error ? reject(new CdpError(`${method}: ${msg.error.message}`)) : resolve(msg.result)) });
+      try {
+        this.ws.send(JSON.stringify({ id, method, params }));
+      } catch (err) {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(new CdpError(`${method}: ${err.message}`));
+      }
     });
   }
 
