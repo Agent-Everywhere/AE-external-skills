@@ -57,7 +57,9 @@ Read the JSON that comes back. Do not run two snippets in one call and do not lo
 ### After every call: write it down before the next one
 
 Keep results out of the chat. After each call, save the returned object as its own file in the
-user's folder, then rebuild the CSV from everything saved so far with the skill's converter (the
+user's folder (in Claude Desktop Cowork, use the `~/Claude` workspace the skill names, e.g.
+`~/Claude/sales-navigator/`: a Cowork task only keeps files in folders it was given, so state saved
+elsewhere is gone for the next task and day), then rebuild the CSV from everything saved so far with the skill's converter (the
 conversion is idempotent). Sales Navigator example:
 
 ```

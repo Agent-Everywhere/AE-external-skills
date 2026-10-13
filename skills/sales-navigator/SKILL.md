@@ -67,18 +67,35 @@ Other references, loaded by the action that needs them: [`filters.md`](reference
      `open_browser`, for the cloud browser). **Never ask for, type, or store a password or 2FA code.**
    - Signed in but no Sales Nav (redirect to an upsell) → say so, stop. Do not fall back to classic
      LinkedIn search unless the user explicitly accepts the lower-quality path.
-3. **Company Profile.** Load the user's filled `company-profile.md` (an attached file, a project
-   file, their folder, a doc) and ask only for the fields it lacks. If none exists, ask the short
+3. **Workspace** (so the caps and the outreach ledger survive across tasks and days). All state lives in
+   one folder the host always has access to: `company-profile.md`, `quota.md`, `run_log.csv`,
+   `outreach_log.csv`, `lists/`, `drafts/`, `results/`. Locate it, in this order:
+   the profile's `workspace:` field, then `$SALESNAV_WORKSPACE`, then `~/Claude/sales-navigator` if it
+   exists (Claude Desktop Cowork's user-files folder is `~/Claude`), else **ask the user ONCE** where
+   their Cowork folder is, run `python3 scripts/workspace.py init <that folder>` (creates
+   `<folder>/sales-navigator/`) and save the path in `company-profile.md` as `workspace:`. Pass it to
+   the scripts as `--workspace DIR`. `python3 scripts/workspace.py locate` shows what was found; with
+   nothing found the scripts fall back to the current folder and WARN that the caps will not persist:
+   treat that as "ask the user", not as a fresh start. Never start a fresh `outreach_log.csv` silently
+   (`references/outreach.md`).
+4. **Company Profile.** Load the user's filled `company-profile.md` (from the workspace, else an attached
+   file or project file) and ask only for the fields it lacks. If none exists, ask the short
    set in ONE message (`references/build-list.md` section 1; accept "skip" and "use defaults"),
-   not a multi-step question screen. `templates/company-profile.md` is the blank form and
-   `templates/company-profile.example.md` a filled fictional one to copy. Its seller facts are
-   placeholders and are never used in drafts; a profile still titled EXAMPLE has no usable facts.
-   Only ask for what the action needs and is missing.
-4. **Budget.** Tell the user the planned volume (calls, rows, pages) against `references/guardrails.md`
-   and, for the cloud browser, roughly how much browser time it bills. Get a "go" for anything above
-   the default run size. Work in the user's folder: CSVs, `results/`, `outreach_log.csv`.
-   If a cap stops a pull, say how many rows remain and offer to continue tomorrow, or to raise
-   today's cap with the user's explicit OK (`references/guardrails.md`).
+   not a multi-step question screen, then save it in the workspace. `templates/company-profile.md` is
+   the blank form and `templates/company-profile.example.md` a filled fictional one to copy. Its seller
+   facts are placeholders and are never used in drafts; a profile still titled EXAMPLE has no usable
+   facts. Only ask for what the action needs and is missing.
+5. **Budget.** Run `python3 scripts/run_log.py quota --workspace DIR` first and read the line it prints
+   (`Today: 87/150 calls · 12/20 invites · week 41/100`). Tell the user the planned volume (calls, rows,
+   pages) against `references/guardrails.md` and, for the cloud browser, roughly how much browser time
+   it bills. Get a "go" for anything above the default run size. If a cap stops a pull, say how many
+   rows remain and offer to continue tomorrow, or to raise today's cap with the user's explicit OK
+   (`references/guardrails.md`).
+
+**End of every action:** log what you used (`run_log.py add ...`), run `run_log.py quota` (it rewrites
+`quota.md` from both logs), and show its one-line summary to the user in chat. Mirroring `quota.md` or
+`lists/` to a Google Sheet through the user's Drive connector is optional; the local CSV files stay the
+source of truth.
 
 ## Helper scripts
 
@@ -89,8 +106,9 @@ otherwise apply the same rules by hand.
 - `scripts/shard_plan.py` — per-dimension result counts to a shard plan under the cap.
 - `scripts/dedupe.py` — normalize LinkedIn URLs and domains, dedupe, apply exclusions.
 - `scripts/validate_csv.py` — check an accounts/leads CSV against `references/output.md`.
-- `scripts/run_log.py` — daily page, small-API-call and profile counts against the limits.
-- `scripts/outreach_log.py` — the outreach ledger: `check` (already contacted?), `add` (`--pending` before a send), `status`, `followup`, `caps`, `summary`. Used only by outreach and follow-ups.
+- `scripts/workspace.py` — `locate` / `init`: find or create the workspace folder (above).
+- `scripts/run_log.py` — `add` / `today` / `quota`: the CSV usage log (`run_log.csv`) against the limits, and `quota.md` with the one-line summary. Takes `--workspace`.
+- `scripts/outreach_log.py` — the outreach ledger: `check` (already contacted?), `add` (`--pending` before a send), `status`, `followup`, `caps`, `summary`. Used only by outreach and follow-ups; it refuses (exit 4) when the ledger is missing or the workspace unlocated.
 
 Page snippets (`page/*.js`, one async function each, run inside the signed-in page): `csrf_ready.js`,
 `count.js`, `lead_search.js`, `account_search.js`, `companies_websites.js`, `typeahead.js`. Each is

@@ -3,6 +3,24 @@
 Every mode writes the same shape so later steps (research, CRM dedupe, outreach) can start
 from any file. Leave unknown fields blank; never guess.
 
+## The workspace folder
+
+Every file below, and the state that guards the seat, lives in one workspace folder (`SKILL.md`
+preflight; default `~/Claude/sales-navigator`) so a later task finds it:
+
+| Path in the workspace | What |
+|---|---|
+| `company-profile.md` | the Company Profile, including its `workspace:` line |
+| `quota.md` | today's and the last 7 days' usage vs the caps (rewritten by `run_log.py quota`; do not edit) |
+| `run_log.csv` | pulls log: `date,time,pages,profiles,accounts,saved_searches,small_calls,note` |
+| `outreach_log.csv` | the outreach ledger (`references/outreach.md`); append-only, never recreated |
+| `lists/` | account / lead CSVs (`accounts.csv`, `leads.csv`) and `lists_log.csv` |
+| `drafts/` | `drafts/<yyyy-mm-dd>.csv` outreach drafts |
+| `results/` | raw tool JSON per shard and call |
+
+The CSVs are the source of truth. The user may mirror `quota.md` or `lists/` to a Google Sheet through
+their Drive connector; never read state back from the sheet.
+
 ## accounts.csv
 
 | Column | Example | Notes |

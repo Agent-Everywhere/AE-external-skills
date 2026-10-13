@@ -11,8 +11,11 @@ drafts. **It never sends.** Sending needs the user, awake, in a conversation, ap
   sub-lists to work through, each with a status; `build-list.md` writes it into the
   profile after counting, so run a build-list first if it is missing), the daily volume you may use, and whether
   creating lists is allowed ("create lists: yes").
-- Preflight from `SKILL.md` (runtime, signed-in session, budget). Check `scripts/run_log.py today`
-  and `scripts/outreach_log.py caps` so the day starts with the limits in view.
+- Preflight from `SKILL.md` (runtime, signed-in session, **workspace**, budget). Run
+  `scripts/run_log.py quota` and `scripts/outreach_log.py caps` so the day starts with the limits in
+  view. Every file below is read from and written to the workspace folder, which is what lets
+  tomorrow's task see today's usage; if it cannot be located, stop and report instead of starting a
+  fresh log.
 
 ## The routine
 
@@ -40,7 +43,9 @@ each step save its files, and stop the routine (not just the step) on any stop s
    - list name and verified count;
    - drafts waiting for approval (count, file path);
    - follow-ups due and replies that need them;
-   - limits used today and anything that stopped the run.
+   - limits used today and anything that stopped the run: finish with `run_log.py quota` and paste
+     its one-line summary (`Today: 87/150 calls · 12/20 invites · week 41/100`); `quota.md` in the
+     workspace has the table.
    Update the status in the profile's `## Sub-list plan` table. End with the one thing you need from them: "approve the
    drafts to send?" is a question for the user's next conversation, not something to act on.
 
@@ -48,9 +53,11 @@ each step save its files, and stop the routine (not just the step) on any stop s
 
 In Claude Desktop's Cowork, create a scheduled task (the scheduled-tasks screen, or ask Claude to
 schedule it), pick the frequency (for example weekdays at 9:00 in the user's time zone), choose
-the folder that holds the Company Profile and CSVs, and give it this prompt:
+the workspace folder (`~/Claude/sales-navigator`, inside Cowork's user-files folder, so every task
+and every day sees the same logs; it holds the Company Profile, `run_log.csv`, `outreach_log.csv` and
+the CSVs), and give it this prompt:
 
-> Run the sales-navigator skill's run-my-day action using the Company Profile in this folder.
+> Run the sales-navigator skill's run-my-day action using the Company Profile in the sales-navigator workspace folder.
 > Draft only: do not send, connect or message anyone. Stop and report on any LinkedIn warning,
 > captcha or limit. Finish with the day report.
 

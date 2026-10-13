@@ -98,7 +98,16 @@ and only for a batch you approve.
 
 ## 10. Where things live
 
-- Working folder for CSVs, `results/`, `drafts/`, `outreach_log.csv`, `lists_log.csv`:
+The **workspace** is the one folder for this profile, `quota.md`, `run_log.csv`, `outreach_log.csv`,
+the CSVs, `lists/`, `drafts/` and `results/`. The default is `~/Claude/sales-navigator`, inside Claude
+Desktop Cowork's `~/Claude` folder, so every task and every day sees the same files. The skill fills
+the first line in the first time it asks where your Cowork folder is. **Outreach started** is the date
+of the first message ever sent (blank until then): with a date here, a missing `outreach_log.csv` is
+treated as lost, never as a fresh start.
+
+- **workspace:**
+- **Outreach started:**
+- Other working files (`lists_log.csv` and so on):
 - Where finished lists go (CSV, Google Sheet, CRM):
 
 The ordered sub-lists (state, region or headcount band) are an output, not an intake question: the

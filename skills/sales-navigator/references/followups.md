@@ -6,8 +6,9 @@ inbox and the sent invitations is read-only. Drafting is read-only. Any send goe
 
 ## Inputs
 
-- `outreach_log.csv` in the user's folder (kept by `scripts/outreach_log.py`). If it does not
-  exist, nobody has been logged and there is nothing to follow up.
+- `outreach_log.csv` in the workspace folder (kept by `scripts/outreach_log.py --workspace DIR`). The
+  script exits 4 when it is missing: that is not "nothing to follow up", it is lost state or the wrong
+  workspace, so ask the user (unless the profile's `Outreach started` is blank, i.e. nothing was ever sent).
 - The Company Profile: follow-up wait (default 3 days after acceptance), tone, caps.
 
 ## 1. Read the state (read-only)

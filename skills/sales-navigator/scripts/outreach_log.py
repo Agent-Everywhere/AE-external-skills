@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Outreach ledger for a Sales Navigator seat: who was contacted, when, and what happened since.
 
-A CSV file (default ./outreach_log.csv), append-only. One person is one Sales Nav lead id; each
+A CSV file (<workspace>/outreach_log.csv), append-only. One person is one Sales Nav lead id; each
 line is an event and the LATEST line for a lead id is that person's current state. The message
 text is never stored, only a short hash (so a repeat of the same text can be spotted). Every
 command that writes holds a file lock (a hidden .<log>.lock beside the log) while it reads and
@@ -43,8 +43,17 @@ can lower a limit; a value above the default is ignored (with a note) unless --a
 given, and --allow-over-cap is only for the user's explicit go. Likewise --max-touches is clamped
 to the default maximum, and add / followup stop at a reached cap, unless --allow-over-cap.
 
+Where the ledger lives: the workspace folder (workspace.py): --workspace DIR, else $SALESNAV_WORKSPACE, else
+~/Claude/sales-navigator when it exists, else the current folder with a WARNING that nothing persists.
+--log FILE overrides the path.
+
+A missing ledger is never read as "nobody was contacted": every command REFUSES (exit 4, ask the user) when
+the ledger is not found, and always when the workspace could not be located. Only the very first send
+ever (the profile's `Outreach started` is blank) may start a new ledger: pass --first-send to add / check
+/ caps / summary, and tell the user a new ledger is being created. status and followup never create one.
+
 Exit codes: 0 fine, 1 bad input, 2 a cap is reached (caps, add, followup), 3 already contacted
-(check, add).
+(check, add), 4 ledger missing or workspace not located (do not send: ask the user).
 Python 3 standard library only, no network.
 """
 import argparse
@@ -55,6 +64,9 @@ import re
 import sys
 from datetime import date, timedelta
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workspace  # noqa: E402
 
 try:
     import fcntl
@@ -82,7 +94,7 @@ TRANSITIONS = {"pending": ["sent", "withdrawn"],
                "replied": [], "withdrawn": []}
 DEFAULT_LOG = "outreach_log.csv"
 
-EXIT_OK, EXIT_BAD, EXIT_CAP, EXIT_CONTACTED = 0, 1, 2, 3
+EXIT_OK, EXIT_BAD, EXIT_CAP, EXIT_CONTACTED, EXIT_NO_LEDGER = 0, 1, 2, 3, 4
 
 
 class LogError(ValueError):
@@ -442,7 +454,14 @@ def cmd_summary(args):
 
 def build_parser():
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--log", default=DEFAULT_LOG, metavar="FILE", help="ledger CSV (default %(default)s)")
+    common.add_argument("--log", metavar="FILE", help="ledger CSV, overriding <workspace>/%s" % DEFAULT_LOG)
+    common.add_argument("--workspace", metavar="DIR",
+                        help="workspace folder (default: $SALESNAV_WORKSPACE, else ~/Claude/sales-navigator "
+                             "if it exists, else the current folder with a WARNING)")
+    first = argparse.ArgumentParser(add_help=False)
+    first.add_argument("--first-send", action="store_true",
+                       help="ONLY for the very first send ever (profile `Outreach started` blank), with the user "
+                            "told: allow a missing ledger and create it. Without it a missing ledger is refused")
     over = argparse.ArgumentParser(add_help=False)
     over.add_argument("--allow-over-cap", action="store_true",
                       help="ONLY on the user's explicit go: allow a send past a reached cap and limits above the defaults")
@@ -456,11 +475,11 @@ def build_parser():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="command", required=True)
 
-    chk = sub.add_parser("check", parents=[common], help="exit 3 if anyone was already contacted")
+    chk = sub.add_parser("check", parents=[common, first], help="exit 3 if anyone was already contacted")
     chk.add_argument("--lead-id", action="append", default=[], metavar="ID")
     chk.add_argument("--ids-file", metavar="FILE", help="one lead id / URL per line (# comments allowed)")
 
-    add = sub.add_parser("add", parents=[common, limits, over],
+    add = sub.add_parser("add", parents=[common, limits, over, first],
                          help="record a send (or, with --pending, the intent to send)")
     add.add_argument("--lead-id", required=True, metavar="ID")
     add.add_argument("--kind", required=True, choices=KINDS)
@@ -492,13 +511,13 @@ def build_parser():
                     help="stop after this many messages to one person (default %(default)s; lower is fine)")
     fu.add_argument("--note", default="")
 
-    caps = sub.add_parser("caps", parents=[common, limits, over],
+    caps = sub.add_parser("caps", parents=[common, limits, over, first],
                           help="today / last 7 days vs the connection-request caps")
     caps.add_argument("--date", metavar="YYYY-MM-DD", help="treat this as today")
     caps.add_argument("--for", dest="scope", choices=["connection", "followup", "all"], default="all",
                       help="which caps decide the exit code: the kind of batch about to be sent (default %(default)s)")
 
-    summ = sub.add_parser("summary", parents=[common, over],
+    summ = sub.add_parser("summary", parents=[common, over, first],
                           help="counts per status; pending rows; follow-up candidates")
     summ.add_argument("--stale-days", type=int, metavar="N", help="list people accepted >= N days ago, no reply")
     summ.add_argument("--max-touches", type=int, default=MAX_TOUCHES, metavar="N",
@@ -511,9 +530,44 @@ COMMANDS = {"check": cmd_check, "add": cmd_add, "status": cmd_status, "followup"
             "caps": cmd_caps, "summary": cmd_summary}
 
 
+def ledger_present(path):
+    p = Path(path)
+    return p.is_file() and p.stat().st_size > 0
+
+
+def ledger_gate(args, located):
+    """None when the command may run, else the reason it must not (exit 4: ask the user).
+
+    A ledger that cannot be found must never read as an empty one: that would clear everyone.
+    """
+    if ledger_present(args.log):
+        return None
+    if not located:
+        return ("the workspace could not be located, so there is no way to know who was contacted before. "
+                "Do not send. Ask the user where their Cowork folder is (workspace.py init <folder>) and "
+                "pass --workspace")
+    if getattr(args, "first_send", False):
+        return None  # the very first send: the ledger is created explicitly (announced in main)
+    return ("no outreach ledger at %s. Do not send. If outreach was done before, the ledger is missing "
+            "(wrong workspace or lost file): ask the user where it is. Only if this is the very first "
+            "send ever, tell the user a new ledger will be created and re-run with --first-send"
+            % args.log)
+
+
 def main(argv=None):
     args = build_parser().parse_args(argv)
     try:
+        args.log, located = workspace.state_file(DEFAULT_LOG, args.log, args.workspace)
+        why = ledger_gate(args, located)
+        if why:
+            print("refused: %s" % why, file=sys.stderr)
+            return EXIT_NO_LEDGER
+        if not ledger_present(args.log):
+            if args.command == "add":
+                Path(args.log).parent.mkdir(parents=True, exist_ok=True)
+                print("NOTE: first send ever: creating a new outreach ledger at %s (tell the user)" % args.log)
+            else:
+                print("NOTE: no outreach ledger yet at %s (--first-send): nothing has been sent" % args.log)
         return COMMANDS[args.command](args)
     except (LogError, OSError) as exc:
         print("error: %s" % exc, file=sys.stderr)

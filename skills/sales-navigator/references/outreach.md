@@ -10,7 +10,8 @@ rules"); `scripts/outreach_log.py` enforces them. Read both before the first sen
 
 ## The ledger
 
-`outreach_log.csv` in the user's folder is the record of who was contacted. A person is their
+`outreach_log.csv` in the workspace folder (`SKILL.md` preflight; default `~/Claude/sales-navigator`) is
+the record of who was contacted. A person is their
 Sales Nav lead id (from `salesnav_lead_url`; the script accepts the URL or the id). Only a hash
 of each message is stored, never the text. The script locks the file while it writes, so it is
 safe to call from one run at a time per ledger even if a second run starts by mistake.
@@ -22,6 +23,15 @@ python3 scripts/outreach_log.py add    --lead-id <id> --kind connection|inmail -
 python3 scripts/outreach_log.py status --lead-id <id> --status sent           # AFTER the send is verified
 python3 scripts/outreach_log.py caps --for connection|followup                # exit 2 = a cap for that kind is reached
 ```
+
+**The ledger must be found before anything is sent.** Pass `--workspace DIR` (the profile's `workspace:`)
+to every call. If the script exits **4**, it refused: the ledger is missing or the workspace could not
+be located. Stop and ask the user where it is; never start a fresh ledger, because an empty one clears
+everyone and resets the caps. If the profile's `Outreach started` line has a date, outreach has been
+done before, so a missing ledger is lost state, not a new start. Only when that line is blank (the very
+first send ever) may you tell the user "I'm creating your outreach ledger at <path>" and add
+`--first-send` to the first `check` / `add`; then write the date into `Outreach started` in the profile.
+`status` and `followup` never create a ledger.
 
 A `pending` row is the intent to send, written before the click so that a crash between the click
 and the log can never lead to a second send. It counts as contacted and toward the caps.
@@ -97,7 +107,7 @@ Every draft is checked against these before the user sees it. They override tone
    Any claim with no source is removed from the message and the message is rewritten and
    recounted; if nothing true is left to say, drop the person from the batch and say why. The
    passing list is what goes in the `sources` column. Do not show drafts that have not passed.
-6. **Write drafts to a file.** Create the `drafts/` folder in the user's working folder if it is
+6. **Write drafts to a file.** Create the `drafts/` folder in the workspace if it is
    not there, and write `drafts/<yyyy-mm-dd>.csv` starting from `templates/drafts.csv`. The exact
    columns, in this order:
 

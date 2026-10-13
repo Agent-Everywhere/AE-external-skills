@@ -102,5 +102,7 @@ and only for a batch you approve.
 
 ## 10. Where things live
 
-- Working folder for CSVs, `results/`, `drafts/`, `outreach_log.csv`, `lists_log.csv`: ./brightwell-prospecting/
+- **workspace:** ~/Claude/sales-navigator
+- **Outreach started:** (blank: nothing sent yet)
+- Other working files (`lists_log.csv` and so on): in the workspace, under `lists/`
 - Where finished lists go (CSV, Google Sheet, CRM): CSV files in the folder
