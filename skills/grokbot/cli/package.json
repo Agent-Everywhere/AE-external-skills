@@ -1,0 +1,25 @@
+{
+  "name": "grokbot",
+  "version": "0.1.0",
+  "description": "Operate Cursor's Grok Bot desktop app from the terminal: agents, sections, pins, transcripts, host gateway, Cursor RPC, and Electron CDP.",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "grokbot": "./bin/grokbot.js"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "lint": "node --check src/*.js"
+  },
+  "dependencies": {
+    "commander": "^13.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ]
+}
