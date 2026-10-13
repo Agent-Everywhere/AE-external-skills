@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check an accounts.csv or leads.csv against references/output.md.
+"""Check an accounts.csv, leads.csv or drafts CSV against references/output.md.
 
 Checks:
   * headers: missing and extra columns (a different column ORDER is only a warning)
@@ -10,13 +10,16 @@ Checks:
   * leads may also carry the optional search-row columns (pending_invitation, degree, open_link,
     dup_suspect): pending_invitation is yes/no/blank, open_link and dup_suspect are yes or blank,
     degree is 1st/2nd/3rd or blank
+  * drafts (drafts/<date>.csv, detected by the lead_id column): every column filled, `sources`
+    never empty (each claim in a draft must be cited), kind is connection/inmail, char_count is a
+    whole number equal to the length of `text` and at most 300 for a connection note
   * mode is one of A/B/C/D; status is one of the values listed in output.md
   * URL shape: salesnav_*_url, linkedin_company_url, linkedin_url (https://www.linkedin.com/...)
   * company_domain is a bare lowercase domain (no https://, www. or path)
   * collected_at is a real date written YYYY-MM-DD (blank is allowed)
 
-The file type is detected from the columns (full_name -> leads, else accounts); override
-with --kind. Prints the first --max-errors problems plus totals by column.
+The file type is detected from the columns (lead_id -> drafts, full_name -> leads, else
+accounts); override with --kind. Prints the first --max-errors problems plus totals by column.
 Exit code: 0 clean, 1 problems found or file unreadable.
 """
 import argparse
@@ -46,10 +49,15 @@ LEAD_OPTIONAL_COLUMNS = ["pending_invitation", "degree", "open_link", "dup_suspe
 YES_COLUMNS = ["open_link", "dup_suspect"]           # yes or blank
 YES_NO_COLUMNS = ["pending_invitation"]              # yes, no (field present, false) or blank (field absent)
 DEGREE_VALUES = ["1st", "2nd", "3rd"]
-COLUMNS = {"accounts": ACCOUNT_COLUMNS, "leads": LEAD_COLUMNS}
-OPTIONAL_COLUMNS = {"accounts": QUALIFY_COLUMNS, "leads": LEAD_OPTIONAL_COLUMNS}
+# drafts/<yyyy-mm-dd>.csv written by the outreach action (references/output.md, outreach.md Part A).
+DRAFT_COLUMNS = ["lead_id", "full_name", "company_name", "kind", "text", "char_count", "sources"]
+DRAFT_KINDS = ["connection", "inmail"]
+CONNECTION_NOTE_MAX = 300
+COLUMNS = {"accounts": ACCOUNT_COLUMNS, "leads": LEAD_COLUMNS, "drafts": DRAFT_COLUMNS}
+OPTIONAL_COLUMNS = {"accounts": QUALIFY_COLUMNS, "leads": LEAD_OPTIONAL_COLUMNS, "drafts": []}
 REQUIRED = {"accounts": ["company_name", "status", "mode"],
-            "leads": ["full_name", "company_name", "status", "mode"]}
+            "leads": ["full_name", "company_name", "status", "mode"],
+            "drafts": DRAFT_COLUMNS}
 STATUSES = {"accounts": ["collected", "qualified", "rejected", "no_dm_found"],
             "leads": ["collected", "qualified", "rejected"]}
 MODES = ["A", "B", "C", "D"]
@@ -65,6 +73,8 @@ DOMAIN_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-
 
 
 def detect_kind(headers):
+    if "lead_id" in headers:
+        return "drafts"
     return "leads" if "full_name" in headers else "accounts"
 
 
@@ -94,6 +104,8 @@ def check_row(row, kind, headers):
     for col in REQUIRED[kind]:
         if col in present and not row.get(col):
             problems.append((col, "required", "must not be empty"))
+    if kind == "drafts":
+        return problems + check_draft(row)
     if row.get("mode") and row["mode"] not in MODES:
         problems.append(("mode", "enum", "%r is not one of %s" % (row["mode"], "/".join(MODES))))
     if row.get("status") and row["status"] not in STATUSES[kind]:
@@ -127,6 +139,25 @@ def check_row(row, kind, headers):
     return problems
 
 
+def check_draft(row):
+    """Draft-specific checks: kind, counted length, 300-character connection note."""
+    problems = []
+    kind = row.get("kind", "")
+    if kind and kind not in DRAFT_KINDS:
+        problems.append(("kind", "enum", "%r is not one of %s" % (kind, "/".join(DRAFT_KINDS))))
+    count, text = row.get("char_count", ""), row.get("text", "")
+    if count:
+        if not re.fullmatch(r"\d+", count):
+            problems.append(("char_count", "int", "%r should be a whole number" % count))
+        elif text and int(count) != len(text):
+            problems.append(("char_count", "count", "says %s but text is %d characters"
+                             % (count, len(text))))
+    if kind == "connection" and len(text) > CONNECTION_NOTE_MAX:
+        problems.append(("text", "length", "connection note is %d characters (max %d)"
+                         % (len(text), CONNECTION_NOTE_MAX)))
+    return problems
+
+
 def validate(path, kind="auto"):
     """Return a result dict: kind, rows, header_errors, warnings, errors (row, col, code, detail)."""
     with open(path, newline="", encoding="utf-8-sig") as fh:
@@ -137,6 +168,7 @@ def validate(path, kind="auto"):
         kind = detect_kind(headers) if kind == "auto" else kind
         header_errors, warnings = check_header(headers, kind)
         errors, rows = [], 0
+        seen_leads = {}
         for line_no, cells in enumerate(reader, start=2):  # spreadsheet row numbers
             if not any(c.strip() for c in cells):
                 continue
@@ -147,6 +179,12 @@ def validate(path, kind="auto"):
                 continue
             row = {h: c.strip() for h, c in zip(headers, cells)}
             errors += [(line_no,) + prob for prob in check_row(row, kind, headers)]
+            if kind == "drafts" and row.get("lead_id"):
+                if row["lead_id"] in seen_leads:
+                    errors.append((line_no, "lead_id", "duplicate", "already drafted on row %d"
+                                   % seen_leads[row["lead_id"]]))
+                else:
+                    seen_leads[row["lead_id"]] = line_no
     return {"kind": kind, "rows": rows, "header_errors": header_errors,
             "warnings": warnings, "errors": errors}
 
@@ -174,8 +212,8 @@ def report(result, max_errors):
 def main(argv=None):
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("input", help="accounts.csv or leads.csv")
-    p.add_argument("--kind", choices=["auto", "accounts", "leads"], default="auto",
+    p.add_argument("input", help="accounts.csv, leads.csv or a drafts CSV")
+    p.add_argument("--kind", choices=["auto", "accounts", "leads", "drafts"], default="auto",
                    help="file type (default: detect from columns)")
     p.add_argument("--max-errors", type=int, default=20,
                    help="max row errors to print (default %(default)s); totals always shown")

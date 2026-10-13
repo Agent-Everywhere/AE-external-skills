@@ -20,7 +20,7 @@ user's explicit go, and never past the "hard ceiling" column.
 | Action | Default | Hard ceiling | Notes |
 |---|---|---|---|
 | Search result pages read | 40 (≈1,000 rows) | 80 | 25 rows/page, whether read from the page or fetched by an API search call; spread across the day for big runs |
-| Small API calls (counts, typeahead, website batches) | 100 | 150 | Tiny responses, but still calls; sizing a shard plan uses most of this. Log them with `scripts/run_log.py add --small-calls N` |
+| Small API calls (counts, typeahead, website batches) | 150 | 200 | Tiny responses, but still calls; sizing a shard plan uses a lot of this. Log them with `scripts/run_log.py add --small-calls N` |
 | Individual profiles opened | 80 | 150 | Only when the row lacks a needed field |
 | Account pages opened | 60 | 120 | Mode B/C research |
 | Saved searches created | 10 | 25 | |
@@ -28,6 +28,19 @@ user's explicit go, and never past the "hard ceiling" column.
 | Active hours | user's local business hours | — | No overnight marathons |
 
 Viewable results per search are capped by Sales Nav (≈2,500). Shard instead of paging past it.
+
+**Why small calls are 150 / 200.** Account and lead search pages are a different row (counted
+under "Search result pages read" and never under small calls), so a 50-account pull plus sizing,
+typeahead and website lookups needs more small calls than the old 100 and still stays tiny in
+traffic. 150 is the default and 200 the hard ceiling (50 above the default, as before). LinkedIn
+publishes no limit, so these stay conservative operating numbers. Past 150 needs the user's
+explicit go.
+
+**When a cap stops a pull,** say so and give the numbers: how many rows were collected and how many rows
+remain (the shard's `paging.total` minus rows saved), and which cap stopped it. Then offer both
+options: continue tomorrow (the CSV and `--skip-done` / the next page number resume it), or raise
+the cap for today. Raising needs the user's explicit OK in that conversation, only up to the hard
+ceiling, and never after a stop signal below. Do not raise a cap on your own.
 
 ## Pace
 

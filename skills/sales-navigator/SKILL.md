@@ -67,13 +67,18 @@ Other references, loaded by the action that needs them: [`filters.md`](reference
      `open_browser`, for the cloud browser). **Never ask for, type, or store a password or 2FA code.**
    - Signed in but no Sales Nav (redirect to an upsell) → say so, stop. Do not fall back to classic
      LinkedIn search unless the user explicitly accepts the lower-quality path.
-3. **Company Profile.** Load the user's filled `company-profile.md` (their folder, a project file,
-   a doc). If none exists, copy `templates/company-profile.md` and fill it with the user in one short
-   batch (offer, buyer types, ICP, titles, exclusions; accept "skip"). Only ask for what the action
-   needs and is missing.
+3. **Company Profile.** Load the user's filled `company-profile.md` (an attached file, a project
+   file, their folder, a doc) and ask only for the fields it lacks. If none exists, ask the short
+   set in ONE message (`references/build-list.md` section 1; accept "skip" and "use defaults"),
+   not a multi-step question screen. `templates/company-profile.md` is the blank form and
+   `templates/company-profile.example.md` a filled fictional one to copy. Its seller facts are
+   placeholders and are never used in drafts; a profile still titled EXAMPLE has no usable facts.
+   Only ask for what the action needs and is missing.
 4. **Budget.** Tell the user the planned volume (calls, rows, pages) against `references/guardrails.md`
    and, for the cloud browser, roughly how much browser time it bills. Get a "go" for anything above
    the default run size. Work in the user's folder: CSVs, `results/`, `outreach_log.csv`.
+   If a cap stops a pull, say how many rows remain and offer to continue tomorrow, or to raise
+   today's cap with the user's explicit OK (`references/guardrails.md`).
 
 ## Helper scripts
 

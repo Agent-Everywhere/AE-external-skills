@@ -111,8 +111,12 @@ changes without notice.
 27. **Headcount bands do not sum to the total.** Self-employed (`A`) and 501+ (`F`–`I`) sit outside
     `B`–`E`; shard by band without them and companies vanish.
     → Include explicit `A` and `F`+ shards inside any band-sharded state.
-28. **Shard totals over-count.** State (or metro) shards overlap through multi-location companies.
-    → Dedupe by company id (accounts) or Sales Nav lead URL (leads); expect a few percent overlap.
+28. **Shard totals over-count; state lists overlap.** A company with sites in several states
+    appears in each state's list, so the lists are not disjoint.
+    → Say so to the user, and when combining state lists dedupe by company id (the id inside
+    `salesnav_account_url`; `scripts/dedupe.py`) for accounts or by Sales Nav lead URL for leads.
+    Report both numbers: "sum of the lists X, unique Y" (`dedupe.py` prints rows in and rows out).
+    Expect a few percent overlap, more for multi-location brands.
 29. **The cloud browser dies when the script disconnects.** Splitting a session across scripts, or
     ending the process early, ends the browser and its state.
     → Do all of a session's work in one `session.py` process; heartbeat at least every 60 s; stay
@@ -151,3 +155,21 @@ changes without notice.
     origin.
 39. **The local runtime needs the Mac and the app open.** A scheduled local run does nothing when
     the laptop is asleep or the app is closed; use the cloud runtime for laptop-off schedules.
+## Qualify and outreach
+
+40. **LinkedIn headcount can be wrong for big brands.** A large, well-known brand with few staff
+    on LinkedIn (a franchise, a brand run from a parent or a contractor, a company whose staff do
+    not list it) can show a small band like 1–10 or 11–50, and the reverse for a holding company.
+    → Flag it at qualify time (`references/qualify.md`): when a name is well known or the search
+    data contradicts the band, note it in `facts`, decide on other evidence or mark `unsure`, and
+    never drop on headcount alone.
+41. **Out-of-network people may not be reachable by a connection request.** A 3rd-degree person,
+    or one the seat is out of network for, may offer no Connect action at all.
+    → Open the profile of 3rd-degree rows before drafting; if Connect is missing, draft an InMail
+    (`kind=inmail`, `references/outreach.md`), within the seat's credits. A kind change after
+    approval is a new batch needing re-approval.
+42. **Cowork asks per website.** Fetching a company website in Cowork's built-in browser prompts
+    "Allow Claude to fetch pages from <site>?" once per domain. Dozens of fetches stack up and
+    block the task.
+    → Qualify from search data first and fetch only the `unsure` rows, 10 at a time
+    (`references/qualify.md`).
