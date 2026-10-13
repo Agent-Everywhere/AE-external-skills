@@ -164,6 +164,8 @@ Per-account flow: **account → website → decision-makers → hand to CRM dedu
 - Tag each row: buyer type, shard, mode, signal(s), fit notes. Type each row per company when the
   buyer types differ by account (`salesnav_rows.py --buyer-type-map`, `references/output.md`), and
   look at the `dup_suspect` rows (same name twice in one account) before they go anywhere.
+  `--append` recomputes `dup_suspect` over the combined file; after merging CSVs another way, run
+  `salesnav_rows.py --flag-dups leads.csv`.
 - Validate: `scripts/validate_csv.py`.
 - Give the user: counts per shard, a sample of 5 rows, what was excluded and why, and the file /
   sheet / CRM location.

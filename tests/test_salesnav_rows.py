@@ -101,7 +101,7 @@ class SearchRowFields(unittest.TestCase):
         self.assertEqual(code, 0, err)
         ann, bob, cy, di = read(self.out)
         self.assertEqual((ann["pending_invitation"], ann["degree"], ann["open_link"]), ("yes", "2nd", "yes"))
-        self.assertEqual((bob["pending_invitation"], bob["degree"], bob["open_link"]), ("", "1st", ""))
+        self.assertEqual((bob["pending_invitation"], bob["degree"], bob["open_link"]), ("no", "1st", ""))
         self.assertEqual((cy["degree"], di["degree"], di["pending_invitation"]), ("3rd", "", ""))
         self.assertEqual(ann["signals"], "open profile")
         self.assertEqual(validate(self.out), 0)
@@ -174,6 +174,170 @@ class SearchRowFields(unittest.TestCase):
         raw = self.out.read_text()
         self.assertIn('"https://www.linkedin.com/sales/lead/F1,NAME_SEARCH,x"', raw)
         self.assertEqual(read(self.out)[0]["salesnav_lead_url"], "https://www.linkedin.com/sales/lead/F1,NAME_SEARCH,x")
+
+
+class PendingInvitationTriState(unittest.TestCase):
+    def test_pending_of_is_yes_no_or_blank_when_absent(self):
+        f = salesnav_rows.pending_of
+        self.assertEqual([f({"pendingInvitation": True}), f({"pendingInvitation": False}),
+                          f({}), f({"pendingInvitation": None}), f({"pendingInvitation": "x"})],
+                         ["yes", "no", "", "", ""])
+
+    def test_validator_accepts_yes_no_blank_only_for_pending_invitation(self):
+        row = {"pending_invitation": "no", "open_link": "no", "dup_suspect": ""}
+        probs = validate_csv.check_row(row, "leads", list(row))
+        self.assertEqual([p[0] for p in probs], ["open_link"])
+        for ok in ("yes", "no", ""):
+            self.assertEqual(validate_csv.check_row({"pending_invitation": ok}, "leads", ["pending_invitation"]), [])
+        bad = validate_csv.check_row({"pending_invitation": "maybe"}, "leads", ["pending_invitation"])
+        self.assertEqual([p[0] for p in bad], ["pending_invitation"])
+
+
+class AppendAndFlagDups(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+        self.out = self.dir / "leads.csv"
+
+    def results(self, name, elements):
+        path = self.dir / name
+        path.write_text(json.dumps({"status": 200, "elements": elements}))
+        return str(path)
+
+    def test_append_over_a_16_column_file_keeps_its_header_and_warns(self):
+        old_header = validate_csv.LEAD_COLUMNS
+        with open(self.out, "w", newline="", encoding="utf-8") as fh:
+            w = csv.DictWriter(fh, fieldnames=old_header, lineterminator="\n")
+            w.writeheader()
+            w.writerow({**dict.fromkeys(old_header, ""), "full_name": "Old One", "company_name": "Acme",
+                        "status": "collected", "mode": "A"})
+        src = self.results("r.json", [lead_el("N1", "New One", "10", pendingInvitation=False, degree=2)])
+        code, err = run(["leads", src, "-o", str(self.out), "--append", "--collected-at", "2026-10-13"])
+        self.assertEqual(code, 0, err)
+        lines = self.out.read_text().splitlines()
+        self.assertEqual(lines[0].split(","), old_header)
+        self.assertEqual(sum(1 for l in lines if l.startswith("full_name,")), 1)
+        rows = read(self.out)
+        self.assertEqual([r["full_name"] for r in rows], ["Old One", "New One"])
+        self.assertTrue(all(len(r) == 16 for r in rows))
+        self.assertIn("older header", err)
+        for col in validate_csv.LEAD_OPTIONAL_COLUMNS:
+            self.assertIn(col, err)
+        self.assertEqual(validate(self.out), 0)
+
+    def test_append_flags_a_same_name_pair_split_across_runs(self):
+        a = self.results("a.json", [lead_el("P1", "Jo Park", "20", company="Zed")])
+        b = self.results("b.json", [lead_el("P2", "jo  park", "20", company="Zed"),
+                                    lead_el("P3", "Lee Kim", "20", company="Zed")])
+        self.assertEqual(run(["leads", a, "-o", str(self.out), "--append"])[0], 0)
+        self.assertEqual([r["dup_suspect"] for r in read(self.out)], [""])
+        code, err = run(["leads", b, "-o", str(self.out), "--append"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual([r["dup_suspect"] for r in read(self.out)], ["yes", "yes", ""])
+        self.assertIn("across all runs", err)
+        self.assertEqual(validate(self.out), 0)
+
+    def test_same_profile_twice_is_not_a_dup_suspect(self):
+        a = self.results("a.json", [lead_el("P1", "Jo Park", "20", company="Zed")])
+        run(["leads", a, "-o", str(self.out), "--append"])
+        run(["leads", a, "-o", str(self.out), "--append"])
+        self.assertEqual([r["dup_suspect"] for r in read(self.out)], ["", ""])
+
+    def test_flag_dups_mode_rewrites_in_place_and_clears_stale_flags(self):
+        cols = validate_csv.LEAD_COLUMNS + validate_csv.LEAD_OPTIONAL_COLUMNS
+
+        def row(name, pid, domain, flag=""):
+            return {**dict.fromkeys(cols, ""),
+                    "full_name": name, "company_name": "Co", "company_domain": domain, "status": "collected",
+                    "mode": "A", "salesnav_lead_url": "https://www.linkedin.com/sales/lead/%s,NAME_SEARCH,x" % pid,
+                    "dup_suspect": flag}
+        with open(self.out, "w", newline="", encoding="utf-8") as fh:
+            w = csv.DictWriter(fh, fieldnames=cols, lineterminator="\n")
+            w.writeheader()
+            w.writerows([row("Jo Park", "A", "zed.com"), row("Jo Park", "B", "ZED.com"),
+                         row("Al Roe", "C", "zed.com", flag="yes"), row("Jo Park", "D", "other.com")])
+        code, err = run(["--flag-dups", str(self.out)])
+        self.assertEqual(code, 0, err)
+        self.assertEqual([r["dup_suspect"] for r in read(self.out)], ["yes", "yes", "", ""])
+        self.assertIn("2 rows in 1 same-name groups", err)
+        self.assertEqual(self.out.read_text().splitlines()[0].split(","), cols)
+        self.assertEqual([p.name for p in self.dir.iterdir()], ["leads.csv"])  # no temp file left behind
+
+    def test_flag_dups_on_a_non_leads_csv_is_an_error_and_leaves_it_alone(self):
+        self.out.write_text("company_name\nAcme\n")
+        code, err = run(["--flag-dups", str(self.out)])
+        self.assertEqual(code, 1)
+        self.assertEqual(self.out.read_text(), "company_name\nAcme\n")
+
+    def test_flag_dups_adds_the_column_to_an_older_file(self):
+        with open(self.out, "w", newline="", encoding="utf-8") as fh:
+            w = csv.writer(fh, lineterminator="\n")
+            w.writerow(validate_csv.LEAD_COLUMNS)
+            for pid in ("A", "B"):
+                r = {**dict.fromkeys(validate_csv.LEAD_COLUMNS, ""),
+                     "full_name": "Jo Park", "company_domain": "zed.com", "company_name": "Zed",
+                     "status": "collected", "mode": "A",
+                     "salesnav_lead_url": "https://www.linkedin.com/sales/lead/%s,N,x" % pid}
+                w.writerow([r[c] for c in validate_csv.LEAD_COLUMNS])
+        code, err = run(["--flag-dups", str(self.out)])
+        self.assertEqual(code, 0, err)
+        self.assertEqual([r["dup_suspect"] for r in read(self.out)], ["yes", "yes"])
+        self.assertEqual(validate(self.out), 0)
+
+
+class BuyerTypeMapIds(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+
+    def test_company_id_of_reads_urls_urns_and_bare_ids(self):
+        f = salesnav_rows.company_id_of
+        self.assertEqual(f("https://www.linkedin.com/sales/company/1234?trk=x"), "1234")
+        self.assertEqual(f("https://www.linkedin.com/sales/company/1234/people"), "1234")
+        self.assertEqual(f("urn:li:fs_salesCompany:99"), "99")
+        self.assertEqual(f(" 77 "), "77")
+        # a digit-bearing query string or other path must not be mistaken for the id
+        self.assertEqual(f("https://www.linkedin.com/sales/company/55?x=999"), "55")
+        self.assertEqual(f("https://www.linkedin.com/company/acme-2024/"), "")
+        self.assertEqual(f(""), "")
+
+    def test_csv_with_multiline_quoted_cells_and_url_variants(self):
+        mp = self.dir / "m.csv"
+        mp.write_text('company_name,salesnav_account_url,buyer_type\n'
+                      '"Acme\nWellness",https://www.linkedin.com/sales/company/10?trk=a,type-a\n'
+                      'Beta,https://www.linkedin.com/sales/company/11/people,type-b\n'
+                      'NoId,https://example.com/x,type-c\n', encoding="utf-8")
+        stats = {}
+        got = salesnav_rows.load_buyer_type_map(str(mp), stats)
+        self.assertEqual(got, {"10": "type-a", "11": "type-b"})
+        self.assertEqual(stats["no_id"], 1)
+
+    def test_json_keys_may_be_urls_and_unreadable_keys_are_counted(self):
+        mp = self.dir / "m.json"
+        mp.write_text(json.dumps({"https://www.linkedin.com/sales/company/10": "a", "urn:li:fs_salesCompany:11": "b",
+                                  "12": "c", "Acme Inc": "d"}))
+        stats = {}
+        self.assertEqual(salesnav_rows.load_buyer_type_map(str(mp), stats), {"10": "a", "11": "b", "12": "c"})
+        self.assertEqual(stats["no_id"], 1)
+
+    def test_cli_warns_about_ignored_rows_and_a_map_that_matches_nothing(self):
+        mp = self.dir / "m.json"
+        mp.write_text(json.dumps({"999": "a", "Acme Inc": "b"}))
+        src = self.dir / "r.json"
+        src.write_text(json.dumps({"elements": [lead_el("Q1", "A A", "10")]}))
+        out = self.dir / "leads.csv"
+        code, err = run(["leads", str(src), "-o", str(out), "--buyer-type", "dflt", "--buyer-type-map", str(mp)])
+        self.assertEqual(code, 0, err)
+        self.assertIn("1 buyer-type map rows have no readable company id", err)
+        self.assertIn("none match a company", err)
+        self.assertEqual(read(out)[0]["buyer_type"], "dflt")
+        # a map that matches does not warn
+        mp.write_text(json.dumps({"10": "a"}))
+        code, err = run(["leads", str(src), "-o", str(out), "--buyer-type-map", str(mp)])
+        self.assertNotIn("none match", err)
+        self.assertNotIn("no readable company id", err)
 
 
 class Leads(unittest.TestCase):

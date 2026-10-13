@@ -313,6 +313,31 @@ class OutreachDraftsFlow(unittest.TestCase):
         self.assertIn("existing message thread", self.text)
         self.assertIn("open the lead and look", rule8)  # threads still need a look
 
+    def test_rule_8_skips_the_profile_open_only_on_no_plus_2nd_3rd_plus_today(self):
+        rule8 = self.text.split("8. **Never send a first message", 1)[1].split("9. **Stop on any warning", 1)[0]
+        for needle in ("`pending_invitation = no`", "2nd or 3rd", "`collected_at` is today",
+                       "blank means the field was absent", "on a live seat", "`degree = 1st` means already connected"):
+            self.assertIn(needle.lower(), rule8.lower(), needle)
+        self.assertIn("ONLY when", self.part_a)
+        for needle in ("`pending_invitation = no`", "2nd or 3rd", "`collected_at` is today"):
+            self.assertIn(needle, self.part_a)
+
+    def test_output_md_documents_the_no_value(self):
+        md = (REFS / "output.md").read_text(encoding="utf-8")
+        row = [l for l in md.splitlines() if l.startswith("| pending_invitation |")][0]
+        self.assertIn("`no`", row)
+        self.assertIn("live seat", row)
+
+
+class SubListPlanReferences(unittest.TestCase):
+    def test_no_stale_section_7_sub_list_plan_pointer(self):
+        for name in ("lists.md", "followups.md", "run-my-day.md"):
+            text = " ".join((REFS / name).read_text(encoding="utf-8").split())
+            self.assertNotRegex(text, r"(?i)section 7[^.]{0,60}sub-list plan", name)
+            self.assertNotRegex(text, r"(?i)sub-list plan[^.]{0,60}section 7", name)
+        for name in ("lists.md", "run-my-day.md"):
+            self.assertIn("## Sub-list plan", (REFS / name).read_text(encoding="utf-8"), name)
+
 
 class AgentBrowserDocs(unittest.TestCase):
     def setUp(self):

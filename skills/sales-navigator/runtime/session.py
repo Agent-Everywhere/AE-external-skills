@@ -55,9 +55,12 @@ Page budget: references/guardrails.md allows 40 search pages a day by default an
 plan; at most 80). A paged call that stops with rows left unread is "truncated".
 Sample, not collection: set "sample": true on the plan (default for every call) or on one call to
 say the partial page pull is intentional (for example max_pages 2 to read a 50-row sample of a
-big search). A sampled call that stops with rows left unread emits a "sampled" event instead of
-"truncated" and does not make the run exit 8. A sample that stops on an empty page, or on a
-failed call, is still incomplete. Leave "sample" off for a real collection.
+big search). "sample" only counts for a call that sets an explicit "pages.max_pages" and stops on
+that limit: a call without max_pages that runs into the viewable cap (or the default page limit)
+is "truncated" and exits 8 even when the plan says sample. A sampled call that stops with rows
+left unread emits a "sampled" event instead of "truncated" and does not make the run exit 8. A
+sample that stops on an empty page, or on a failed call, is still incomplete. Leave "sample" off
+for a real collection.
 
 Output JSONL (one object per line): {"id", "h", "ok", "ms", "ts", "result"} per call ("h" is a hash
 of the call's snippet/js and params), plus {"event": ...} lines (ready, not_signed_in, checkpoint,
@@ -679,14 +682,21 @@ class Runner:
                 finished = start + got >= total if isinstance(total, int) else got < step
                 if not finished:
                     sample = call.get("sample", self.plan.get("sample", False))
-                    if sample is True and got > 0:
+                    # A sample is a deliberate page limit: it needs an explicit max_pages on the call
+                    # and must have stopped on that limit. A call without max_pages that runs into
+                    # the viewable cap (or the default page limit) is a collection that fell short.
+                    explicit = "max_pages" in pages
+                    if sample is True and explicit and n >= max_pages and got > 0:
                         self.sampled.append(call_id)
                         self.emit({"event": "sampled", "call": call_id, "fetched_to": nxt, "total": total,
                                    "note": "intentional partial pull (sample: true); not a collection"})
                         return None
+                    note = "rows were left unread (cap, page limit or an empty page)"
+                    if sample is True and not explicit:
+                        note += "; sample: true is ignored on a call without an explicit max_pages"
                     self.truncated.append(call_id)
                     self.emit({"event": "truncated", "call": call_id, "fetched_to": nxt, "total": total,
-                               "note": "rows were left unread (cap, page limit or an empty page)"})
+                               "note": note})
                 return None
             start = nxt
 

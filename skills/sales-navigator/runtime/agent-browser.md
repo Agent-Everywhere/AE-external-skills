@@ -97,4 +97,7 @@ Both calls are free reads; do them first, in this order.
 An intentional partial pull is not a failure: set `"sample": true` on the plan (or on one call)
 and a paged call that stops with rows left unread ends with a `sampled` event and exit 0 instead of
 exit 8. Use it for the 50-row sample of a big search (`"pages": {"max_pages": 2}`); never for a
-collection you mean to hand over as complete. A failed call or an empty early page still exits 8.
+collection you mean to hand over as complete. `sample` only counts on a call with an explicit
+`pages.max_pages` that stops on that limit; a call without `max_pages` that hits the viewable cap
+still exits 8 even when the plan says `"sample": true`. A failed call or an empty early page still
+exits 8.

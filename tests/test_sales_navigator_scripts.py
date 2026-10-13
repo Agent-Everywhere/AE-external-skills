@@ -609,5 +609,35 @@ class DedupePreservesQualifyColumns(unittest.TestCase):
         self.assertEqual(kept[0]["fit_reason"], "fits buyer type A")
 
 
+class DedupeKeepsOptionalLeadColumns(unittest.TestCase):
+    def test_round_trip_keeps_the_four_optional_columns_and_their_values(self):
+        cols = validate_csv.LEAD_COLUMNS + validate_csv.LEAD_OPTIONAL_COLUMNS
+
+        def row(name, pid, **kw):
+            r = {**dict.fromkeys(cols, ""),
+                 "full_name": name, "company_name": "Zed", "company_domain": "zed.com", "status": "collected",
+                 "mode": "A", "salesnav_lead_url": "https://www.linkedin.com/sales/lead/%s,N,x" % pid}
+            return {**r, **kw}
+        rows = [row("Jo Park", "A", pending_invitation="no", degree="2nd", open_link="yes", dup_suspect="yes"),
+                row("Jo Park", "B", pending_invitation="yes", degree="3rd", dup_suspect="yes"),
+                row("Al Roe", "C", pending_invitation="", degree="1st")]
+        with tempfile.TemporaryDirectory() as tmp:
+            src, out = Path(tmp) / "in.csv", Path(tmp) / "out.csv"
+            with open(src, "w", newline="", encoding="utf-8") as fh:
+                w = csv.DictWriter(fh, fieldnames=cols, lineterminator="\n")
+                w.writeheader()
+                w.writerows(rows)
+            code, _out, err = run_main(dedupe, [str(src), "--out", str(out)])
+            self.assertEqual(code, 0, err)
+            with open(out, newline="", encoding="utf-8") as fh:
+                reader = csv.DictReader(fh)
+                got = list(reader)
+                self.assertEqual(reader.fieldnames, cols)
+        self.assertEqual(len(got), 3)  # different profiles of one name are not merged
+        for want, have in zip(rows, got):
+            for col in validate_csv.LEAD_OPTIONAL_COLUMNS:
+                self.assertEqual(have[col], want[col], col)
+
+
 if __name__ == "__main__":
     unittest.main()

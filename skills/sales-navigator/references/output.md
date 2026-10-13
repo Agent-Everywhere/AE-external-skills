@@ -51,10 +51,10 @@ read them without opening the profile (`references/outreach.md`).
 
 | Column | Example | Notes |
 |---|---|---|
-| pending_invitation | yes | `yes` when an invitation to this person is already pending (the API's `pendingInvitation`); blank otherwise |
+| pending_invitation | yes | `yes` when an invitation to this person is already pending, `no` when the search row carries `pendingInvitation` and it is false, blank when the field was absent (blank is not "no"). Confirm on a live seat that the field is present; outreach may skip the profile open only on `no` with a 2nd/3rd degree collected today (`references/outreach.md` rule 8) |
 | degree | 2nd | connection degree: 1st / 2nd / 3rd, blank when the row has none |
 | open_link | yes | `yes` when the person accepts open messages (the API's `openLink`); `signals` also says "open profile" |
-| dup_suspect | yes | `yes` on every row of a same-name group inside one account (same company, same name, different profile): often one person with two profiles. Check before contacting |
+| dup_suspect | yes | `yes` on every row of a same-name group inside one account (same company, same name, different profile): often one person with two profiles. Check before contacting. `salesnav_rows.py --append` recomputes it over the whole file, and `salesnav_rows.py --flag-dups FILE` does so for any leads CSV (company matched on domain, else name) |
 
 `buyer_type` is per row. `--buyer-type` sets the default; `--buyer-type-map PATH` overrides it per
 company, from a JSON object `{company id: type}` or from a CSV with `buyer_type` and `company_id`

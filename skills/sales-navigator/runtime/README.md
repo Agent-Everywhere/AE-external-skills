@@ -55,7 +55,8 @@ call needs a unique `id`, and paged calls default to 40 pages (at most 80, the g
 pages-per-day numbers). Re-run with `--skip-done` to resume a run: calls that already have an `ok`
 record in the output file for the same id and the same params/code are not repeated. Exit 8 means
 the run finished but a call failed or a paged call was truncated, unless the plan (or that call)
-sets `"sample": true`, which marks an intentional partial page pull (a `sampled` event, exit 0).
+sets `"sample": true` on a call with an explicit `pages.max_pages`, which marks an intentional partial
+page pull (a `sampled` event, exit 0); a call without `max_pages` is never treated as a sample.
 
 ## Conventions
 

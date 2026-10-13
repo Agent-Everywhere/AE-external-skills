@@ -575,6 +575,29 @@ class ExitCodes(unittest.TestCase):
         runner, code = base.run(base.FakePage(respond), base.plan(sample=True), self.out)
         self.assertEqual((code, runner.truncated), (session.EXIT_INCOMPLETE, ["leads"]))
 
+    def test_plan_sample_does_not_mask_the_viewable_cap_on_a_call_without_max_pages(self):
+        # 5000 rows, cap 100: the call stops at the viewable cap with rows unread, no explicit max_pages
+        the_plan = base.plan(sample=True)
+        the_plan["calls"][0]["pages"]["cap"] = 100
+        runner, code = base.run(base.FakePage(base.pager(5000)), the_plan, self.out)
+        self.assertEqual((code, runner.sampled, runner.truncated), (session.EXIT_INCOMPLETE, [], ["leads"]))
+        events = {r.get("event"): r for r in base.records(self.out) if r.get("event")}
+        self.assertNotIn("sampled", events)
+        self.assertIn("ignored", events["truncated"]["note"])
+
+    def test_call_level_sample_without_max_pages_is_ignored_too(self):
+        the_plan = base.plan()
+        the_plan["calls"][0]["sample"] = True
+        the_plan["calls"][0]["pages"]["cap"] = 100
+        runner, code = base.run(base.FakePage(base.pager(5000)), the_plan, self.out)
+        self.assertEqual((code, runner.sampled), (session.EXIT_INCOMPLETE, []))
+
+    def test_sample_with_explicit_max_pages_stops_on_that_limit_not_on_an_earlier_cap(self):
+        the_plan = base.plan(sample=True)
+        the_plan["calls"][0]["pages"].update({"max_pages": 5, "cap": 50})  # the cap ends it after 2 pages
+        runner, code = base.run(base.FakePage(base.pager(5000)), the_plan, self.out)
+        self.assertEqual((code, runner.sampled, runner.truncated), (session.EXIT_INCOMPLETE, [], ["leads"]))
+
     def test_plan_without_sample_still_truncates(self):
         the_plan = base.plan()
         the_plan["calls"][0]["pages"]["max_pages"] = 2
