@@ -12,7 +12,7 @@ inbox and the sent invitations is read-only. Drafting is read-only. Any send goe
 
 ## 1. Read the state (read-only)
 
-1. Run `python3 scripts/outreach_log.py summary`: the people whose status is `sent` or `accepted`
+1. Run `python3 scripts/outreach_log.py summary`: the people whose status is `pending`, `sent` or `accepted`
    are the open ones. Look at those only.
 2. Read **Sent invitations** and the **Messaging inbox** in Sales Navigator through the browser
    (page reading; the labels move, so read them before you act). Do not open each profile.

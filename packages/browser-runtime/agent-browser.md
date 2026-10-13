@@ -19,19 +19,23 @@ page-reading path instead.
    `lease_expires_at`, and `ceiling_at`.
 3. **Run, in ONE process:**
    ```
-   python3 runtime/session.py --runtime agent-browser --base "<base>" --claim "<claim>" \
+   AB_CLAIM="<claim>" python3 runtime/session.py --runtime agent-browser --base "<base>" \
            --plan plan.json --out results.jsonl
    ```
+   Pass the claim as the `AB_CLAIM` environment variable rather than `--claim`: command-line
+   arguments are visible to other users on the machine (`ps`). `--base` must be an `https` URL.
    The script then does everything below by itself:
    - `POST <base>/browser/claim {claim}` returns `cdp_url`, `heartbeat_token`, `session_id`.
-   - Connects with Playwright `connect_over_cdp`, uses `contexts[0].pages[0]`.
+   - Imports Playwright first (exit 2 if it is missing, before the claim is spent), then connects
+     with `connect_over_cdp` and uses `contexts[0].pages[0]`.
    - Navigates to the plan's start page, waits for `networkidle` plus about 3 seconds, runs the
      signed-in probe, and `POST <base>/browser/auth {session_id, heartbeat_token, signed_in}`.
      If the connector answers `error: auth_required`, or the probe fails, it stops (exit 3): the
      scraper is not broken, the user is signed out. Ask them to sign in through the sign-in
      browser (`open_browser`) and save; never handle a password or 2FA code.
    - Heartbeats from a thread every 25 seconds (the connector requires one at least every 60s,
-     or it reclaims the browser).
+     or it reclaims the browser). A 4xx answer, or 3 failed beats in a row, means the session is
+     gone: the runner checkpoints and exits 4 instead of working on a dead browser.
    - Runs the plan's calls with a pause between them, one JSONL record per call, flushed.
 4. **Close.** Call `browser action=close_session` with a `report` (what ran, rows, attempts, any
    stop reason). The browser has usually already stopped: it dies the moment the CDP client
@@ -58,7 +62,9 @@ page-reading path instead.
 |---|---|---|
 | 0 | plan finished | close_session, hand off the JSONL |
 | 3 | not signed in / `auth_required` | ask the user to sign in, then a new session |
-| 4 | time ceiling checkpoint | new session, `--skip-done` |
+| 2 | usage, invalid plan, or Playwright not installed | fix it; no claim was spent |
+| 4 | checkpoint: time ceiling, lost heartbeat or page budget | new session, `--skip-done` |
 | 5 | stop status (403/429) | stop; see `guardrails-common.md` |
-| 6 | browser or page error | read the `error` event; new session if the page is gone |
+| 6 | browser, page or claim error | read the `error` event; new session if the page is gone |
 | 7 | page never ready (CSRF cookie absent) | confirm the page is signed in and loaded, retry once |
+| 8 | finished, but a call failed or a paged call was truncated | read the `ended` event and the failed records; do not treat the output as complete |

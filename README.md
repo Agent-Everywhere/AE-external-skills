@@ -62,8 +62,9 @@ tests/              # Python tests for scripts, the runtime, page snippets, mani
 ```
 
 Browser-runtime changes are made once, in `packages/browser-runtime/`, then propagated with
-`python3 build/sync_runtime.py`. The tests run `python3 build/sync_runtime.py --check` and fail if a
-skill's `runtime/` copy has drifted.
+`python3 build/sync_runtime.py`, then run `python3 build/sync_runtime.py --check` before committing.
+The tests run the same check and fail if a skill's `runtime/` copy has drifted (or a skill with
+`runtimes: []` still has a `runtime/` folder).
 
 Each marketplace entry uses its own skill folder as the plugin source (`"source": "./skills/<name>"`,
 `"skills": ["."]`), so a plugin installs only its own skill. Do not point a plugin at the repo root:

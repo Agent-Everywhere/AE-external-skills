@@ -12,13 +12,19 @@ rules"); `scripts/outreach_log.py` enforces them. Read both before the first sen
 
 `outreach_log.csv` in the user's folder is the record of who was contacted. A person is their
 Sales Nav lead id (from `salesnav_lead_url`; the script accepts the URL or the id). Only a hash
-of each message is stored, never the text.
+of each message is stored, never the text. The script locks the file while it writes, so it is
+safe to call from one run at a time per ledger even if a second run starts by mistake.
 
 ```
-python3 scripts/outreach_log.py check --lead-id <id> [--lead-id <id> ...]   # exit 3 = already contacted
-python3 scripts/outreach_log.py add   --lead-id <id> --kind connection|inmail --message "<exact text>"
-python3 scripts/outreach_log.py caps                                         # exit 2 = a cap is reached
+python3 scripts/outreach_log.py check  --lead-id <id> [--lead-id <id> ...]   # exit 3 = already contacted (pending counts)
+python3 scripts/outreach_log.py add    --lead-id <id> --kind connection|inmail --message "<exact text>" --pending
+                                                                              # BEFORE the click; exit 2 = cap reached, 3 = already in the ledger
+python3 scripts/outreach_log.py status --lead-id <id> --status sent           # AFTER the send is verified
+python3 scripts/outreach_log.py caps --for connection|followup                # exit 2 = a cap for that kind is reached
 ```
+
+A `pending` row is the intent to send, written before the click so that a crash between the click
+and the log can never lead to a second send. It counts as contacted and toward the caps.
 
 ## Part A: draft (no sending)
 
@@ -57,27 +63,39 @@ python3 scripts/outreach_log.py caps                                         # e
    parallel tabs, no bulk tools.
 4. **Human pace.** Wait a random 30 to 90 seconds between two sends (jitter, not a fixed
    interval), and a longer pause every few sends. Only in the user's local business hours.
-5. **Verify the sent-state for each person before the next.** For an invitation, the lead page
-   shows it as pending; for a message or InMail, it appears in the thread (and an InMail's credit
-   count drops). Then record it: `outreach_log.py add ...`. No verification, no next person.
-6. **Caps.** At most **20 connection requests a day and 100 a week** (rolling 7 days), and
-   InMails only within the credits the seat has left: read the credit count in the UI first and
-   tell the user. Run `caps` before the batch and after each send; when it exits 2, stop. Lower
-   caps are always fine; raise them only on the user's explicit go.
+5. **Verify the sent-state for each person before the next, and record the intent first.**
+   Right before the click run `outreach_log.py add ... --pending` (it refuses a reached cap and
+   anyone already in the ledger). Click. Then verify: for an invitation, the lead page shows it as
+   pending; for a message or InMail, it appears in the thread (and an InMail's credit count
+   drops). Only then record it: `outreach_log.py status --lead-id <id> --status sent`. No
+   verification, no next person. (A follow-up has no pending form: look at the thread first, send,
+   verify, then `outreach_log.py followup`.)
+6. **Caps.** At most **20 connection requests a day and 100 a week** (rolling 7 days), at most
+   **20 follow-up messages a day**, and InMails only within the credits the seat has left: read
+   the credit count in the UI first and tell the user. Run `caps --for <connection|followup>`
+   (the kind of batch you are about to send) before the batch and after each send; when it exits
+   2, stop. `add` and `followup` refuse at a reached cap too (exit 2). Lower caps are always fine
+   (`--daily`, `--weekly`, `--followup-daily`); raise them (`--allow-over-cap`) only on the user's
+   explicit go.
 7. **Never contact anyone already in `outreach_log.csv`** (any status, any kind) with a first
    message. Run `check` on the batch before drafting, again before showing it, and once more on
    each person right before their send. The one exception is a follow-up to someone who accepted
    (rule 11).
 8. **Never send a first message to anyone with a pending invitation or an existing message
    thread.** Open the lead and look first. If either is there, skip them and say why; do not send
-   a second note.
+   a second note. **On every resume** (a new session, a restart, or after any stop) this look is
+   mandatory for every row still `pending` before anything else is sent: a pending invitation or a
+   thread means the send went out (`status --status sent`); neither means it did not
+   (`status --status withdrawn --note "not sent"`, and tell the user, who decides whether that
+   person is ever tried again). Never send to a pending row without that look.
 9. **Stop on any warning.** Any LinkedIn warning, captcha, "unusual activity" or checkpoint page, or
    any weekly-limit or "reached the limit" banner: stop the run, send nothing more that day,
    report the exact message to the user (no screenshots of private data), and advise waiting at
    least 24 hours. Do not work around it.
 10. **Never auto-retry a send with an unknown result.** If you cannot tell whether a send went
-    through (page error, no confirmation, a timeout), do not click again. Log the person with
-    `--note unverified` so nobody retries them, stop the batch, and ask the user to check.
+    through (page error, no confirmation, a timeout), do not click again. The `pending` row already
+    stops anyone retrying them: leave it pending (do not mark it sent or withdrawn), stop the
+    batch, and ask the user to check. (For a follow-up, log it with `--note unverified`.)
 11. **Follow-up messages are sends.** A follow-up to someone who accepted goes through this same
     Part B: explicit ask, exact batch approval, one at a time, paced, verified, and logged with
     `outreach_log.py followup`. At most three messages ever go to one person (the first plus two
@@ -86,12 +104,13 @@ python3 scripts/outreach_log.py caps                                         # e
 ### Procedure
 
 1. Confirm the ask, the kind (connection requests, InMails or follow-up messages) and the number.
-2. `caps` (and, for InMails, the credits). The batch is the smaller of what the user asked for,
-   the cap room left, and ten people.
-3. `check` the batch; read each lead's page for a pending invite or thread (rules 7 and 8).
+2. `caps --for <kind>` (and, for InMails, the credits). The batch is the smaller of what the user
+   asked for, the cap room left, and ten people.
+3. `check` the batch; read each lead's page for a pending invite or thread (rules 7 and 8). On a
+   resume, settle every `pending` row first (`summary` lists them; rule 8).
 4. Show the batch and wait for approval (rule 2).
-5. For each approved person, in order: send, wait for the confirmation, verify (rule 5), log,
-   `caps`, then wait the jittered gap (rule 4).
+5. For each approved person, in order: `add --pending` (rule 5), send, wait for the confirmation,
+   verify (rule 5), `status --status sent`, `caps --for <kind>`, then wait the jittered gap (rule 4).
 6. Stop early on rules 6, 9 or 10.
 7. Report: sent, skipped (with reasons), unverified, caps remaining today and this week, and
    which accepted people will be due a follow-up (`outreach_log.py summary --stale-days N`).

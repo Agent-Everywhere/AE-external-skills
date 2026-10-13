@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "build"))
@@ -124,10 +125,96 @@ class RuntimeVendoring(unittest.TestCase):
             self.assertIn("differs: README.md", r.stdout)
 
 
+class SyncHardening(unittest.TestCase):
+    """build/sync_runtime.py: orphan runtime dirs, OS litter, and atomic replacement."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name)
+        shutil.copytree(ROOT / "packages", self.repo / "packages")
+        shutil.copytree(ROOT / "skills" / "sales-navigator", self.repo / "skills" / "sales-navigator",
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        self.script = str(ROOT / "build" / "sync_runtime.py")
+        self.runtime = self.repo / "skills" / "sales-navigator" / "runtime"
+
+    def run_script(self, *args):
+        return subprocess.run([sys.executable, self.script, *args, "--root", str(self.repo)],
+                              capture_output=True, text=True)
+
+    def add_skill(self, name, runtimes):
+        skill = self.repo / "skills" / name
+        skill.mkdir()
+        (skill / "skill.yaml").write_text("name: %s\nversion: 0.1.0\ncategory: x\nruntimes: %s\n" % (name, runtimes))
+        (skill / "SKILL.md").write_text("---\nname: %s\n---\n" % name)
+        return skill
+
+    def test_a_runtime_folder_on_a_skill_with_no_runtimes_fails_the_check(self):
+        self.assertEqual(self.run_script("--check").returncode, 0)
+        skill = self.add_skill("plain", "[]")
+        self.assertEqual(self.run_script("--check").returncode, 0)
+        (skill / "runtime").mkdir()
+        (skill / "runtime" / "session.py").write_text("# stray copy\n")
+        result = self.run_script("--check")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("ORPHAN plain/runtime", result.stdout)
+        # a plain sync reports it but does not delete anything the user may care about
+        fix = self.run_script()
+        self.assertEqual(fix.returncode, 0)
+        self.assertIn("plain/runtime", fix.stdout)
+        self.assertTrue((skill / "runtime" / "session.py").exists())
+        shutil.rmtree(skill / "runtime")
+        self.assertEqual(self.run_script("--check").returncode, 0)
+
+    def test_os_litter_is_ignored_in_the_package_and_in_the_copy(self):
+        litter = [".DS_Store", "._session.py", "Thumbs.db", "notes.txt~", "session.py.swp"]
+        for name in litter:
+            (self.runtime / name).write_text("junk")
+            (self.repo / "packages" / "browser-runtime" / name).write_text("junk")
+        (self.runtime / "__pycache__").mkdir()
+        (self.runtime / "__pycache__" / "session.cpython-312.pyc").write_bytes(b"\0")
+        self.assertEqual(self.run_script("--check").returncode, 0)
+        self.assertEqual(self.run_script().returncode, 0)
+        for name in litter:
+            self.assertFalse((self.runtime / name).exists(), name)  # never vendored, and swept out of the copy
+        self.assertEqual(self.run_script("--check").returncode, 0)
+
+    def test_sync_builds_in_a_temp_dir_and_leaves_the_old_copy_when_it_fails(self):
+        (self.runtime / "session.py").write_text("# stale\n")
+        source = self.repo / "packages" / "browser-runtime"
+        before = {p.name: p.read_bytes() for p in self.runtime.iterdir() if p.is_file()}
+        real_copy2 = sync_runtime.shutil.copy2
+        calls = []
+
+        def flaky(src, dst, *a, **k):
+            calls.append(dst)
+            if len(calls) == 3:
+                raise OSError("disk full")
+            return real_copy2(src, dst, *a, **k)
+
+        with mock.patch.object(sync_runtime.shutil, "copy2", flaky):
+            with self.assertRaises(OSError):
+                sync_runtime.sync(source, self.runtime)
+        after = {p.name: p.read_bytes() for p in self.runtime.iterdir() if p.is_file()}
+        self.assertEqual(after, before)  # the old copy is intact, not half replaced
+        leftovers = [p.name for p in self.runtime.parent.iterdir() if p.name.startswith(".runtime-")]
+        self.assertEqual(leftovers, [])  # and no staging dirs are left behind
+
+    def test_a_good_sync_swaps_in_the_new_copy_and_removes_staging(self):
+        (self.runtime / "extra.md").write_text("stale file removed from the package")
+        sync_runtime.sync(self.repo / "packages" / "browser-runtime", self.runtime)
+        self.assertFalse((self.runtime / "extra.md").exists())
+        self.assertEqual(self.run_script("--check").returncode, 0)
+        self.assertEqual([p.name for p in self.runtime.parent.iterdir() if p.name.startswith(".runtime-")], [])
+
+
 class PublicRepoHygiene(unittest.TestCase):
     """The runtime package and sales-navigator skill ship publicly: no identities or secrets."""
 
     FORBIDDEN = ("pureflow", "andideng", "glu@", "li_at", "agent-everywhere.com")
+    # The one legitimate mention of a cookie name: the runner's scrub pattern in session.py (and its
+    # vendored copy). Only the single line carrying this marker is exempt, only from the cookie needle.
+    ALLOW_MARK = "hygiene-allow: cookie-name scrub pattern"
 
     def test_no_identities_or_cookies(self):
         roots = [ROOT / "packages", ROOT / "skills" / "sales-navigator"]
@@ -135,8 +222,15 @@ class PublicRepoHygiene(unittest.TestCase):
             for path in root.rglob("*"):
                 if not path.is_file() or "__pycache__" in path.parts:
                     continue
-                text = path.read_text(encoding="utf-8", errors="ignore").lower()
+                lines = path.read_text(encoding="utf-8", errors="ignore").lower().splitlines()
                 for needle in self.FORBIDDEN:
+                    if needle == "li_at" and path.name == "session.py":
+                        lines_for_needle = [l for l in lines if self.ALLOW_MARK not in l]
+                        marked = len(lines) - len(lines_for_needle)
+                        self.assertLessEqual(marked, 1, "only one line may carry the allow marker")
+                        text = "\n".join(lines_for_needle)
+                    else:
+                        text = "\n".join(lines)
                     with self.subTest(file=str(path.relative_to(ROOT)), needle=needle):
                         self.assertNotIn(needle, text)
 

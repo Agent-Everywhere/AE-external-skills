@@ -183,5 +183,81 @@ class Accounts(unittest.TestCase):
         self.assertEqual(read(self.out)[0]["company_domain"], "nosite.example")
 
 
+class PersonIdentity(unittest.TestCase):
+    """The same person comes back from different searches with different urn suffixes."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+        self.out = self.dir / "leads.csv"
+
+    def person(self, pid, suffix, name="Pat Poe", company="Zed"):
+        return {"fullName": name, "entityUrn": "urn:li:fs_salesProfile:(%s,%s)" % (pid, suffix),
+                "currentPositions": [{"title": "CEO", "companyName": company,
+                                      "companyUrn": "urn:li:fs_salesCompany:7"}]}
+
+    def save(self, name, payload):
+        path = self.dir / name
+        path.write_text(json.dumps(payload))
+        return str(path)
+
+    def test_profile_id_is_the_first_component_of_the_urn_inner(self):
+        self.assertEqual(salesnav_rows.profile_id("urn:li:fs_salesProfile:(ACw1,NAME_SEARCH,abcd)"), "ACw1")
+        self.assertEqual(salesnav_rows.profile_id("urn:li:fs_salesProfile:ACw9"), "ACw9")
+        self.assertEqual(salesnav_rows.profile_id(""), "")
+
+    def test_same_person_with_different_search_suffixes_is_one_row_with_the_first_full_url(self):
+        a = self.save("a.json", {"status": 200, "elements": [self.person("ACwSAME", "NAME_SEARCH,aaaa")]})
+        b = self.save("b.json", {"status": 200, "elements": [self.person("ACwSAME", "NAME_SEARCH,bbbb"),
+                                                             self.person("ACwOTHER", "NAME_SEARCH,cccc", name="Sam Roe")]})
+        code, err = run(["leads", a, b, "-o", str(self.out), "--collected-at", "2026-10-13"])
+        self.assertEqual(code, 0, err)
+        rows = read(self.out)
+        self.assertEqual([r["full_name"] for r in rows], ["Pat Poe", "Sam Roe"])
+        self.assertEqual(rows[0]["salesnav_lead_url"], "https://www.linkedin.com/sales/lead/ACwSAME,NAME_SEARCH,aaaa")
+        self.assertIn("1 duplicates dropped", err)
+
+    def test_accepts_bare_per_call_json_files_and_jsonl_wrappers_together_and_is_idempotent(self):
+        page0 = {"status": 200, "ms": 5, "total": 2, "start": 0, "rows": 1,
+                 "elements": [self.person("ACwONE", "NAME_SEARCH,1111", name="One One")]}
+        page25 = {"status": 200, "ms": 5, "total": 2, "start": 25, "rows": 1,
+                  "elements": [self.person("ACwTWO", "NAME_SEARCH,2222", name="Two Two")]}
+        bare0 = self.save("leads#0.json", page0)  # exactly what the browser JS tool returned
+        bare25 = self.save("leads#25.json", page25)
+        wrapped = self.dir / "results.jsonl"
+        wrapped.write_text("".join(json.dumps({"id": i, "ok": True, "result": r}) + "\n"
+                                   for i, r in (("leads#0", page0), ("leads#25", page25))))
+        string_encoded = self.save("tool-string.json", json.dumps(page0))  # a tool that hands back a JSON string
+        pretty = self.dir / "pretty.json"
+        pretty.write_text(json.dumps(page25, indent=2))
+        runs = {}
+        for label, inputs in (("bare", [bare0, bare25]), ("jsonl", [str(wrapped)]),
+                              ("overlap", [bare0, str(wrapped), bare25, string_encoded, str(pretty), bare0]),
+                              ("reordered", [str(pretty), bare25, string_encoded, str(wrapped)])):
+            out = self.dir / (label + ".csv")
+            code, err = run(["leads", *inputs, "-o", str(out), "--collected-at", "2026-10-13"])
+            self.assertEqual(code, 0, (label, err))
+            runs[label] = read(out)
+        self.assertEqual([r["full_name"] for r in runs["bare"]], ["One One", "Two Two"])
+        self.assertEqual(runs["bare"], runs["jsonl"])
+        self.assertEqual(runs["bare"], runs["overlap"])  # overlapping inputs change nothing
+        self.assertEqual(sorted(r["full_name"] for r in runs["reordered"]), ["One One", "Two Two"])
+        # running it twice over the same inputs gives the same file
+        again = self.dir / "again.csv"
+        run(["leads", bare0, str(wrapped), bare25, string_encoded, str(pretty), bare0, "-o", str(again),
+             "--collected-at", "2026-10-13"])
+        self.assertEqual(again.read_text(), (self.dir / "overlap.csv").read_text())
+
+    def test_company_websites_still_join_whatever_the_file_order(self):
+        accounts = self.save("a.json", {"elements": [{"companyName": "Zed", "entityUrn": "urn:li:fs_salesCompany:7"}]})
+        sites = self.save("w.json", {"status": 200, "companies": [{"id": "7", "name": "Zed", "website": "https://zed.example"}]})
+        for inputs in ([accounts, sites], [sites, accounts, sites]):
+            out = self.dir / "accts.csv"
+            run(["accounts", *inputs, "-o", str(out)])
+            self.assertEqual(read(out)[0]["company_domain"], "zed.example")
+            self.assertEqual(len(read(out)), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -40,7 +40,7 @@ async (params) => { ... }
 Build it, then paste it as the tool's whole code:
 
 ```
-# with code execution (compact drops comments; add --form return, see below)
+# with code execution (compact drops comments and blank lines; add --form return, see below)
 python3 runtime/session.py --emit lead_search.js --params '{"query":"...","count":25}' --compact
 
 # without code execution: read page/lead_search.js, put "(" before it and ")({...params})" after it
@@ -107,8 +107,9 @@ python3 runtime/session.py --runtime cdp --cdp-url http://127.0.0.1:9222 \
         --plan plan.json --out results.jsonl
 ```
 
-`session.py` reuses an open tab on the target site if there is one. Add `--no-goto` to run on the
-tab exactly as it is. It disconnects without closing the user's browser.
+`session.py` reuses an open tab on the target site if there is one; if there is none it opens a
+NEW tab and never navigates one of the user's other tabs. Add `--no-goto` to run on the tab exactly
+as it is (open the target site first). It disconnects without closing the user's browser.
 
 Heartbeats, claims and the 40-minute ceiling do not apply locally. `--max-seconds` still works if
 you want a checkpoint.

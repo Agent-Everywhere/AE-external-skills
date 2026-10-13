@@ -2,9 +2,11 @@
 """Map Sales Navigator API results to the standard CSVs in references/output.md.
 
 Input: the JSONL a runtime run wrote (page/lead_search.js, page/account_search.js and
-page/companies_websites.js results), a saved API response (a JSON object with "elements"),
-or a plain JSON list of elements. Several files may be given and mixed: website records found in
-any input are used to fill company_domain.
+page/companies_websites.js results), a bare per-call JSON file (the object a snippet returned,
+saved as is, e.g. results/<shard>/<call id>.json), a saved API response (a JSON object with
+"elements"), or a plain JSON list of elements. Several files may be given and mixed, and they may
+overlap (the same call saved twice, a JSONL plus its per-call files): website records found in any
+input are used to fill company_domain, and every person or company is written once.
 
   salesnav_rows.py leads    results.jsonl -o leads.csv    --mode A --buyer-type X --shard "US|11-50"
   salesnav_rows.py accounts results.jsonl -o accounts.csv --mode B --buyer-type X --shard "US-CA"
@@ -19,8 +21,11 @@ What is mapped (and what is deliberately left blank):
   accounts  company_name, industry, headcount_band (from employeeCountRange),
             salesnav_account_url from the company id, company_domain from the website records.
             hq_location stays blank (not in the search result).
-Rows are de-duplicated on the Sales Navigator URL (first one wins). --company-ids PATH also writes
-a salesnav_lead_url,company_id sidecar so leads can be joined to their accounts by company id.
+Rows are de-duplicated on the person (the profile id, the first part of the lead urn: the same
+person comes back with a different search-context suffix on every search) or the company id; the
+first one wins and its full Sales Navigator URL is kept. Re-running over overlapping files gives
+the same CSV. --company-ids PATH also writes a salesnav_lead_url,company_id sidecar so leads can
+be joined to their accounts by company id.
 
 Exit code: 0 rows written, 1 nothing to write or unreadable input.
 Python 3 standard library only, no network.
@@ -63,7 +68,15 @@ def _records(path):
 
 
 def _payload(rec):
-    """The API-shaped dict inside a runner record, or the record itself."""
+    """The API-shaped dict inside a runner record, or the record itself.
+
+    A browser JS tool may hand back the result as a JSON string; that is decoded once.
+    """
+    if isinstance(rec, str):
+        try:
+            rec = json.loads(rec)
+        except ValueError:
+            return None
     if isinstance(rec, dict) and isinstance(rec.get("result"), dict):
         return rec["result"]
     return rec
@@ -95,6 +108,9 @@ def load_inputs(paths, kind):
                 keep(rec)
                 continue
             payload = _payload(rec)
+            if isinstance(payload, list):
+                keep(payload)
+                continue
             if not isinstance(payload, dict):
                 continue
             if isinstance(payload.get("elements"), list):
@@ -116,6 +132,19 @@ def urn_id(urn):
     """Trailing numeric id of a urn like urn:li:fs_salesCompany:12345 ('' when absent)."""
     m = re.search(r"(\d+)\)?$", urn or "")
     return m.group(1) if m else ""
+
+
+def profile_id(entity_urn):
+    """The profile id: the first component of the urn's inner part (urn:li:fs_salesProfile:(ID,CONTEXT,TOKEN)).
+
+    The context and token change with every search; the id is the person.
+    """
+    urn = entity_urn or ""
+    if "(" in urn:
+        inner = urn.split("(", 1)[1].rstrip(")")
+    else:
+        inner = urn.rsplit(":", 1)[-1] if urn.startswith("urn:") else ""
+    return inner.split(",", 1)[0].strip()
 
 
 def lead_url(entity_urn):
@@ -211,13 +240,19 @@ def account_row(e, meta, websites):
 
 
 def build_rows(kind, elements, websites, meta):
-    """Return (rows, company_ids, duplicates_dropped). rows are dicts in column order."""
+    """Return (rows, company_ids, duplicates_dropped). rows are dicts in column order.
+
+    Leads are de-duplicated on the profile id (not the whole URL), accounts on the company id.
+    """
     build = lead_row if kind == "leads" else account_row
     key = "salesnav_lead_url" if kind == "leads" else "salesnav_account_url"
     seen, rows, ids, dups = set(), [], [], 0
     for e in elements:
         row, company_id = build(e, meta, websites)
-        ident = row[key] or (row.get("full_name") or row.get("company_name"), company_id)
+        person = profile_id(e.get("entityUrn")) if kind == "leads" else ""
+        ident = (("profile", person) if person else
+                 (key, row[key]) if row[key] else
+                 ("name", row.get("full_name") or row.get("company_name"), company_id))
         if ident in seen:
             dups += 1
             continue

@@ -173,6 +173,36 @@ class PageSnippets(unittest.TestCase):
         self.assertEqual(len(out["calls"]), 1)
         self.assertEqual(out["result"]["status"], 403)
 
+    def test_count_status_is_the_first_failure_not_the_last_result(self):
+        three = [{"label": x, "query": CLEAN} for x in "abc"]
+        out = run_snippet("count.js", {"kind": "lead", "delayMs": 0, "queries": three},
+                          [{"status": 200, "body": {"paging": {"total": 1}}}, {"status": 400, "body": {}},
+                           {"status": 200, "body": {"paging": {"total": 3}}}])
+        res = out["result"]
+        self.assertEqual((res["status"], res["failed"]), (400, 1))  # was 200: the LAST query's status
+        self.assertEqual([r["status"] for r in res["results"]], [200, 400, 200])
+
+    def test_count_status_prefers_a_stop_status_and_is_200_only_when_all_succeed(self):
+        two = [{"label": x, "query": CLEAN} for x in "ab"]
+        out = run_snippet("count.js", {"kind": "lead", "delayMs": 0, "queries": two},
+                          [{"status": 500, "body": {}}, {"status": 429, "body": {}}])
+        self.assertEqual((out["result"]["status"], out["result"]["failed"]), (429, 2))
+        ok = run_snippet("count.js", {"kind": "lead", "delayMs": 0, "queries": two},
+                         [{"status": 200, "body": {"paging": {"total": 1}}},
+                          {"status": 200, "body": {"paging": {"total": 2}}}])
+        self.assertEqual((ok["result"]["status"], ok["result"]["failed"]), (200, 0))
+
+    def test_runner_treats_a_count_result_with_failures_as_not_ok(self):
+        import sys
+        sys.path.insert(0, str(ROOT / "packages" / "browser-runtime"))
+        import session
+        out = run_snippet("count.js", {"kind": "lead", "delayMs": 0,
+                                       "queries": [{"label": "a", "query": CLEAN}, {"label": "b", "query": CLEAN}]},
+                          [{"status": 400, "body": {}}, {"status": 200, "body": {"paging": {"total": 5}}}])
+        self.assertFalse(session.result_ok(out["result"]))
+        self.assertFalse(session.result_ok({"failed": 1, "results": []}))
+        self.assertEqual(session.result_rows(out["result"]), 0)
+
     def test_companies_websites_encoding_and_chunking(self):
         ids = ["urn:li:fs_salesCompany:%d" % n for n in range(1, 31)]
         body1 = {"results": {str(n): {"name": "N%d" % n, "website": "http://n%d.com" % n} for n in range(1, 25)}}
@@ -201,6 +231,85 @@ class PageSnippets(unittest.TestCase):
         empty = run_snippet("typeahead.js", {"type": "INDUSTRY", "term": "nutrition"},
                             [{"status": 200, "body": {"elements": []}}])
         self.assertTrue(empty["result"]["results"][0]["empty"])
+
+    # --- compact mode must not change what a snippet does
+    CASES = {
+        "lead_search.js": [
+            ({"query": "(recentSearchParam:(id:1,doLogHistory:true),filters:List((type:REGION)))", "start": 25},
+             [{"status": 200, "body": {"paging": {"total": 90}, "elements": [
+                 {"fullName": "A", "crmStatus": {"a": 1}, "currentPositions": [{"title": "T", "$recipeType": "r"}]}]}}]),
+            ({"query": "https://www.linkedin.com/sales/search/people?query=%28filters%3AList%28%28type%3AREGION%29%29%29&x=1"},
+             [{"status": 403, "body": {"m": "no"}}]),
+            ({"query": CLEAN, "raw": True}, [{"status": 200, "body": {"elements": [{"crmStatus": 1}]}}]),
+        ],
+        "account_search.js": [
+            ({"query": CLEAN, "start": 50},
+             [{"status": 200, "body": {"paging": {"total": 7}, "elements": [{"companyName": "X"}]}}]),
+            ({"query": CLEAN, "start": 1000}, []),
+        ],
+        "count.js": [
+            ({"kind": "account", "delayMs": 0, "queries": [{"label": "a", "query": CLEAN}, {"label": "b", "query": CLEAN}]},
+             [{"status": 200, "body": {"paging": {"total": 11}}}, {"status": 400, "body": {}}]),
+        ],
+        "csrf_ready.js": [({}, [])],
+        "typeahead.js": [
+            ({"type": "BING_GEO", "term": "United States"},
+             [{"status": 200, "body": {"elements": [{"id": "1", "displayValue": "US", "extra": 1}]}}]),
+        ],
+        "companies_websites.js": [
+            ({"ids": ["urn:li:fs_salesCompany:1", "2", "x3"], "delayMs": 0},
+             [{"status": 200, "body": {"results": {"1": {"name": "N1", "website": "http://n1.com"}}}}]),
+        ],
+    }
+
+    @staticmethod
+    def _without_ms(value):
+        if isinstance(value, dict):
+            return {k: PageSnippets._without_ms(v) for k, v in value.items() if k != "ms"}
+        if isinstance(value, list):
+            return [PageSnippets._without_ms(v) for v in value]
+        return value
+
+    def test_compact_and_normal_forms_of_every_snippet_behave_identically(self):
+        import sys
+        import tempfile
+        sys.path.insert(0, str(ROOT / "packages" / "browser-runtime"))
+        import session
+        self.assertEqual(sorted(self.CASES), sorted(p.name for p in PAGE.glob("*.js")), "add a case for each snippet")
+        for path in sorted(PAGE.glob("*.js")):
+            source = path.read_text(encoding="utf-8")
+            compact = session.compact_js(source)
+            self.assertLess(len(compact), len(source), path.name)
+            with tempfile.TemporaryDirectory() as tmp:
+                small = Path(tmp) / path.name
+                small.write_text(compact)
+                for params, responses in self.CASES[path.name]:
+                    with self.subTest(snippet=path.name, params=json.dumps(params)[:60]):
+                        want = self._without_ms(run_snippet(path.name, params, responses))
+                        proc = subprocess.run(
+                            [NODE, str(HARNESS), str(small), json.dumps(params), COOKIE, json.dumps(responses)],
+                            capture_output=True, text=True, timeout=30)
+                        self.assertEqual(proc.returncode, 0, proc.stderr)
+                        self.assertEqual(self._without_ms(json.loads(proc.stdout)), want)
+
+    def test_emitted_compact_expressions_evaluate_like_the_normal_ones(self):
+        import sys
+        sys.path.insert(0, str(ROOT / "packages" / "browser-runtime"))
+        import session
+        params = json.dumps({"query": "(recentSearchParam:(id:1),filters:List((type:REGION)))", "count": 1})
+        results = []
+        for compact in (False, True):
+            code = session.emit_expression("lead_search.js", params, [PAGE], compact=compact)
+            script = ("global.document={cookie:%s};global.performance={now:()=>0};"
+                      "global.fetch=async(u)=>({status:200,json:async()=>({paging:{total:3},elements:[{n:u.length}]}),"
+                      "text:async()=>''});"
+                      "Promise.resolve(eval(%s)).then(r=>console.log(JSON.stringify(r)));"
+                      % (json.dumps(COOKIE), json.dumps(code)))
+            proc = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=30)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            results.append(json.loads(proc.stdout))
+        self.assertEqual(results[0], results[1])
+        self.assertEqual(results[0]["rows"], 1)
 
     def test_csrf_ready(self):
         self.assertTrue(run_snippet("csrf_ready.js", {})["result"]["ready"])

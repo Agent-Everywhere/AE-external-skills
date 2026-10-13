@@ -70,7 +70,7 @@ Run it (cloud browser shown; `runtime/local.md` has the local command). Snippet 
 against this skill's `page/` folder automatically:
 
 ```
-python3 runtime/session.py --runtime agent-browser --base "<base>" --claim "<claim>" \
+AB_CLAIM="<claim>" python3 runtime/session.py --runtime agent-browser --base "<base>" \
         --plan plan.json --out results.jsonl
 ```
 
@@ -87,7 +87,13 @@ Rules for plans:
 - **A cloud browser session is one process.** Put every call for the session in one plan. Close
   and reopen near the 40-minute ceiling (`session.py` checkpoints and exits 4; re-run with
   `--skip-done`).
-- Write the plan **before** opening a cloud session: the claim expires in 60 seconds.
+- Write the plan **before** opening a cloud session: the claim expires in 60 seconds. The runtime
+  checks the plan first (exit 2, nothing claimed): unique call `id`s, `delay_ms` of at least
+  2000, a non-empty `stop_on_status`, and at most 40 pages per paged call and per run unless the
+  plan sets `max_pages` / `max_pages_total` higher (never above 80, the hard ceiling in
+  `references/guardrails.md`).
+- Exit code 8 means the run finished but a call failed or a paged call was truncated: do not hand
+  the output over as complete.
 - Keep plans to the call budget in `references/guardrails.md`. Size first (`count.js`, `count=1`
   responses are tiny), then sample, then collect.
 - For many companies or ids, generate the plan with a short script; do not hand-write hundreds of calls.

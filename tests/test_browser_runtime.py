@@ -214,7 +214,7 @@ class RunnerTests(unittest.TestCase):
         two = plan()
         two["calls"] = [dict(two["calls"][0], id="a"), dict(two["calls"][0], id="b")]
         _, code = run(FakePage(pager(30, fail_at=0, status=400)), two, self.out)
-        self.assertEqual(code, session.EXIT_OK)  # a 400 fails that call, the run goes on
+        self.assertEqual(code, session.EXIT_INCOMPLETE)  # a 400 fails that call, the run goes on, exit is non-zero
         recs = [r for r in records(self.out) if "id" in r]
         self.assertEqual([(r["id"], r["ok"]) for r in recs], [("a#0", False), ("b#0", False)])
 
@@ -238,8 +238,9 @@ class RunnerTests(unittest.TestCase):
             def uniform(self, lo, hi):
                 return lo
 
-        # every pause advances the fake clock 3s; ceiling at 3s -> checkpoint before the third page
-        runner, code = run(FakePage(pager(100)), plan(), self.out, clock=clock, max_seconds=3, rng=LowRng())
+        # every pause advances the fake clock 3s; the ceiling is checked again AFTER each pause, so a
+        # pause that crosses it (the third page: 3s + 3s >= 4s) checkpoints before that page runs
+        runner, code = run(FakePage(pager(100)), plan(), self.out, clock=clock, max_seconds=4, rng=LowRng())
         self.assertEqual(code, session.EXIT_CHECKPOINT)
         recs = records(self.out)
         cp = [r for r in recs if r.get("event") == "checkpoint"][0]

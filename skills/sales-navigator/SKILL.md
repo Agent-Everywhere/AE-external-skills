@@ -84,7 +84,7 @@ otherwise apply the same rules by hand.
 - `scripts/dedupe.py` — normalize LinkedIn URLs and domains, dedupe, apply exclusions.
 - `scripts/validate_csv.py` — check an accounts/leads CSV against `references/output.md`.
 - `scripts/run_log.py` — daily page/profile counts against the limits.
-- `scripts/outreach_log.py` — the outreach ledger: `check` (already contacted?), `add`, `status`, `caps`, `summary`. Used only by outreach and follow-ups.
+- `scripts/outreach_log.py` — the outreach ledger: `check` (already contacted?), `add` (`--pending` before a send), `status`, `followup`, `caps`, `summary`. Used only by outreach and follow-ups.
 
 Page snippets (`page/*.js`, one async function each, run inside the signed-in page): `csrf_ready.js`,
 `count.js`, `lead_search.js`, `account_search.js`, `companies_websites.js`, `typeahead.js`. Each is

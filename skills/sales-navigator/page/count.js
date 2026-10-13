@@ -8,7 +8,10 @@
 //   queries: [{ label, query }, ...]       sized one after another with a pause between
 //   delayMs?: 3500 pause between queries; stops at the first 403/429
 // }
-// returns: { results: [{ label, status, total, ms }] }
+// returns: { status, failed, results: [{ label, status, total, ms }] }
+//   status is 200 only when every query returned 200; otherwise it is the first 403/429 if any, else the
+//   first non-200 status. failed counts the queries that did not return 200 (a runner treats failed > 0
+//   as not ok).
 // total is paging.total: exact for the query as sent, but only the first 2,500 (leads) or
 // 1,000 (accounts) results are viewable, so shard until each total is under that cap.
 async (params) => {
@@ -46,6 +49,7 @@ async (params) => {
       results.push({ label: item.label, status: 0, error: String(e).slice(0, 120) });
     }
   }
-  const last = results[results.length - 1] || {};
-  return { status: results.every((x) => x.status === 200) ? 200 : (last.status || 0), results };
+  const bad = results.filter((x) => x.status !== 200);
+  const stop = bad.find((x) => x.status === 403 || x.status === 429);
+  return { status: bad.length ? (stop || bad[0]).status : 200, failed: bad.length, results };
 }

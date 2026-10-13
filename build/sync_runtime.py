@@ -5,8 +5,10 @@ A skill opts in through skills/<name>/skill.yaml:  runtimes: [local, agent-brows
 (an empty list, `runtimes: []`, means no browser runtime and nothing is copied).
 
   python3 build/sync_runtime.py           copy packages/browser-runtime -> skills/<name>/runtime/
-                                          (files removed from the package are removed from the copy)
-  python3 build/sync_runtime.py --check   change nothing; exit 1 if any copy drifted from the source
+                                          (files removed from the package are removed from the copy;
+                                          the copy is built in a temp dir and renamed into place)
+  python3 build/sync_runtime.py --check   change nothing; exit 1 if any copy drifted from the source,
+                                          or a skill with `runtimes: []` still has a runtime/ folder
 
 packages/browser-runtime is the single source of truth: edit it there, then run this script.
 Python 3 standard library only, no network.
@@ -14,12 +16,21 @@ Python 3 standard library only, no network.
 import argparse
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 PACKAGE_REL = Path("packages") / "browser-runtime"
 IGNORED_DIRS = {"__pycache__"}
-IGNORED_SUFFIXES = {".pyc"}
+IGNORED_SUFFIXES = {".pyc", ".pyo", ".swp", ".swo"}
+IGNORED_NAMES = {".DS_Store", "Thumbs.db", "desktop.ini"}  # OS litter, never vendored and never drift
+
+
+def is_ignored(rel):
+    """True for caches and OS/editor litter (.DS_Store, AppleDouble ._x files, *.pyc, editor swap/backups)."""
+    name = rel.name
+    return bool((set(rel.parts) & IGNORED_DIRS) or rel.suffix in IGNORED_SUFFIXES
+                or name in IGNORED_NAMES or name.startswith("._") or name.endswith("~"))
 
 
 def parse_skill_yaml(text):
@@ -58,7 +69,7 @@ def package_files(root):
     out = []
     for path in sorted(base.rglob("*")):
         rel = path.relative_to(base)
-        if path.is_file() and not (set(rel.parts) & IGNORED_DIRS) and path.suffix not in IGNORED_SUFFIXES:
+        if path.is_file() and not is_ignored(rel):
             out.append(rel)
     return out
 
@@ -91,14 +102,41 @@ def drift(source, copy):
     return problems
 
 
+def orphan_runtimes(repo):
+    """Skills whose skill.yaml lists no runtime but that still have a runtime/ folder."""
+    found = []
+    for skill_dir in sorted((Path(repo) / "skills").iterdir()):
+        if skill_dir.is_dir() and (skill_dir / "skill.yaml").is_file():
+            if not load_manifest(skill_dir).get("runtimes") and (skill_dir / "runtime").exists():
+                found.append(skill_dir)
+    return found
+
+
 def sync(source, copy):
+    """Replace `copy` with the package files: build in a temp dir beside it, then swap by rename.
+
+    A crash or a failed copy leaves the old copy in place (never a half-written one).
+    """
     copy = Path(copy)
-    if copy.exists():
-        shutil.rmtree(copy)
-    for rel in package_files(source):
-        dest = copy / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(Path(source) / rel, dest)
+    copy.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=".runtime-new-", dir=copy.parent))
+    old = copy.parent / (".runtime-old-" + staging.name.rsplit("-", 1)[-1])
+    try:
+        for rel in package_files(source):
+            dest = staging / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(Path(source) / rel, dest)
+        if copy.exists():
+            copy.rename(old)
+        try:
+            staging.rename(copy)
+        except OSError:
+            if old.exists():
+                old.rename(copy)
+            raise
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+        shutil.rmtree(old, ignore_errors=True)
 
 
 def main(argv=None):
@@ -126,8 +164,13 @@ def main(argv=None):
         else:
             sync(source, copy)
             print("synced %s/runtime (%d files)" % (skill_dir.name, len(package_files(source))))
+    for skill_dir in orphan_runtimes(repo):
+        print("%s %s/runtime: the skill lists no runtimes (`runtimes: []`) but has a runtime/ folder: "
+              "delete it or list a runtime in skill.yaml" % ("ORPHAN" if args.check else "warning:", skill_dir.name))
+        bad += 1
     if args.check and bad:
-        print("runtime copies are out of date: run `python3 build/sync_runtime.py`", file=sys.stderr)
+        print("runtime copies are out of date: run `python3 build/sync_runtime.py` (and fix any ORPHAN above)",
+              file=sys.stderr)
         return 1
     if not targets:
         print("no skill lists a browser runtime", file=sys.stderr)
