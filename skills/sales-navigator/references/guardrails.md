@@ -36,11 +36,20 @@ traffic. 150 is the default and 200 the hard ceiling (50 above the default, as b
 publishes no limit, so these stay conservative operating numbers. Past 150 needs the user's
 explicit go.
 
-**When a cap stops a pull,** say so and give the numbers: how many rows were collected and how many rows
-remain (the shard's `paging.total` minus rows saved), and which cap stopped it. Then offer both
-options: continue tomorrow (the CSV and `--skip-done` / the next page number resume it), or raise
-the cap for today. Raising needs the user's explicit OK in that conversation, only up to the hard
-ceiling, and never after a stop signal below. Do not raise a cap on your own.
+**When the daily page budget would be exceeded (or a cap stops a pull),** say so and give the numbers:
+rows collected, rows remaining (the shard's `paging.total` minus rows saved), and which cap. Then
+offer exactly these three options, **in this order, with the first as the recommended default**:
+
+1. **Use the rows already pulled** (no new calls). *Recommended and safe.*
+2. **Continue tomorrow** (the CSV and `--skip-done` / the next page number resume it). No calls today.
+3. **Raise today's cap**, only with the user's explicit OK in that conversation, only up to the hard
+   ceiling, and never after a stop signal below.
+
+**Question cards time out to the recommended option.** Cowork can auto-select the recommended
+choice after a few minutes with nobody answering. So the recommended/default option of any choice
+this skill asks must be the **safe** one: never raise a cap, never spend calls, never send. Say
+"the safe default is X" in the question. Never recommend raising a cap, and never raise one on
+your own or because a card timed out.
 
 ## Where the counters live (they must persist)
 

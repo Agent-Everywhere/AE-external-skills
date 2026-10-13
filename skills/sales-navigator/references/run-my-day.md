@@ -1,5 +1,13 @@
 # Action: run-my-day
 
+**The only action that chains.** Every other action does one step and stops
+(`SKILL.md`, "One step per request"); this one runs several in a row, and only when the user
+says "run my day" (or schedules it, or explicitly asks to continue). A setup, sizing or pull
+request never turns into a run-my-day on its own, and finishing setup is not a reason to start it.
+It also stays inside the day's page budget (`guardrails.md`): when the budget would be exceeded
+it stops at the point reached and offers the three budget options there (use rows already pulled,
+continue tomorrow, raise only with the user's explicit OK), safe default first.
+
 One routine that chains the other actions into a day's work, and ends with drafts and a short
 report for the user to act on. It reads, qualifies, saves to a list the user already allowed, and
 drafts. **It never sends.** Sending needs the user, awake, in a conversation, approving a batch
