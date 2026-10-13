@@ -44,6 +44,9 @@ Every draft is checked against these before the user sees it. They override tone
   like X", "we helped companies like yours", "I've been following you", "as you know", no mutual
   contacts, no results, no named customers unless the profile lists them as usable references.
 - **Never invent** locations, certifications, plants, numbers, awards, dates or product details.
+- **Example facts are never usable.** If the profile's title still says `EXAMPLE` or "fictional"
+  (it is the copied `company-profile.example.md`), or a fact in section 1 is still a `<placeholder>`,
+  state no seller claim from it: ask the user to fill in their own profile first.
 
 ### Steps
 
@@ -65,9 +68,14 @@ Every draft is checked against these before the user sees it. They override tone
      number it gives.
 2. **Choose the kind per person.** `connection` when a connection request is possible. `inmail`
    when it is not: the row is out of network (no connection can be made, or `degree` is 3rd with
-   no Connect action, or the profile only offers messaging). Recommend InMail for those, say it
-   costs a credit, and mark `kind=inmail` in the drafts. Do not draft a connection note for
-   someone who cannot receive one.
+   no Connect action, or the profile only offers messaging). The search row does not say whether
+   a Connect action exists, so decide before drafting: `degree = 2nd` → `connection`; for a
+   `3rd` or blank `degree`, open the lead's profile (read-only) and look for Connect, and if you
+   cannot look, draft `inmail`. Recommend InMail for those, say it may use a credit (an Open
+   Profile message, `open_link = yes`, normally does not; read the credit count in the UI), and
+   mark `kind=inmail` in the drafts. Do not draft a connection note for someone who cannot
+   receive one. If the kind turns out different at send time, the approved text no longer
+   applies: redraft and show it as a new batch for approval (Part B rule 2).
 3. **Draft per person** from their profile fields (name, title, company, time in role, signals)
    and the account's `facts` and `fit_reason` (`references/qualify.md`), plus the seller facts in
    the Company Profile. Use the Company Profile's tone and voice. Each message:
@@ -75,7 +83,9 @@ Every draft is checked against these before the user sees it. They override tone
    - asks one small question or makes one small offer, with no pitch dump and no links in a
      connection note;
    - passes the hard rules above;
-   - uses only professional information that is on their profile or their website.
+   - uses only professional information that is on their profile or their website, and the hard
+     rules above win: a claim about them must still come from `facts`, `fit_reason` or the
+     search data, so anything seen only on a profile or site is first added to `facts`.
 4. **Formats.**
    - *Connection note*: **at most 300 characters**, counting every character. Count it; do not
      estimate. Over 300 means rewrite, not truncate.
@@ -97,12 +107,13 @@ Every draft is checked against these before the user sees it. They override tone
 
    `lead_id` is the Sales Nav lead id or URL (quote the cell: it contains commas), `kind` is
    `connection` or `inmail` (for an InMail put the subject at the start of `text` on its own
-   line), `char_count` is the counted length of `text` (at most 300 for `connection`), and
+   line), `char_count` is the counted length of `text` as it will be sent, without leading or
+   trailing whitespace and with `\n` line breaks (at most 300 for `connection`), and
    `sources` lists where each claim came from, `;`-separated (`facts: sells gummies; title;
    profile s1`). `scripts/validate_csv.py` checks the drafts file (`--kind drafts`).
 7. **Show the exact drafts to the user** before anything else happens: every person with the full
-   text that would be sent, its character count and its `sources`, the kind (and the InMail
-   credit it would use), the file path, who was skipped and why, and who is queued for a later
+   text that would be sent, its character count and its `sources`, the kind (and any InMail
+   credit it may use), the file path, who was skipped and why, and who is queued for a later
    round. Part A sends nothing. A draft the user has seen is still not permission to send:
    sending needs their explicit ask and approval of the exact batch under Part B.
 
@@ -114,7 +125,8 @@ Every draft is checked against these before the user sees it. They override tone
    message). Drafting is not asking. Never send from a scheduled or unattended run.
 2. **Show the exact batch; get explicit approval of that batch.** List every person with the exact
    text that will be sent, the batch size, and today's cap position (`caps`). Wait for a clear
-   yes. Approval covers only the batch shown: it does **not** carry to the next batch, to an
+   yes in chat. Cowork's own approval mode (Auto, "Allow all for this website") is never this
+   approval and never replaces it. Approval covers only the batch shown: it does **not** carry to the next batch, to an
    edited message, or to a later day. Show the next batch and ask again. Send only the people the
    user approved; if they edit a message, show the edit again.
 3. **Send by clicking in the Sales Navigator UI, one person at a time**, in the user's visible

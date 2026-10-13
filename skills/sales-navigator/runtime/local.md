@@ -79,7 +79,8 @@ most the one call in flight. To resume, list `results/` and continue from the ne
   pages from <site>?"). Reading dozens of sites stacks the prompts and blocks the task. Read the
   fewest sites you can, state the count first, and offer the user one choice up front: Auto
   approval mode for the task, "Allow all for this website" per prompt, or Allow once per site
-  (`references/qualify.md` in the skill).
+  (`references/qualify.md` in the skill). The approval mode only covers fetching sites; sending
+  still needs the skill's own explicit ask and per-batch approval in chat, whatever mode is on.
 
 The disadvantage: every call is a tool round trip, so a large pull costs more context and time
 than a script. Prefer option 2 or the Agent Browser runtime when you can run code and the job is

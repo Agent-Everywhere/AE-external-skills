@@ -449,6 +449,31 @@ class QualifyTiers(unittest.TestCase):
             self.assertIn(needle, self.tier2)
         self.assertNotIn("never ask the user to grant broad permissions", self.tier2)
 
+    def test_tier_one_never_drops_on_headcount_or_name_alone(self):
+        drop = self.tier1.split("- `drop`:", 1)[1].split("- `unsure`:", 1)[0]
+        self.assertNotIn("outside the profile's headcount bounds", drop)
+        for needle in ("Never drop on headcount band alone", "needs a second signal that agrees",
+                       "never the name alone"):
+            self.assertIn(needle, drop)
+
+    def test_tier_two_marks_read_sites_so_reruns_do_not_refetch(self):
+        self.assertIn("`site: read`", self.tier2)
+        self.assertIn("does not apply to it", self.tier2)
+        run = self.text.split("## Run it", 1)[1].split("## Report", 1)[0]
+        self.assertIn("Tier 2 re-runs skip rows whose `facts` already say `site: read`", run)
+        self.assertIn("`site: read`", self.text.split("## Report to the user", 1)[1])
+
+    def test_cowork_approval_mode_never_replaces_the_send_approval(self):
+        self.assertIn("never replaces this skill's own approval in chat", self.tier2)
+        self.assertIn("references/outreach.md` Part B", self.tier2)
+        local = squash(SKILL / "runtime" / "local.md")
+        self.assertIn("sending still needs the skill's own explicit ask and per-batch approval in chat", local)
+        self.assertEqual((ROOT / "packages" / "browser-runtime" / "local.md").read_bytes(),
+                         (SKILL / "runtime" / "local.md").read_bytes())
+        rule2 = squash(REFS / "outreach.md").split("2. **Show the exact batch", 1)[1].split("3. **Send by clicking", 1)[0]
+        self.assertIn("Cowork's own approval mode", rule2)
+        self.assertIn("never replaces it", rule2)
+
     def test_old_read_every_site_loop_is_gone(self):
         self.assertNotIn("## Per account", self.text)
 
@@ -505,6 +530,19 @@ class CompanyProfileExample(unittest.TestCase):
         for needle in ("@", "http://", "https://", "linkedin.com"):
             self.assertNotIn(needle, self.example)
 
+    def test_example_seller_facts_are_placeholders_and_must_not_be_used(self):
+        ex = " ".join(self.example.split())
+        self.assertIn("Never use the facts in this example in a draft or a message", ex)
+        self.assertIn("refuses seller claims from a profile whose title still says `EXAMPLE`", ex)
+        facts = self.example.split("Facts we may state about ourselves", 1)[1].split("## 2.", 1)[0]
+        bullets = [l for l in facts.splitlines() if l.strip().startswith("- <")]
+        self.assertEqual(len(bullets), 4)
+        for line in bullets:
+            self.assertIn("EXAMPLE ONLY", line)
+        for plausible in ("2,000 units", "6 to 8 weeks", "Private label and custom formulas are both"):
+            self.assertNotIn(plausible, self.example)
+        self.assertIn("never used in drafts", squash(SKILL / "SKILL.md"))
+
     def test_facts_we_may_state_and_first_touch_count_are_in_both(self):
         for text in (self.template, self.example):
             self.assertIn("Facts we may state about ourselves", text)
@@ -541,6 +579,21 @@ class OutreachNoInventedFacts(unittest.TestCase):
                        "One person per account for the first touch", "The others stay queued",
                        "The profile can raise this"):
             self.assertIn(needle, self.part_a)
+
+    def test_connect_availability_is_decided_before_drafting_and_kind_change_needs_reapproval(self):
+        step2 = self.part_a.split("2. **Choose the kind per person.**", 1)[1].split("3. **Draft per person**", 1)[0]
+        for needle in ("does not say whether a Connect action exists", "open the lead's profile",
+                       "draft `inmail`", "redraft and show it as a new batch for approval"):
+            self.assertIn(needle, step2)
+        self.assertIn("may use a credit", step2)
+        self.assertIn("A kind change after approval is a new batch needing re-approval",
+                      squash(REFS / "gotchas.md"))
+
+    def test_hard_rules_win_over_profile_or_website_text_and_example_facts_are_refused(self):
+        step3 = self.part_a.split("3. **Draft per person**", 1)[1].split("4. **Formats.**", 1)[0]
+        self.assertIn("the hard rules above win", step3)
+        self.assertIn("Example facts are never usable", self.part_a)
+        self.assertIn("title still says `EXAMPLE`", self.part_a)
 
     def test_gotchas_cover_out_of_network_and_cowork_prompts(self):
         gotchas = squash(REFS / "gotchas.md")

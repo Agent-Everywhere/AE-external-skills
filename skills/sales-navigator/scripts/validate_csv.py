@@ -168,6 +168,7 @@ def validate(path, kind="auto"):
         kind = detect_kind(headers) if kind == "auto" else kind
         header_errors, warnings = check_header(headers, kind)
         errors, rows = [], 0
+        seen_leads = {}
         for line_no, cells in enumerate(reader, start=2):  # spreadsheet row numbers
             if not any(c.strip() for c in cells):
                 continue
@@ -178,6 +179,12 @@ def validate(path, kind="auto"):
                 continue
             row = {h: c.strip() for h, c in zip(headers, cells)}
             errors += [(line_no,) + prob for prob in check_row(row, kind, headers)]
+            if kind == "drafts" and row.get("lead_id"):
+                if row["lead_id"] in seen_leads:
+                    errors.append((line_no, "lead_id", "duplicate", "already drafted on row %d"
+                                   % seen_leads[row["lead_id"]]))
+                else:
+                    seen_leads[row["lead_id"]] = line_no
     return {"kind": kind, "rows": rows, "header_errors": header_errors,
             "warnings": warnings, "errors": errors}
 

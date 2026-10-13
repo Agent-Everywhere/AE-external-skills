@@ -71,8 +71,9 @@ Other references, loaded by the action that needs them: [`filters.md`](reference
    file, their folder, a doc) and ask only for the fields it lacks. If none exists, ask the short
    set in ONE message (`references/build-list.md` section 1; accept "skip" and "use defaults"),
    not a multi-step question screen. `templates/company-profile.md` is the blank form and
-   `templates/company-profile.example.md` a filled fictional one to copy. Only ask for what the
-   action needs and is missing.
+   `templates/company-profile.example.md` a filled fictional one to copy. Its seller facts are
+   placeholders and are never used in drafts; a profile still titled EXAMPLE has no usable facts.
+   Only ask for what the action needs and is missing.
 4. **Budget.** Tell the user the planned volume (calls, rows, pages) against `references/guardrails.md`
    and, for the cloud browser, roughly how much browser time it bills. Get a "go" for anything above
    the default run size. Work in the user's folder: CSVs, `results/`, `outreach_log.csv`.

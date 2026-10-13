@@ -165,7 +165,9 @@ changes without notice.
     never drop on headcount alone.
 41. **Out-of-network people may not be reachable by a connection request.** A 3rd-degree person,
     or one the seat is out of network for, may offer no Connect action at all.
-    → Draft an InMail for them (`kind=inmail`, `references/outreach.md`), within the seat's credits.
+    → Open the profile of 3rd-degree rows before drafting; if Connect is missing, draft an InMail
+    (`kind=inmail`, `references/outreach.md`), within the seat's credits. A kind change after
+    approval is a new batch needing re-approval.
 42. **Cowork asks per website.** Fetching a company website in Cowork's built-in browser prompts
     "Allow Claude to fetch pages from <site>?" once per domain. Dozens of fetches stack up and
     block the task.

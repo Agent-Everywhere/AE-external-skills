@@ -5,6 +5,10 @@ supplements. Copy this file to your working folder as `company-profile.md`, repl
 with your own, and delete what does not apply. Nothing here is real: the company, its facts and
 its numbers are invented to show the level of detail that works.
 
+**Never use the facts in this example in a draft or a message.** Section 1's facts are
+placeholders, not claims. Outreach refuses seller claims from a profile whose title still says
+`EXAMPLE`, so replace the title and every fact with your own true ones.
+
 ## 1. Offer
 
 - **What we sell, and to whom, in one line:** Contract manufacturing of liquid supplements
@@ -12,10 +16,10 @@ its numbers are invented to show the level of detail that works.
 - **The next step we want from a prospect** (a reply, a call, a sample): A 20-minute call, or a
   sample of a liquid format they do not have yet.
 - **Facts we may state about ourselves** (one per line; only true, checkable, safe to say):
-  - We make liquid supplements: tinctures, single-serve shots and syrups.
-  - Minimum order is 2,000 units per flavor.
-  - Typical lead time is 6 to 8 weeks from approved formula.
-  - Private label and custom formulas are both available.
+  - <EXAMPLE ONLY: what you make, for example "We make liquid supplements: tinctures, shots, syrups">
+  - <EXAMPLE ONLY: your real minimum order, for example "Minimum order is N units per flavor">
+  - <EXAMPLE ONLY: your real lead time, for example "Typical lead time is N weeks">
+  - <EXAMPLE ONLY: your real services, for example "Private label and custom formulas">
 
 ## 2. ICP (firmographics)
 

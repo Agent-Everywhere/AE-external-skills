@@ -715,6 +715,11 @@ class DraftsCsvValidation(unittest.TestCase):
         edge = "x" * 300
         self.assertEqual(self.problems(text=edge, char_count="300")[2], [])
 
+    def test_duplicate_lead_id_in_one_drafts_file_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = validate_csv.validate(self.write(tmp, [self.draft(), self.draft()]))
+        self.assertEqual([(e[0], e[2]) for e in result["errors"]], [(3, "duplicate")])
+
 
 if __name__ == "__main__":
     unittest.main()
