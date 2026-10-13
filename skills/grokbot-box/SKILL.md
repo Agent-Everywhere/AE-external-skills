@@ -45,8 +45,10 @@ Refs are name-based: an exact name, a unique substring, or an id / id prefix. Ev
   prints the exact targets and deletes nothing.
 - The real run needs `--yes`, plus `--confirm-count N` equal to the matched count when more than
   one worker matches.
-- Never delete your own agent. Tell the person (or the orchestrating agent) which workers you are
-  about to delete, using the dry-run output, before you run the real delete.
+- You may delete your own agent (self-delete) when your work is done, e.g. a temporary worker
+  cleaning itself up. Make it the last command you run: nothing after it will execute.
+- Tell the person (or the orchestrating agent) which workers you are about to delete, using the
+  dry-run output, before you run the real delete.
 
 ## Install inside the box
 
