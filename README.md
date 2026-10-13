@@ -12,6 +12,7 @@ for any company, asks the user only for what it needs, and runs inside the user'
 /plugin marketplace add Agent-Everywhere/AE-external-skills
 /plugin install grokbot@ae-external-skills
 /plugin install grokbot-box@ae-external-skills
+/plugin install claude-desktop@ae-external-skills
 /plugin install sales-navigator@ae-external-skills
 ```
 
@@ -37,6 +38,9 @@ cloud-browser MCP; `sales-navigator` can also run in the user's own browser (`lo
 | [`sales-navigator`](skills/sales-navigator/SKILL.md) | Work LinkedIn Sales Navigator with guardrails: build account, lead, and decision-maker lists, qualify accounts from their websites, save to named lists, draft outreach, track follow-ups, or run it as a daily routine. Fast in-page API through your browser's JavaScript tool (Cowork built-in browser, Claude in Chrome) or a cloud browser (Agent Browser), slow page-reading fallback. Read-only unless you explicitly ask it to send, and then only for batches you approve |
 | [`grokbot`](skills/grokbot/SKILL.md) | Your own Claude Code operates your Grok Bot desktop app on your Mac: status/doctor, agents, groups, sections, pins, transcripts, `send --wait`, app restart (bundled Node CLI, no `npm install`) |
 | [`grokbot-box`](skills/grokbot-box/SKILL.md) | For a Grok Bot agent inside its own cloud box: list, create, organize, send to, and delete its sibling workers under an advisory, audited agent policy (uses the `grokbot` CLI) |
+| [`claude-desktop`](skills/claude-desktop/SKILL.md) | Your Claude Code operates the Claude Desktop app on your Mac: open Chat, Cowork, or Code tasks with a prompt, send, read replies, follow up, and click approvals, plus projects, skills, custom connectors, local MCP config, and scheduled tasks, for example to dry-run skills in Cowork, hand work off to Desktop, or run a demo. Uses the official `claude://` deep links plus Peekaboo (screenshots and clicks); needs macOS 15+ |
+
+> **Unofficial.** `claude-desktop` is not affiliated with or endorsed by Anthropic. It drives the app by screenshots and clicks, which may break when the app's layout changes, and it takes over your mouse and keyboard while it runs: read its `references/safety.md` first.
 
 > **Unofficial.** `grokbot` and `grokbot-box` are not affiliated with or endorsed by Cursor or xAI. It uses Grok Bot's private, undocumented interfaces, which may change or break at any time. Use at your own risk: some commands can delete agents and sections.
 
