@@ -1,5 +1,6 @@
 # AE GBrain: index this repo (docs + code) as gbrain source <repo> on every relevant change to main (and on demand).
-# Logic lives in one place: Agent-Everywhere/ae-gbrain-deploy/.github/workflows/gbrain-source-push.yml
+# Inlined copy of Agent-Everywhere/ae-gbrain-deploy/.github/workflows/gbrain-source-push.yml: this repo is public and
+# GitHub does not let public repos call a private reusable workflow. Push to main + manual dispatch only (no fork PRs).
 name: gbrain-sync
 on:
   push:
@@ -30,7 +31,59 @@ on:
       - "**.svelte"
       - "**.vue"
   workflow_dispatch:
+permissions:
+  contents: read
+jobs: { gbrain: { uses: Agent-Everywhere/ae-gbrain-deploy/.github/workflows/gbrain-source-push.yml@main, secrets: inherit } }
+# Needs org secret GBRAIN_SYNC_TRIGGER_SECRET and org variable GBRAIN_SYNC_URL. Allowlist: sync/sources.json.
+name: gbrain-source-push
+on:
+  workflow_call:
+    inputs:
+      source:
+        description: "Source id or repo name (default: the calling repo's name)"
+        type: string
+        required: false
+        default: ""
+    secrets:
+      GBRAIN_SYNC_TRIGGER_SECRET:
+        required: true
+permissions:
+  contents: read
 jobs:
-  gbrain:
-    uses: Agent-Everywhere/ae-gbrain-deploy/.github/workflows/gbrain-source-push.yml@main
-    secrets: inherit
+  push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    concurrency:
+      group: gbrain-source-push-${{ github.repository }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Push bundle to gbrain-sync
+        env:
+          GBRAIN_SYNC_URL: ${{ vars.GBRAIN_SYNC_URL }}
+          GBRAIN_SYNC_TRIGGER_SECRET: ${{ secrets.GBRAIN_SYNC_TRIGGER_SECRET }}
+          SOURCE: ae-external-skills
+          BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          [[ -n "${GBRAIN_SYNC_URL:-}" && -n "${GBRAIN_SYNC_TRIGGER_SECRET:-}" ]] || { echo "::error::GBRAIN_SYNC_URL / GBRAIN_SYNC_TRIGGER_SECRET not available to this repo"; exit 1; }
+          git update-ref refs/heads/main "$(git rev-parse "origin/$BRANCH")"
+          SHA="$(git rev-parse refs/heads/main)"
+          git bundle create /tmp/main.bundle refs/heads/main
+          echo "source=$SOURCE main=$SHA bundle=$(wc -c < /tmp/main.bundle)B"
+          for i in 1 2 3 4 5 6; do
+            code="$(curl -sS -o /tmp/out -w '%{http_code}' --max-time 1500 -X POST \
+              -H "Authorization: Bearer $GBRAIN_SYNC_TRIGGER_SECRET" -H "X-Gbrain-Sender: gh:$GITHUB_REPOSITORY#$GITHUB_RUN_ID ($GITHUB_ACTOR)" -H 'Content-Type: application/octet-stream' \
+              --data-binary @/tmp/main.bundle "$GBRAIN_SYNC_URL/push?source=$SOURCE" || echo 000)"
+            cat /tmp/out || true
+            rc="$(sed -nE 's/^gbrain-trigger: exit=([0-9]+)$/\1/p' /tmp/out | tail -n1)"
+            [[ "$code" == 200 && "$rc" == 0 ]] && break
+            case "$code/$rc" in */5|000/*|502/*|503/*|504/*|429/*) echo "transient ($code/$rc); retry $i in 60s"; sleep 60 ;; *) echo "::error::push failed http=$code exit=${rc:-?}"; exit 1 ;; esac
+          done
+          [[ "$code" == 200 && "$rc" == 0 ]] || { echo "::error::push failed after retries http=$code exit=${rc:-?}"; exit 1; }
+          grep -q "\"origin_main\":\"$SHA\"" /tmp/out || { echo "::error::service did not confirm $SHA"; exit 1; }
+          grep -qE "mode=active ok=true step=(done|up_to_date)" /tmp/out || { echo "::error::service did not report an ok active sync"; exit 1; }
+          echo "gbrain source $SOURCE synced at ${SHA:0:7}"
