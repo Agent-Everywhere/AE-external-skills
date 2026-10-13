@@ -27,12 +27,12 @@ test("resolvePolicy: explicit env wins, otherwise operator off-box", () => {
 });
 
 test("isDenied matches whole command families under agent policy only", () => {
-  assert.equal(isDenied("agents delete", "agent"), false, "Andi unlocked agents delete for box agents");
+  assert.equal(isDenied("agents delete", "agent"), false, "agents delete is allowed for box agents");
   assert.equal(isDenied("agents interrupt", "agent"), true);
   assert.equal(isDenied("agents interruption-log", "agent"), false, "prefix must be a whole word");
   assert.equal(isDenied("cursor rpc", "agent"), true);
   assert.equal(isDenied("sections move", "agent"), false);
-  assert.equal(isDenied("sections delete", "agent"), false, "Andi unlocked sections delete for box agents");
+  assert.equal(isDenied("sections delete", "agent"), false, "sections delete is allowed for box agents");
   assert.equal(isDenied("agents interrupt", "operator"), false);
   for (const d of DENIED_FOR_AGENTS) assert.ok(d.length > 1);
 });

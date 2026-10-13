@@ -2,7 +2,7 @@
 // nudgeRenderer policy gate, and timeouts).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Cdp, CdpError } from "../src/cdp.js";
+import { Cdp, CdpError, SLOW_CALL_TIMEOUT_MS } from "../src/cdp.js";
 import { Gateway } from "../src/gateway.js";
 import { resolveAgent, resolveMany } from "../src/agents.js";
 import { WAIT_TRANSCRIPT_WINDOW, entriesSince, nudgeDeps, run, setGatewayForTests } from "../src/cli.js";
@@ -244,4 +244,63 @@ test("entriesSince: timestamp filter, fallback without timestamps", () => {
   const noTs = Array.from({ length: 30 }, (_, i) => ({ id: i }));
   assert.equal(entriesSince(noTs, 10_000).length, 20);
   assert.deepEqual(entriesSince([{ id: 1, createdAt: 100 }], 10_000).map((x) => x.id), [1], "nothing newer: fall back rather than return empty");
+});
+
+// ---------------------------------------------------------------- Mac fixes: send --wait anchor + CDP timeouts
+test("entriesSince anchors on the user entry matching the prompt, ignoring clock skew", () => {
+  const skewed = Date.now() + 3_600_000; // host clock an hour ahead
+  const e = [
+    { id: "old", role: "assistant", text: "earlier", createdAt: skewed - 5000 },
+    { id: "u", role: "user", text: "do the thing", createdAt: skewed },
+    { id: "t1", role: "tool", text: "tool" }, // untimestamped
+    { id: "r", role: "assistant", text: "done" },
+  ];
+  assert.deepEqual(entriesSince(e, Date.now(), { prompt: "do the thing" }).map((x) => x.id), ["u", "t1", "r"]);
+  const behind = e.map((x) => (x.createdAt ? { ...x, createdAt: 1000 } : x));
+  assert.deepEqual(entriesSince(behind, Date.now(), { prompt: "do the thing" }).map((x) => x.id), ["u", "t1", "r"], "host clock far behind");
+});
+
+test("entriesSince prefers the last matching prompt, and anchors on nonce or returned entry id", () => {
+  const e = [
+    { id: "u1", role: "user", text: "ping" },
+    { id: "r1", role: "assistant", text: "pong" },
+    { id: "u2", role: "user", text: "ping" },
+    { id: "r2", role: "assistant", text: "pong again" },
+  ];
+  assert.deepEqual(entriesSince(e, 0, { prompt: "ping" }).map((x) => x.id), ["u2", "r2"]);
+  const withNonce = [{ id: "a", role: "assistant", text: "x" }, { id: "b", role: "user", text: "hi", clientNonce: "nonce-1234-abcd" }, { id: "c", role: "assistant", text: "y" }];
+  assert.deepEqual(entriesSince(withNonce, 0, { nonce: "nonce-1234-abcd" }).map((x) => x.id), ["b", "c"]);
+  assert.deepEqual(entriesSince(withNonce, 0, { entryIds: ["a"] }).map((x) => x.id), ["a", "b", "c"]);
+});
+
+test("entriesSince falls back to timestamps then tail when no anchor is found", () => {
+  const e = [{ id: 1, createdAt: 100 }, { id: 2, createdAt: 10_000 }];
+  assert.deepEqual(entriesSince(e, 10_000, { prompt: "absent" }).map((x) => x.id), [2]);
+  assert.equal(entriesSince(Array.from({ length: 30 }, (_, i) => ({ id: i })), 0, { prompt: "absent" }).length, 20);
+});
+
+test("send --wait keeps untimestamped entries after the anchored sent message", async () => {
+  const transcript = [
+    ...Array.from({ length: 10 }, (_, i) => ({ id: `old${i}`, role: "assistant", text: `old ${i}` })),
+    { id: "u", role: "user", text: "hello there" },
+    { id: "tool", role: "tool", text: "ran" },
+    { id: "reply", role: "assistant", text: "hi back" },
+  ];
+  const gw = mockGateway({ roster, transcript });
+  gw.sendPrompt = async () => ({ accepted: true, clientNonce: "n", sentAt: Date.now() - 25_000 });
+  const output = JSON.parse(await runCli(gw, "agents", "send", A1, "hello there", "--wait", "--timeout", "5"));
+  assert.deepEqual(output.tail.map((e) => e.id), ["u", "tool", "reply"]);
+});
+
+test("Cdp.evaluate/callDesktop accept timeoutMs; slow desktop paths default to the long timeout", async () => {
+  const cdp = new Cdp(fakeWs(), { timeoutMs: 30_000 });
+  const seen = [];
+  cdp.send = async (method, params, opts) => (seen.push(opts), { result: { value: 1 } });
+  await cdp.evaluate("1");
+  await cdp.evaluate("1", { timeoutMs: 5000 });
+  await cdp.callDesktop("agent.getSidebarSections");
+  await cdp.callDesktop("app.restartApp");
+  await cdp.callDesktop("app.restartApp", [], { timeoutMs: 7000 });
+  assert.deepEqual(seen.map((o) => o.timeoutMs), [undefined, 5000, undefined, SLOW_CALL_TIMEOUT_MS, 7000]);
+  assert.equal(SLOW_CALL_TIMEOUT_MS, 120_000);
 });

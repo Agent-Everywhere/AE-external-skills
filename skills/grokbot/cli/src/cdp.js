@@ -103,6 +103,9 @@ export async function ensureDebugApp({ port = DEFAULT_CDP_PORT, restart = false 
 }
 
 export const DEFAULT_SEND_TIMEOUT_MS = 30_000;
+/** Timeout for desktop calls known to be slow (restart/relaunch/update/sign-in style flows). */
+export const SLOW_CALL_TIMEOUT_MS = 120_000;
+const SLOW_DESKTOP_PATH = /(restart|relaunch|reload|quit|update|install|signin|signout|login|logout|authenticate|boxhost)/i;
 
 export class Cdp {
   constructor(ws, { timeoutMs = DEFAULT_SEND_TIMEOUT_MS } = {}) {
@@ -178,8 +181,8 @@ export class Cdp {
     });
   }
 
-  async evaluate(expression, { awaitPromise = true } = {}) {
-    const r = await this.send("Runtime.evaluate", { expression, awaitPromise, returnByValue: true });
+  async evaluate(expression, { awaitPromise = true, timeoutMs } = {}) {
+    const r = await this.send("Runtime.evaluate", { expression, awaitPromise, returnByValue: true }, timeoutMs ? { timeoutMs } : {});
     if (r.exceptionDetails) {
       const d = r.exceptionDetails.exception?.description ?? r.exceptionDetails.text;
       throw new CdpError(`renderer threw: ${String(d).split("\n")[0]}`);
@@ -188,9 +191,11 @@ export class Cdp {
   }
 
   /** Call a method on window.desktop by dotted path, e.g. "agent.getSidebarSections". */
-  callDesktop(path, args = []) {
+  callDesktop(path, args = [], { timeoutMs } = {}) {
     const expr = `window.desktop.${path}(...${JSON.stringify(args)})`;
-    return this.evaluate(expr);
+    // An explicit override wins; known-slow paths get the long timeout; everything else keeps the default.
+    const t = timeoutMs ?? (SLOW_DESKTOP_PATH.test(path) ? Math.max(SLOW_CALL_TIMEOUT_MS, this.timeoutMs) : undefined);
+    return this.evaluate(expr, { timeoutMs: t });
   }
 
   desktopKeys(path = "") {

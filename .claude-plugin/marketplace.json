@@ -1,0 +1,34 @@
+{
+  "name": "ae-external-skills",
+  "description": "Agent Everywhere's shareable skills. Install only the ones you need.",
+  "owner": {
+    "name": "Agent Everywhere",
+    "url": "https://github.com/Agent-Everywhere"
+  },
+  "plugins": [
+    {
+      "name": "grokbot",
+      "source": "./",
+      "description": "Operate your Grok Bot desktop app from Claude Code on your Mac: agents, groups, sections, pins, transcripts, send --wait. Unofficial; needs Node 20+.",
+      "skills": ["./skills/grokbot"],
+      "category": "productivity",
+      "tags": ["grok-bot", "cursor", "agents"]
+    },
+    {
+      "name": "grokbot-box",
+      "source": "./",
+      "description": "For a Grok Bot agent inside its own cloud box: manage sibling Grok Bot workers (list, create, organize, send, delete) under an advisory agent policy. Unofficial.",
+      "skills": ["./skills/grokbot-box"],
+      "category": "productivity",
+      "tags": ["grok-bot", "cursor", "agents"]
+    },
+    {
+      "name": "sales-navigator",
+      "source": "./",
+      "description": "Build account, lead, and decision-maker lists in LinkedIn Sales Navigator with guardrails (uses the Agent Browser connector).",
+      "skills": ["./skills/sales-navigator"],
+      "category": "sales",
+      "tags": ["linkedin", "sales-navigator", "lead-generation"]
+    }
+  ]
+}
