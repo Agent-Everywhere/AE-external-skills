@@ -15,7 +15,7 @@ exclusions and "who is in this batch"; the CSV stays the source of truth (`gotch
 
 Examples (generic): `needs-new-line · US-TX · 2026-10`, `already-buys · UK-all · 2026-10`.
 
-- `buyer-type` and `sub-list` come from the Company Profile's buyer types and sub-list plan, so the
+- `buyer-type` and `sub-list` come from the Company Profile's buyer types and its `## Sub-list plan` table, so the
   same name appears in the CSV `buyer_type` and `shard` columns.
 - Lead lists and account lists are separate in Sales Nav. Use the same name for both kinds of a
   sub-list; the type tells them apart.
@@ -45,7 +45,7 @@ Examples (generic): `needs-new-line · US-TX · 2026-10`, `already-buys · UK-al
    already in it plus rows you added). A mismatch is reported, not "fixed" by adding again:
    show the user the numbers and the likely cause (rows that did not match, rows already saved).
 6. **Log it.** Append one line to `lists_log.csv` in the user's folder:
-   `date, list_name, kind, expected, actual`. In the Company Profile's sub-list plan, mark the
+   `date, list_name, kind, expected, actual`. In the Company Profile's `## Sub-list plan` table, mark the
    sub-list as `listed`.
 
 ## Report to the user

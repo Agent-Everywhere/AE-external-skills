@@ -29,8 +29,17 @@ and the log can never lead to a second send. It counts as contacted and toward t
 ## Part A: draft (no sending)
 
 1. **Pick people**: `leads.csv` rows that are `qualified` (or in the saved list) for accounts with
-   `keep = keep`. Run `check` on the batch first and drop anyone already in the ledger, on the
-   Company Profile's do-not-contact list, or excluded.
+   `keep = keep`. Run `check` on the batch first (put the lead URLs or ids in a file and use
+   `--ids-file`: lead URLs contain commas) and drop anyone already in the ledger, on the
+   Company Profile's do-not-contact list, or excluded. **The search-row columns are the first
+   check** (`references/output.md`): drop rows with `pending_invitation = yes` (an invitation is
+   already out); `degree = 1st` means already connected, so a connection note is wrong for them
+   (a message is a follow-up-style send, under Part B); `open_link = yes` marks people who accept
+   open messages. A profile open can be skipped for a connection request ONLY when the row has
+   `pending_invitation = no` AND `degree` is 2nd or 3rd AND `collected_at` is today (Part B rule
+   8). A blank `pending_invitation` means the field was absent from the search row, not "no", and
+   a row from an older run may be stale: open the profile (or thread) and look for those. Rows
+   with `dup_suspect = yes` need a look before anyone is picked.
 2. **Draft per person** from their profile fields (name, title, company, time in role, signals)
    and the account's `facts` and `fit_reason` (`references/qualify.md`). Use the Company Profile's
    tone and voice. Each message:
@@ -44,8 +53,21 @@ and the log can never lead to a second send. It counts as contacted and toward t
      estimate. Over 300 means rewrite, not truncate.
    - *InMail*: a subject and a body. Keep the subject short and specific, and the body brief.
    - A connection request may also go with no note at all if the profile asks for that.
-4. **Write drafts to a file** (`drafts/<yyyy-mm-dd>.csv`: lead id, name, company, kind, text,
-   character count) and show them to the user.
+4. **Write drafts to a file.** Create the `drafts/` folder in the user's working folder if it is
+   not there, and write `drafts/<yyyy-mm-dd>.csv` starting from `templates/drafts.csv`. The exact
+   columns, in this order:
+
+   ```
+   lead_id,full_name,company_name,kind,text,char_count
+   ```
+
+   `lead_id` is the Sales Nav lead id or URL (quote the cell: it contains commas), `kind` is
+   `connection` or `inmail` (for an InMail put the subject at the start of `text` on its own
+   line), `char_count` is the counted length of `text` (at most 300 for `connection`).
+5. **Show the exact drafts to the user** before anything else happens: every person with the full
+   text that would be sent and its character count, the file path, and who was skipped and why.
+   Part A sends nothing. A draft the user has seen is still not permission to send: sending needs
+   their explicit ask and approval of the exact batch under Part B.
 
 ## Part B: send (only on an explicit ask)
 
@@ -82,12 +104,23 @@ and the log can never lead to a second send. It counts as contacted and toward t
    each person right before their send. The one exception is a follow-up to someone who accepted
    (rule 11).
 8. **Never send a first message to anyone with a pending invitation or an existing message
-   thread.** Open the lead and look first. If either is there, skip them and say why; do not send
-   a second note. **On every resume** (a new session, a restart, or after any stop) this look is
-   mandatory for every row still `pending` before anything else is sent: a pending invitation or a
-   thread means the send went out (`status --status sent`); neither means it did not
-   (`status --status withdrawn --note "not sent"`, and tell the user, who decides whether that
-   person is ever tried again). Never send to a pending row without that look.
+   thread.** Look first. For a **connection request** the search row can stand in for the
+   profile look only when all three hold: `pending_invitation = no`, `degree` is 2nd or 3rd, and
+   `collected_at` is today. Then no profile open is needed. `pending_invitation = yes` means
+   skip. `degree = 1st` means already connected: no connection request is possible, so do not
+   send one; a message to them is a different send and needs the thread look below. In every
+   other case (`pending_invitation` blank, `degree` blank, or `collected_at` earlier than today)
+   open the lead and look for a pending invitation or thread before the click. Blank means the
+   field was absent from the search row, never "no". The search row says nothing about message
+   threads, so before a message or InMail, open the lead and look for a thread. Confirm on a live
+   seat that the `pendingInvitation` field is present in the search response before you rely on
+   `no` (run a small sample and check that some rows carry the column; if all are blank, open
+   every profile). If either a pending invitation or a thread is there, skip them and say why; do
+   not send a second note. **On every resume** (a new session, a restart, or after any stop) this
+   look is mandatory for every row still `pending` before anything else is sent: a pending
+   invitation or a thread means the send went out (`status --status sent`); neither means it did
+   not (`status --status withdrawn --note "not sent"`, and tell the user, who decides whether
+   that person is ever tried again). Never send to a pending row without that look.
 9. **Stop on any warning.** Any LinkedIn warning, captcha, "unusual activity" or checkpoint page, or
    any weekly-limit or "reached the limit" banner: stop the run, send nothing more that day,
    report the exact message to the user (no screenshots of private data), and advise waiting at

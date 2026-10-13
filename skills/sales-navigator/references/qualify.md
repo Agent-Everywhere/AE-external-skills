@@ -16,7 +16,8 @@ Profile. Ten well-qualified accounts beat 1,000 guessed ones.
 - In: `accounts.csv` (`references/output.md`) with `company_domain` filled. If domains are blank,
   fetch the websites first with `page/companies_websites.js` (25 ids per call), then rebuild the
   CSV with `scripts/salesnav_rows.py`.
-- Also read the Company Profile: offer, ICP, buyer types, and the fit tests it lists.
+- Also read the Company Profile: offer, ICP, buyer types (including the **not a buyer** types),
+  and the fit tests it lists.
 - Out: the same file with three columns added and `status` moved on. The columns are listed in
   `references/output.md`.
 
@@ -45,18 +46,27 @@ Check the file with `scripts/validate_csv.py` when you finish.
 4. **Decide `keep`.**
    - `keep`: the facts show a plausible buyer for one of the profile's buyer types.
    - `drop`: clearly outside the ICP (wrong business, a competitor or customer on the exclusion
-     list, defunct or parked site, too large or small by the profile's own bounds).
+     list, a profile "not a buyer" type, defunct or parked site, too large or small by the
+     profile's own bounds). "Not a buyer" types are dropped **here, on evidence from the site**,
+     not in the search: for a seller that is a manufacturer, other manufacturers match the search
+     and are dropped at this step.
    - `unsure`: the site is unreachable, thin, or ambiguous. Never guess; the user decides these.
 5. **Write the row to the CSV now**, not at the end of the batch.
 
 ## Run it
 
-- **Calibrate first.** Qualify the first 10 accounts and show the user the rows (`facts`,
+- **Calibrate first, on a spread.** Qualify **10 rows spread across the whole list** (every
+  n-th row, so different shards, sizes and buyer types are all in it), not the first 10: the first
+  rows of a list are usually its best-sorted or most alike. Show the user the rows (`facts`,
   `fit_reason`, `keep`). Fix the tests with them before doing the rest.
 - Then work through the remaining rows in batches of about 25, saving after each batch. Fetching
   public websites is not LinkedIn traffic, but keep a steady pace and do not hit one host
   repeatedly.
 - Re-running is safe: skip rows whose `keep` is already filled unless the user asks to redo them.
+- **Caps apply to `keep` rows first, then `unsure`.** When the run's cap (the Company Profile's
+  size goal or caps) is smaller than the work left, spend it on `keep` rows (decision-maker
+  searches, saving to a list), then `unsure` ones only with the user's say-so, and never on
+  `drop`.
 
 ## Report to the user
 

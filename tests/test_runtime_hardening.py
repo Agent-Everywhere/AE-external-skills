@@ -539,6 +539,71 @@ class ExitCodes(unittest.TestCase):
         _, code = base.run(base.FakePage(base.pager(40)), base.plan(), self.out)
         self.assertEqual(code, session.EXIT_OK)
 
+    def test_a_sample_plan_that_stops_early_on_purpose_exits_0(self):
+        the_plan = base.plan(sample=True)
+        the_plan["calls"][0]["pages"]["max_pages"] = 2
+        runner, code = base.run(base.FakePage(base.pager(5000)), the_plan, self.out)
+        self.assertEqual((code, runner.truncated, runner.sampled), (session.EXIT_OK, [], ["leads"]))
+        events = [r.get("event") for r in base.records(self.out)]
+        self.assertIn("sampled", events)
+        self.assertNotIn("truncated", events)
+        end = self.last()
+        self.assertEqual((end["event"], end["sampled"], end["truncated"]), ("done", 1, 0))
+
+    def test_sample_can_be_set_on_one_call_and_a_call_overrides_the_plan(self):
+        the_plan = base.plan()
+        the_plan["calls"][0]["sample"] = True
+        the_plan["calls"][0]["pages"]["max_pages"] = 2
+        _, code = base.run(base.FakePage(base.pager(5000)), the_plan, self.out)
+        self.assertEqual(code, session.EXIT_OK)
+        self.out.unlink()
+        the_plan = base.plan(sample=True)
+        the_plan["calls"][0]["sample"] = False
+        the_plan["calls"][0]["pages"]["max_pages"] = 2
+        _, code = base.run(base.FakePage(base.pager(5000)), the_plan, self.out)
+        self.assertEqual(code, session.EXIT_INCOMPLETE)
+
+    def test_a_sample_does_not_hide_a_failed_call_or_an_empty_page(self):
+        _, code = base.run(base.FakePage(base.pager(30, fail_at=0, status=400)), base.plan(sample=True), self.out)
+        self.assertEqual(code, session.EXIT_INCOMPLETE)
+        self.out.unlink()
+
+        def respond(expression, arg):
+            if arg["start"] >= 25:
+                return {"status": 200, "total": 100, "rows": 0, "elements": []}
+            return base.pager(100)(expression, arg)
+        runner, code = base.run(base.FakePage(respond), base.plan(sample=True), self.out)
+        self.assertEqual((code, runner.truncated), (session.EXIT_INCOMPLETE, ["leads"]))
+
+    def test_plan_sample_does_not_mask_the_viewable_cap_on_a_call_without_max_pages(self):
+        # 5000 rows, cap 100: the call stops at the viewable cap with rows unread, no explicit max_pages
+        the_plan = base.plan(sample=True)
+        the_plan["calls"][0]["pages"]["cap"] = 100
+        runner, code = base.run(base.FakePage(base.pager(5000)), the_plan, self.out)
+        self.assertEqual((code, runner.sampled, runner.truncated), (session.EXIT_INCOMPLETE, [], ["leads"]))
+        events = {r.get("event"): r for r in base.records(self.out) if r.get("event")}
+        self.assertNotIn("sampled", events)
+        self.assertIn("ignored", events["truncated"]["note"])
+
+    def test_call_level_sample_without_max_pages_is_ignored_too(self):
+        the_plan = base.plan()
+        the_plan["calls"][0]["sample"] = True
+        the_plan["calls"][0]["pages"]["cap"] = 100
+        runner, code = base.run(base.FakePage(base.pager(5000)), the_plan, self.out)
+        self.assertEqual((code, runner.sampled), (session.EXIT_INCOMPLETE, []))
+
+    def test_sample_with_explicit_max_pages_stops_on_that_limit_not_on_an_earlier_cap(self):
+        the_plan = base.plan(sample=True)
+        the_plan["calls"][0]["pages"].update({"max_pages": 5, "cap": 50})  # the cap ends it after 2 pages
+        runner, code = base.run(base.FakePage(base.pager(5000)), the_plan, self.out)
+        self.assertEqual((code, runner.sampled, runner.truncated), (session.EXIT_INCOMPLETE, [], ["leads"]))
+
+    def test_plan_without_sample_still_truncates(self):
+        the_plan = base.plan()
+        the_plan["calls"][0]["pages"]["max_pages"] = 2
+        runner, code = base.run(base.FakePage(base.pager(5000)), the_plan, self.out)
+        self.assertEqual((code, runner.sampled), (session.EXIT_INCOMPLETE, []))
+
 
 # ----------------------------------------------------------------------------- H: plan validation and budgets
 
@@ -552,6 +617,14 @@ class PlanValidation(unittest.TestCase):
         self.assertEqual(session.validate_plan(base.plan()), [])
         self.assertEqual(self.check(delay_ms=[2000, 2500], stop_on_status=[403, 429, 599]), [])
 
+    def test_sample_must_be_boolean_on_the_plan_and_on_a_call(self):
+        self.assertEqual(self.check(sample=True), [])
+        the_plan = base.plan()
+        the_plan["calls"][0]["sample"] = "yes"
+        self.assertTrue(any("sample" in p for p in session.validate_plan(the_plan)))
+        the_plan["calls"][0]["sample"] = True
+        self.assertEqual(session.validate_plan(the_plan), [])
+
     def test_each_unsafe_setting_is_rejected(self):
         bad = {
             "empty stop_on_status": {"stop_on_status": []},
@@ -563,6 +636,7 @@ class PlanValidation(unittest.TestCase):
             "tiny evaluate timeout": {"evaluate_timeout_ms": 10},
             "total pages over the hard ceiling": {"max_pages_total": 81},
             "no calls": {"calls": []},
+            "non-boolean sample": {"sample": "yes"},
         }
         for label, extra in bad.items():
             with self.subTest(label=label):

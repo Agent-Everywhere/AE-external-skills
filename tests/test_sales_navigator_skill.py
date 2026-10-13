@@ -137,14 +137,230 @@ class CompanyProfileTemplate(unittest.TestCase):
     def test_template_has_every_section_actions_read(self):
         text = (SKILL / "templates" / "company-profile.md").read_text(encoding="utf-8")
         for heading in ("Offer", "ICP", "Buyer types", "titles by company size", "Keywords",
-                        "Exclusions", "Sub-list plan", "Tone and voice", "Caps and permissions"):
+                        "Exclusions", "Size goal", "Tone and voice", "Caps and permissions"):
             with self.subTest(heading=heading):
                 self.assertRegex(text, r"(?im)^## \d+\. .*%s" % re.escape(heading))
+        # the sub-list plan is an output recorded after counting, not an intake section
+        self.assertNotRegex(text, r"(?im)^## \d+\. .*Sub-list plan")
+        self.assertIn("Not a buyer", text)
+        self.assertIn("Noise words", text)
 
     def test_actions_mention_the_profile(self):
         for name in ("SKILL.md",):
             self.assertIn("templates/company-profile.md", (SKILL / name).read_text(encoding="utf-8"))
         self.assertIn("Company Profile", (REFS / "qualify.md").read_text(encoding="utf-8"))
+
+
+class LeadSearchRowColumns(unittest.TestCase):
+    def lead(self, **over):
+        base = dict.fromkeys(validate_csv.LEAD_COLUMNS + validate_csv.LEAD_OPTIONAL_COLUMNS, "")
+        base.update(full_name="Jane Doe", company_name="Acme", mode="A", status="collected")
+        base.update(over)
+        return base
+
+    def write(self, tmp, rows, headers=None):
+        headers = headers or validate_csv.LEAD_COLUMNS + validate_csv.LEAD_OPTIONAL_COLUMNS
+        path = Path(tmp) / "leads.csv"
+        with open(path, "w", newline="", encoding="utf-8") as fh:
+            w = csv.writer(fh)
+            w.writerow(headers)
+            w.writerows([[r[h] for h in headers] for r in rows])
+        return str(path)
+
+    def test_output_md_documents_the_optional_lead_columns(self):
+        md = (REFS / "output.md").read_text(encoding="utf-8")
+        section = md.split("## Search-row columns", 1)[1].split("\n## ", 1)[0]
+        for col in validate_csv.LEAD_OPTIONAL_COLUMNS:
+            self.assertIn("| %s |" % col, section)
+
+    def test_optional_columns_validate_with_or_without_them(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            row = self.lead(pending_invitation="yes", degree="2nd", open_link="yes", dup_suspect="yes")
+            r = validate_csv.validate(self.write(tmp, [row]))
+            self.assertEqual((r["header_errors"], r["errors"], r["warnings"]), ([], [], []))
+            r = validate_csv.validate(self.write(tmp, [row], headers=validate_csv.LEAD_COLUMNS))
+            self.assertEqual((r["header_errors"], r["errors"], r["warnings"]), ([], [], []))
+
+    def test_bad_values_are_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            row = self.lead(pending_invitation="true", degree="4th", open_link="no", dup_suspect="maybe")
+            errs = validate_csv.validate(self.write(tmp, [row]))["errors"]
+            self.assertEqual(sorted(e[1] for e in errs), ["degree", "dup_suspect", "open_link", "pending_invitation"])
+
+
+class IntakeMatchesProfile(unittest.TestCase):
+    """build-list.md intake and templates/company-profile.md are one set."""
+
+    def setUp(self):
+        self.build = (REFS / "build-list.md").read_text(encoding="utf-8")
+        self.profile = (SKILL / "templates" / "company-profile.md").read_text(encoding="utf-8")
+        self.intake = self.build.split("## 1. Intake", 1)[1].split("\n## 2.", 1)[0]
+
+    def test_every_intake_row_points_at_an_existing_profile_section(self):
+        sections = {int(n) for n in re.findall(r"(?m)^## (\d+)\.", self.profile)}
+        cited = [int(m) for m in re.findall(r"\|\s*(\d+)\s*\|", self.intake)]
+        self.assertEqual(len(cited), 9)
+        self.assertTrue(set(cited) <= sections, cited)
+        # every profile section but "where things live" is asked in the intake
+        self.assertEqual(sections - set(cited), {10})
+
+    def test_intake_asks_the_agreed_short_set_and_not_the_old_extras(self):
+        for needle in ("Offer", "Buyer types", "not a buyer", "Firmographics", "Decision-maker titles",
+                       "noise words", "Exclusions", "Size goal", "Tone", "Caps", "one short batch"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, self.intake)
+        self.assertNotIn("Where results go", self.intake)
+        self.assertNotIn("Sub-list plan", self.profile.split("## 10.", 1)[0])
+
+    def test_sub_list_plan_is_recorded_after_counting(self):
+        self.assertIn("Sub-list plan", self.build.split("## 3.", 1)[1])
+        self.assertIn("After counting, record the plan", self.build)
+
+
+class BuildListGuidance(unittest.TestCase):
+    def setUp(self):
+        self.build = " ".join((REFS / "build-list.md").read_text(encoding="utf-8").split())
+        self.fast = " ".join((REFS / "fast-path.md").read_text(encoding="utf-8").split())
+        self.qualify = " ".join((REFS / "qualify.md").read_text(encoding="utf-8").split())
+
+    def test_noise_word_carve_out_keeps_competitors_out_of_the_query(self):
+        self.assertIn("with one carve-out", self.build)
+        self.assertIn("NOT term", self.build)
+        self.assertIn("after checking counts", self.build)
+        self.assertIn("Never use this to remove competitors", self.build)
+
+    def test_sample_vs_collection_is_documented_on_both_sides(self):
+        self.assertIn("Sample vs collection", self.build)
+        self.assertIn('"sample": true', self.build)
+        self.assertIn('"sample": true', self.fast)
+        agent = (ROOT / "packages" / "browser-runtime" / "agent-browser.md").read_text(encoding="utf-8")
+        self.assertIn('"sample": true', agent)
+
+    def test_decision_maker_query_has_title_function_and_region(self):
+        for needle in ("CURRENT_TITLE", "FUNCTION", "REGION", "SENIORITY_LEVEL"):
+            self.assertIn(needle, self.fast)
+            self.assertIn(needle, self.build.replace("`", ""))  # build-list names them in prose
+        query = [l for l in (REFS / "fast-path.md").read_text(encoding="utf-8").splitlines()
+                 if "type:CURRENT_COMPANY" in l and "type:SENIORITY_LEVEL" in l][0]
+        self.assertIn("type:CURRENT_TITLE", query)
+        self.assertIn("type:REGION", query)
+        self.assertEqual(query.count("("), query.count(")"))
+
+    def test_qualify_calibrates_on_a_spread_and_drops_not_a_buyer_types(self):
+        self.assertIn("spread across the whole list", self.qualify)
+        self.assertIn("not the first 10", self.qualify)
+        self.assertIn("not a buyer", self.qualify)
+        self.assertIn("dropped **here", self.qualify)
+        self.assertIn("`keep` rows first, then `unsure`", self.qualify)
+
+
+class GeoStatesReference(unittest.TestCase):
+    def setUp(self):
+        self.text = (REFS / "geo-us-states.md").read_text(encoding="utf-8")
+        self.rows = [[c.strip() for c in l.strip("|").split("|")] for l in self.text.splitlines()
+                     if l.startswith("| ") and not l.startswith("| State") and not l.startswith("|---")]
+
+    def test_fifty_states_plus_dc_each_once(self):
+        names = [r[0] for r in self.rows]
+        self.assertEqual(len(names), 51)
+        self.assertEqual(len(set(names)), 51)
+        self.assertIn("District of Columbia", names)
+        self.assertEqual(len({r[1] for r in self.rows}), 51)
+
+    def test_ids_are_numeric_or_marked_resolve_once_and_the_known_ones_are_present(self):
+        for name, code, geo in self.rows:
+            with self.subTest(state=name):
+                self.assertRegex(geo, r"^(\d{9}|resolve once)$")
+        ids = {r[0]: r[2] for r in self.rows}
+        self.assertEqual(ids["Arizona"], "106032500")
+        self.assertEqual(ids["Ohio"], "106981407")
+        self.assertEqual(ids["Minnesota"], "103411167")
+        self.assertEqual(len({v for v in ids.values() if v != "resolve once"}),
+                         len([v for v in ids.values() if v != "resolve once"]))  # no id used twice
+        self.assertGreaterEqual(sum(v != "resolve once" for v in ids.values()), 30)
+
+    def test_documents_the_one_call_typeahead_and_the_stop_rule(self):
+        for needle in ("103644278", "BING_GEO", "priority order", "Stop when coverage is good"):
+            self.assertIn(needle, self.text)
+
+    def test_filters_and_build_list_point_at_it(self):
+        self.assertIn("geo-us-states.md", (REFS / "filters.md").read_text(encoding="utf-8"))
+        self.assertIn("geo-us-states.md", (REFS / "build-list.md").read_text(encoding="utf-8"))
+        self.assertIn("geo-us-states.md", (SKILL / "SKILL.md").read_text(encoding="utf-8"))
+
+
+class OutreachDraftsFlow(unittest.TestCase):
+    def setUp(self):
+        self.text = " ".join((REFS / "outreach.md").read_text(encoding="utf-8").split())
+        part_a = self.text.split("## Part A: draft", 1)[1].split("## Part B", 1)[0]
+        self.part_a = part_a
+
+    def test_template_header_matches_the_documented_columns(self):
+        header = (SKILL / "templates" / "drafts.csv").read_text(encoding="utf-8").strip()
+        self.assertEqual(header, "lead_id,full_name,company_name,kind,text,char_count")
+        self.assertIn(header, self.part_a)
+
+    def test_part_a_creates_the_folder_and_shows_exact_drafts_before_any_send(self):
+        self.assertIn("Create the `drafts/` folder", self.part_a)
+        self.assertIn("Show the exact drafts to the user", self.part_a)
+        self.assertIn("Part A sends nothing", self.part_a)
+
+    def test_search_row_columns_are_the_first_check(self):
+        for needle in ("pending_invitation", "degree", "open_link", "first check", "--ids-file"):
+            self.assertIn(needle, self.part_a)
+        rule8 = self.text.split("8. **Never send a first message", 1)[1].split("9. **Stop on any warning", 1)[0]
+        self.assertIn("pending_invitation", rule8)
+        self.assertIn("existing message thread", self.text)
+        self.assertIn("open the lead and look", rule8)  # threads still need a look
+
+    def test_rule_8_skips_the_profile_open_only_on_no_plus_2nd_3rd_plus_today(self):
+        rule8 = self.text.split("8. **Never send a first message", 1)[1].split("9. **Stop on any warning", 1)[0]
+        for needle in ("`pending_invitation = no`", "2nd or 3rd", "`collected_at` is today",
+                       "blank means the field was absent", "on a live seat", "`degree = 1st` means already connected"):
+            self.assertIn(needle.lower(), rule8.lower(), needle)
+        self.assertIn("ONLY when", self.part_a)
+        for needle in ("`pending_invitation = no`", "2nd or 3rd", "`collected_at` is today"):
+            self.assertIn(needle, self.part_a)
+
+    def test_output_md_documents_the_no_value(self):
+        md = (REFS / "output.md").read_text(encoding="utf-8")
+        row = [l for l in md.splitlines() if l.startswith("| pending_invitation |")][0]
+        self.assertIn("`no`", row)
+        self.assertIn("live seat", row)
+
+
+class SubListPlanReferences(unittest.TestCase):
+    def test_no_stale_section_7_sub_list_plan_pointer(self):
+        for name in ("lists.md", "followups.md", "run-my-day.md"):
+            text = " ".join((REFS / name).read_text(encoding="utf-8").split())
+            self.assertNotRegex(text, r"(?i)section 7[^.]{0,60}sub-list plan", name)
+            self.assertNotRegex(text, r"(?i)sub-list plan[^.]{0,60}section 7", name)
+        for name in ("lists.md", "run-my-day.md"):
+            self.assertIn("## Sub-list plan", (REFS / name).read_text(encoding="utf-8"), name)
+
+
+class AgentBrowserDocs(unittest.TestCase):
+    def setUp(self):
+        self.text = " ".join((ROOT / "packages" / "browser-runtime" / "agent-browser.md")
+                             .read_text(encoding="utf-8").split())
+
+    def test_preflight_lists_workspace_and_sign_in_status_before_a_session(self):
+        pre = self.text.split("## Preflight", 1)[1].split("## Flow", 1)[0]
+        self.assertIn("`action=list`", pre)
+        self.assertIn("hours left", pre)
+        self.assertIn("browser action=status", pre)
+        self.assertIn("auth_required", pre)
+        self.assertLess(self.text.index("## Preflight"), self.text.index("## Flow"))
+
+    def test_dependent_steps_note(self):
+        self.assertIn("every param is static", self.text)
+        self.assertIn("one session per step", self.text)
+        self.assertIn("local runtime", self.text)
+
+    def test_vendored_copy_matches(self):
+        for name in ("agent-browser.md", "README.md", "session.py"):
+            self.assertEqual((ROOT / "packages" / "browser-runtime" / name).read_bytes(),
+                             (SKILL / "runtime" / name).read_bytes(), name)
 
 
 class QualifyColumns(unittest.TestCase):

@@ -436,6 +436,7 @@ class RunLogTests(unittest.TestCase):
         md = (SKILL / "references" / "guardrails.md").read_text(encoding="utf-8")
         rows = {r[0]: r for r in md_table_rows(md, "Daily volume defaults")}
         expect = {"Search result pages read": "pages", "Individual profiles opened": "profiles",
+                  "Small API calls (counts, typeahead, website batches)": "small_calls",
                   "Account pages opened": "accounts", "Saved searches created": "saved_searches"}
         for label, key in expect.items():
             default = int(re.match(r"\d+", rows[label][1]).group())
@@ -534,7 +535,18 @@ class RunLogTests(unittest.TestCase):
     def test_today_with_no_log_file_is_all_ok(self):
         code, out, _ = run_main(run_log, ["today", "--log", self.log])
         self.assertEqual(code, 0)
-        self.assertEqual(out.count("OK"), 4)
+        self.assertEqual(out.count("OK"), 5)
+
+    def test_small_calls_are_counted_against_their_guardrail(self):
+        code, out, _ = run_main(run_log, ["add", "--small-calls", "85", "--log", self.log])
+        row = [l for l in out.splitlines() if l.startswith("small_calls")][0].split()
+        self.assertEqual((code, row[1], row[2], row[3], row[4]), (0, "85", "100", "150", "NEAR"))
+        code, out, _ = run_main(run_log, ["add", "--small-calls", "20", "--log", self.log])
+        self.assertEqual(code, 0)
+        self.assertIn("OVER DEFAULT", [l for l in out.splitlines() if l.startswith("small_calls")][0])
+        code, out, _ = run_main(run_log, ["add", "--small-calls", "50", "--log", self.log])
+        self.assertEqual(code, 2)
+        self.assertIn("OVER CEILING", out)
 
     def test_saved_searches_flag_is_recorded(self):
         run_main(run_log, ["add", "--saved-searches", "9", "--log", self.log])
@@ -595,6 +607,36 @@ class DedupePreservesQualifyColumns(unittest.TestCase):
         self.assertEqual(kept[0]["keep"], "drop")  # blank filled from the duplicate
         self.assertEqual(kept[0]["facts"], "sells vitamins; ships to retailers")  # non-blank kept
         self.assertEqual(kept[0]["fit_reason"], "fits buyer type A")
+
+
+class DedupeKeepsOptionalLeadColumns(unittest.TestCase):
+    def test_round_trip_keeps_the_four_optional_columns_and_their_values(self):
+        cols = validate_csv.LEAD_COLUMNS + validate_csv.LEAD_OPTIONAL_COLUMNS
+
+        def row(name, pid, **kw):
+            r = {**dict.fromkeys(cols, ""),
+                 "full_name": name, "company_name": "Zed", "company_domain": "zed.com", "status": "collected",
+                 "mode": "A", "salesnav_lead_url": "https://www.linkedin.com/sales/lead/%s,N,x" % pid}
+            return {**r, **kw}
+        rows = [row("Jo Park", "A", pending_invitation="no", degree="2nd", open_link="yes", dup_suspect="yes"),
+                row("Jo Park", "B", pending_invitation="yes", degree="3rd", dup_suspect="yes"),
+                row("Al Roe", "C", pending_invitation="", degree="1st")]
+        with tempfile.TemporaryDirectory() as tmp:
+            src, out = Path(tmp) / "in.csv", Path(tmp) / "out.csv"
+            with open(src, "w", newline="", encoding="utf-8") as fh:
+                w = csv.DictWriter(fh, fieldnames=cols, lineterminator="\n")
+                w.writeheader()
+                w.writerows(rows)
+            code, _out, err = run_main(dedupe, [str(src), "--out", str(out)])
+            self.assertEqual(code, 0, err)
+            with open(out, newline="", encoding="utf-8") as fh:
+                reader = csv.DictReader(fh)
+                got = list(reader)
+                self.assertEqual(reader.fieldnames, cols)
+        self.assertEqual(len(got), 3)  # different profiles of one name are not merged
+        for want, have in zip(rows, got):
+            for col in validate_csv.LEAD_OPTIONAL_COLUMNS:
+                self.assertEqual(have[col], want[col], col)
 
 
 if __name__ == "__main__":

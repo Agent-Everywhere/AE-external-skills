@@ -1,18 +1,17 @@
 # Company Profile
 
 Fill this in once and keep it in your working folder as `company-profile.md`. Every action reads
-it, so it never has to ask you the same question twice. Leave a field blank or write "skip" if you
-do not know yet; the skill asks only for what the current action needs. Do not put passwords,
-cookies or personal data in this file.
+it, so it never has to ask you the same question twice. The list-building intake
+(`references/build-list.md`, section 1) asks for exactly these sections, in one short batch.
+Leave a field blank or write "skip" if you do not know yet. Do not put passwords, cookies or
+personal data in this file.
 
 ## 1. Offer
 
-- **What we sell, in one line:**
-- **Who it is for, in one line:**
-- **Proof or a specific result worth one sentence (optional):**
+- **What we sell, and to whom, in one line:**
 - **The next step we want from a prospect** (a reply, a call, a sample):
 
-## 2. ICP (ideal customer profile)
+## 2. ICP (firmographics)
 
 | Field | Answer |
 |---|---|
@@ -22,7 +21,6 @@ cookies or personal data in this file.
 | Company type (private, public, non-profit...) | |
 | Growth or hiring signals that matter | |
 | Fit tests: what must be true on the company website | |
-| Disqualifiers: what rules a company out | |
 
 ## 3. Buyer types
 
@@ -32,6 +30,9 @@ Two or three kinds of buyer, each with a short tag used in file names and list n
 | Tag | Who they are | What we say to them |
 |---|---|---|
 | | | |
+
+- **Not a buyer** (types that match the search but never buy, for example another maker of what we
+  make). They stay in the master list and are dropped at qualify time, not at search time:
 
 ## 4. Decision-makers: titles by company size
 
@@ -46,32 +47,28 @@ Title words to exclude (for example intern, assistant, student):
 ## 5. Keywords
 
 - **Company keywords** (Boolean `OR` lists, quoted phrases):
-- **Keywords to avoid** (words that mostly match company names and flood results):
 - **Title keywords:**
+- **Noise words** (a keyword that also matches an unrelated industry, or mostly matches company
+  names, so a NOT term or a smaller shard is needed; the build checks counts before using one):
 
 ## 6. Exclusions and do-not-contact
+
+Applied to collected rows, not in the search query. Competitors are never excluded at search time.
 
 - Customers (names or domains):
 - Competitors:
 - Industries / regions to skip:
 - A do-not-contact file, if you have one (path):
 
-## 7. Sub-list plan
+## 7. Size goal
 
-The ordered sub-lists the daily routine works through (usually one per state, region or headcount
-band, each under the Sales Nav result cap). `status` is one of todo / partial / collected /
-qualified / listed / done.
-
-| Order | Buyer type tag | Sub-list (name used in the list) | Search notes | Count | Status |
-|---|---|---|---|---|---|
-| 1 | | | | | todo |
+- **How many accounts / leads this run** (and any per-run cap on qualify or decision-maker work):
 
 ## 8. Tone and voice
 
 - **How we sound** (three words, and one thing we never say):
 - **Sign-off / name to write as:**
 - **Language:**
-- **Example of a message we like** (optional, anonymized):
 
 ## 9. Caps and permissions
 
@@ -93,3 +90,7 @@ and only for a batch you approve.
 
 - Working folder for CSVs, `results/`, `drafts/`, `outreach_log.csv`, `lists_log.csv`:
 - Where finished lists go (CSV, Google Sheet, CRM):
+
+The ordered sub-lists (state, region or headcount band) are an output, not an intake question: the
+build records them here after counting, as a "Sub-list plan" table (`references/build-list.md`,
+section 3).

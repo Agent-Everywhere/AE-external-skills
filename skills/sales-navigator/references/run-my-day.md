@@ -7,8 +7,9 @@ drafts. **It never sends.** Sending needs the user, awake, in a conversation, ap
 
 ## Before the first run
 
-- A filled Company Profile (`templates/company-profile.md`) with a **sub-list plan** (the ordered
-  sub-lists to work through, each with a status), the daily volume you may use, and whether
+- A filled Company Profile (`templates/company-profile.md`) with a **`## Sub-list plan` table** (the ordered
+  sub-lists to work through, each with a status; `build-list.md` writes it into the
+  profile after counting, so run a build-list first if it is missing), the daily volume you may use, and whether
   creating lists is allowed ("create lists: yes").
 - Preflight from `SKILL.md` (runtime, signed-in session, budget). Check `scripts/run_log.py today`
   and `scripts/outreach_log.py caps` so the day starts with the limits in view.
@@ -40,7 +41,7 @@ each step save its files, and stop the routine (not just the step) on any stop s
    - drafts waiting for approval (count, file path);
    - follow-ups due and replies that need them;
    - limits used today and anything that stopped the run.
-   Update the sub-list plan's status. End with the one thing you need from them: "approve the
+   Update the status in the profile's `## Sub-list plan` table. End with the one thing you need from them: "approve the
    drafts to send?" is a question for the user's next conversation, not something to act on.
 
 ## Run it as a Cowork scheduled task

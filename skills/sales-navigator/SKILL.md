@@ -46,7 +46,8 @@ Sending is described nowhere else; the caps and stop rules are in `references/gu
 - [`runtime/`](runtime/README.md) — the shared browser runtime (`local.md`, `agent-browser.md`, `session.py`, `guardrails-common.md`). Vendored copy; do not edit it here.
 
 Other references, loaded by the action that needs them: [`filters.md`](references/filters.md)
-(ICP to filters, query encoding, sharding), [`output.md`](references/output.md) (CSV columns).
+(ICP to filters, query encoding, sharding), [`geo-us-states.md`](references/geo-us-states.md)
+(US state geography ids), [`output.md`](references/output.md) (CSV columns).
 
 ## Preflight (every run)
 
@@ -79,11 +80,11 @@ Other references, loaded by the action that needs them: [`filters.md`](reference
 Python 3 standard library, no network. Run them on the run's files when you can execute code;
 otherwise apply the same rules by hand.
 
-- `scripts/salesnav_rows.py` — search results (JSONL or saved JSON) to `leads.csv` / `accounts.csv` per `references/output.md`.
+- `scripts/salesnav_rows.py` — search results (JSONL or saved JSON) to `leads.csv` / `accounts.csv` per `references/output.md`; per-company buyer type (`--buyer-type-map`), pending/degree/open-link columns, same-name flags.
 - `scripts/shard_plan.py` — per-dimension result counts to a shard plan under the cap.
 - `scripts/dedupe.py` — normalize LinkedIn URLs and domains, dedupe, apply exclusions.
 - `scripts/validate_csv.py` — check an accounts/leads CSV against `references/output.md`.
-- `scripts/run_log.py` — daily page/profile counts against the limits.
+- `scripts/run_log.py` — daily page, small-API-call and profile counts against the limits.
 - `scripts/outreach_log.py` — the outreach ledger: `check` (already contacted?), `add` (`--pending` before a send), `status`, `followup`, `caps`, `summary`. Used only by outreach and follow-ups.
 
 Page snippets (`page/*.js`, one async function each, run inside the signed-in page): `csrf_ready.js`,

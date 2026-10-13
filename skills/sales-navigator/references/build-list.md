@@ -6,21 +6,27 @@ profile, budget) is in `SKILL.md` and has already been done.
 
 ## 1. Intake (only what is missing)
 
-Ask in one short batch, offer examples, accept "skip". Never interrogate.
+Ask in **one short batch**: the sections of the Company Profile (`templates/company-profile.md`)
+that are still blank, nothing else. Offer examples, accept "skip", never interrogate. The table
+and the template are the same set; if one changes, change the other.
 
-| Need | Ask | Used for |
+| Ask | Profile section | Used for |
 |---|---|---|
-| Offer | "In one line, what do you sell and to whom?" | filter choice, relevance |
-| Buyer types | "Are there 2–3 different kinds of buyer? e.g. 'already buys this from someone else' vs 'doesn't have it yet'" | separate searches + tags |
-| Firmographics | industry, headcount band, geography, company type, growth/hiring signals | account filters |
-| Decision-makers | titles/functions/seniority that buy, by company size | lead filters |
-| Exclusions | customers, competitors, industries, regions, title words (intern, assistant, student) | post-filter (see "No exclusions at search time") |
-| Existing material | saved searches, account lists, a CSV of target companies | entry mode |
-| Size goal | how many accounts / leads this run | pacing, sharding |
-| Where results go | CSV download, Google Sheet, CRM via MCP, just this chat | output |
+| **Offer**: "In one line, what do you sell and to whom?" | 1 | filter choice, relevance |
+| **Buyer types**: 2–3 kinds ("already buys this from someone else" vs "doesn't have it yet"), and which kinds are **not a buyer** | 3 | separate searches, tags, qualify drops |
+| **Firmographics**: industry, headcount band, geography (HQ or person), company type, growth signals | 2 | account filters |
+| **Decision-maker titles by company size** (and title words to avoid: intern, assistant, student) | 4 | lead filters, title map |
+| **Keywords**: company keywords, title keywords, and **noise words** (a keyword that also matches an unrelated industry) | 5 | searches, NOT terms |
+| **Exclusions**: customers, competitors, regions, do-not-contact file | 6 | post-filter (see "No exclusions at search time") |
+| **Size goal**: how many accounts / leads this run | 7 | pacing, sharding |
+| **Tone** for later drafts: three words, sign-off | 8 | outreach |
+| **Caps**: only what the user wants lower than the defaults | 9 | guardrails |
 
-Write the answers back into the Company Profile (`templates/company-profile.md`, kept in the
-user's folder) so the next run, and every other action, does not ask again.
+Where files go (profile section 10) is not asked: default to the user's working folder as CSVs, and
+say so. Write the answers back into the Company Profile (kept in the user's folder) so the next
+run, and every other action, does not ask again. Existing material (saved searches, account lists,
+a CSV of target companies) is not an intake question either: if the user brings some, it picks the
+entry mode (section 2).
 
 ## 2. Choose the entry mode
 
@@ -58,14 +64,36 @@ master list that research can narrow beats a tight list that silently misses buy
    **metro** inside any remaining over-cap band (`scripts/shard_plan.py`). Count every shard
    before collecting. Record shard totals — summed they are the addressable market (an estimate:
    shards overlap slightly).
+   - **States:** `references/geo-us-states.md` has the geography ids and the 1-call typeahead for
+     any state without one. Count states in **priority order** and **stop when coverage is good**
+     (about 90 percent of the nationwide count, or the size goal met); do not count all 51 by
+     default, it spends the small-call budget (`guardrails.md`).
+   - **After counting, record the plan:** append a `## Sub-list plan` table to the Company Profile
+     (order, buyer type tag, sub-list name, search notes, count, status of todo / partial /
+     collected / qualified / listed / done). It is an output of counting, not an intake question;
+     the daily routine (`run-my-day.md`) and the list names (`lists.md`) read it.
 3. **50-row sample.** Before scaling, pull two pages (50 rows) of the master and of any shard
    that will be big, and read them with the user: roughly what share are plausible buyers? Fix
    keywords and filters now. Ten good rows beat 1,000 bad ones.
+   - **Sample vs collection.** A sample is a deliberate partial pull; a collection is every
+     viewable row of a shard and is the only thing you hand over as complete. On the cloud runtime
+     mark the sample call `"sample": true` with `"pages": {"max_pages": 2}`: it ends with a
+     `sampled` event and exit 0. Without the flag a call that stops early with rows left unread
+     is `truncated` and the run exits 8 (not complete). Never set `sample` on a collection call to
+     silence exit 8; a collection that exits 8 means rows are missing. In the local runtime
+     there is no exit code: you decide, and you say "sample" or "collected" when you report counts.
 4. **Collect shard by shard**, writing every page to the JSONL as it arrives, deduping across
    shards by company id (and lead URL) afterwards.
-5. **No exclusions at search time.** Do not subtract competitors or customers in the query: it
-   hides how big the market really is and hides near-misses. Collect, then exclude at the clean-up
-   step (`scripts/dedupe.py --exclude`) and show the user what was removed.
+5. **No exclusions at search time, with one carve-out.** Do not subtract competitors or
+   customers in the query: it hides how big the market really is and hides near-misses. Collect,
+   then exclude at the clean-up step (`scripts/dedupe.py --exclude`) and show the user what was
+   removed. **Carve-out: noise words.** When a keyword also matches an unrelated industry (for
+   example a word that pulls in insurance firms), add a NOT term for that obvious off-meaning
+   noise, but only after checking counts: count the search with and without the NOT term and
+   confirm the drop is the noise (read a handful of the rows it removes). Tell the user the
+   term and the counts. Never use this to remove competitors, customers, or types that could be
+   buyers; and "not a buyer" types (for example, if the seller is a manufacturer, other
+   manufacturers) stay in the list and are dropped at qualify time (`qualify.md`).
 
 Optionally save each final search in Sales Nav (named `<buyer-type> · <shard> · <yyyy-mm>`) so the
 user can reuse it and Sales Nav shows "new since last time" (only with the user's okay; saving is
@@ -112,11 +140,17 @@ Per-account flow: **account → website → decision-makers → hand to CRM dedu
 2. **Website.** `companies_websites.js` returns the website for 25 ids per call; the domain is
    the join key for CRM dedupe (`salesnav_rows.py accounts` fills `company_domain`).
 3. **Decision-makers.** One lead search per account filtered to that company and to the buying
-   seniority levels (`references/fast-path.md` has the query). Apply the title map for the
-   company's size (small: founder/CEO/owner; mid: function head; larger: VP/Director of the
-   buying function + one level below). Keep **1–3 people per account**, ranked: buying-function
-   title match → seniority → time in role (6+ months beats 2 weeks unless the run is a
-   job-change sweep).
+   role (`references/fast-path.md` has the query). Filter on the **seniority levels and the
+   buying function or title together**: `SENIORITY_LEVEL` alone returns every director in the
+   company, buyers or not. Add `CURRENT_TITLE` (title words from the profile; typeahead ids, or
+   free text) and/or `FUNCTION` next to `SENIORITY_LEVEL`. When the account is in one country,
+   also restrict the person's location (`REGION`, the account's HQ country) so offshore staff of
+   the same title do not outrank the local buyer. Apply the title map for the company's size
+   (small: founder/CEO/owner; mid: function head; larger: VP/Director of the buying function +
+   one level below). Keep **1–3 people per account**, ranked: buying-function title match →
+   seniority → time in role (6+ months beats 2 weeks unless the run is a job-change sweep). Run
+   `keep` accounts first, then `unsure` ones only if the run's cap (profile section 7) still has
+   room and the user agrees; never `drop` accounts.
 4. If nobody matches, record the account as `no_dm_found` with the closest title — don't force a
    bad match.
 5. **Hand to CRM dedupe** (always before any outreach): `leads.csv` + `accounts.csv`, joined on
@@ -127,7 +161,11 @@ Per-account flow: **account → website → decision-makers → hand to CRM dedu
 - De-duplicate within the run (same person from two shards; same company spelled twice;
   `scripts/dedupe.py`).
 - Apply exclusions on the collected rows (customers, competitors, title words) and show what was removed.
-- Tag each row: buyer type, shard, mode, signal(s), fit notes.
+- Tag each row: buyer type, shard, mode, signal(s), fit notes. Type each row per company when the
+  buyer types differ by account (`salesnav_rows.py --buyer-type-map`, `references/output.md`), and
+  look at the `dup_suspect` rows (same name twice in one account) before they go anywhere.
+  `--append` recomputes `dup_suspect` over the combined file; after merging CSVs another way, run
+  `salesnav_rows.py --flag-dups leads.csv`.
 - Validate: `scripts/validate_csv.py`.
 - Give the user: counts per shard, a sample of 5 rows, what was excluded and why, and the file /
   sheet / CRM location.
