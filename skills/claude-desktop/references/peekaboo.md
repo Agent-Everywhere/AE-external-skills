@@ -71,6 +71,9 @@ Verified from `peekaboo type --help` (4.9.2):
 - Escape sequences in the text: `\n` newline (this presses Return, which may **submit** the message),
   `\t` tab, `\b` backspace, `\e` escape, `\\` literal backslash. Avoid `\n` in follow-ups unless you
   mean to submit.
+- Text that starts with `-` is parsed as an option ("Unknown option -h"). Peekaboo 4.9.2 accepts the `--`
+  end-of-options separator (`peekaboo type ... --foreground -- "-text"`), and `desktop.py` inserts it
+  automatically. On the `desktop.py` command line itself also use `--`: `desktop.py type -- "-text"`.
 - Without `--foreground`, background delivery needs a window snapshot; the helper uses `--foreground`.
 - `--clear` clears the field first (it is documented with snapshots; not exercised here, so verify
   before relying on it). `--delay`, `--wpm`, `--profile human` control typing speed.

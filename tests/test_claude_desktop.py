@@ -279,12 +279,24 @@ class Recorder:
         return self.results.pop(0)
 
 
+class WritingRecorder(Recorder):
+    """Recorder whose successful `peekaboo see` calls write the --path file, like the real tool."""
+    def __init__(self, path, results):
+        super().__init__(results)
+        self.path = path
+
+    def __call__(self, cmd, timeout=60):
+        res = super().__call__(cmd, timeout)
+        if cmd[:2] == ["peekaboo", "see"] and res[0] == 0:
+            Path(self.path).write_bytes(b"png")
+        return res
+
+
 class Shelling(unittest.TestCase):
     def test_shot_command_and_minimized_retry(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "s.png")
-            Path(path).write_bytes(b"png")
-            rec = Recorder([(1, "error: window minimized"), (0, ""), (0, "")])
+            rec = WritingRecorder(path, [(1, "error: window minimized"), (0, ""), (0, "")])
             sleeps = []
             self.assertEqual(desktop.shot(path, runner=rec, sleeper=sleeps.append), path)
             self.assertEqual(rec.calls[0], ["peekaboo", "see", "--app", "Claude", "--no-elements", "--path", path])
@@ -310,13 +322,13 @@ class Shelling(unittest.TestCase):
     def test_doctor_all_good(self):
         perms = ("Source: Peekaboo Bridge\nScreen Recording (Required): Granted\n"
                  "Accessibility (Required): Granted\nEvent Synthesizing (Optional): Granted\n")
-        rec = Recorder([(0, "15.7\n"), (0, "Peekaboo 4.9.2\n"), (0, perms), (0, "123\n")])
+        rec = Recorder([(0, "15.7\n"), (0, "Peekaboo 4.9.2\n"), (0, perms), (0, "Terminal\n"), (0, "123\n")])
         ok, lines = desktop.doctor(runner=rec)
         self.assertTrue(ok, lines)
 
     def test_doctor_flags_old_macos_missing_permission_and_app(self):
         perms = "Screen Recording (Required): Granted\nAccessibility (Required): Not Granted\n"
-        rec = Recorder([(0, "14.6\n"), (0, "Peekaboo 4.9.2\n"), (0, perms), (1, "")])
+        rec = Recorder([(0, "14.6\n"), (0, "Peekaboo 4.9.2\n"), (0, perms), (0, "Terminal\n"), (1, "")])
         ok, lines = desktop.doctor(runner=rec)
         text = "\n".join(lines)
         self.assertFalse(ok)
@@ -373,13 +385,15 @@ class Focus(unittest.TestCase):
     def test_shot_recovering_retries_after_not_found(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "s.png")
-            Path(path).write_bytes(b"png")
             state = {"n": 0}
 
             def runner(cmd, timeout=60):
                 if cmd[0] == "peekaboo":
                     state["n"] += 1
-                    return (1, "target was not found") if state["n"] == 1 else (0, "")
+                    if state["n"] == 1:
+                        return (1, "target was not found")
+                    Path(path).write_bytes(b"png")
+                    return (0, "")
                 return (0, "true, 1\n")
             self.assertEqual(desktop.shot_recovering(path, runner=runner, sleeper=lambda s: None), path)
             self.assertEqual(state["n"], 2)
@@ -458,6 +472,310 @@ class McpConfig(unittest.TestCase):
     def test_missing_file_is_created_by_add(self):
         desktop.mcp_add(self.path, "zz-x", "c")
         self.assertEqual(self.read(), {"mcpServers": {"zz-x": {"command": "c"}}})
+
+
+class ShotFreshness(unittest.TestCase):
+    def test_stale_file_is_deleted_before_capture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "s.png")
+            Path(path).write_bytes(b"STALE")
+            seen = {}
+
+            def runner(cmd, timeout=60):
+                seen["existed_at_capture"] = os.path.exists(path)
+                Path(path).write_bytes(b"FRESH")
+                return (0, "")
+            desktop.shot(path, runner=runner, sleeper=lambda s: None)
+            self.assertFalse(seen["existed_at_capture"])
+            self.assertEqual(Path(path).read_bytes(), b"FRESH")
+
+    def test_success_without_new_file_is_an_error_not_the_stale_frame(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "s.png")
+            Path(path).write_bytes(b"STALE")
+            with self.assertRaises(desktop.DesktopError):
+                desktop.shot(path, runner=Recorder([(0, "")]), sleeper=lambda s: None)
+            self.assertFalse(os.path.exists(path))
+
+    def test_stale_file_cleared_again_before_minimized_retry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "s.png")
+            Path(path).write_bytes(b"STALE")
+            calls = []
+
+            def runner(cmd, timeout=60):
+                if cmd[0] == "peekaboo":
+                    calls.append(os.path.exists(path))
+                    if len(calls) == 1:
+                        Path(path).write_bytes(b"PARTIAL")
+                        return (1, "window minimized")
+                    Path(path).write_bytes(b"FRESH")
+                return (0, "")
+            desktop.shot(path, runner=runner, sleeper=lambda s: None)
+            self.assertEqual(calls, [False, False])
+
+    def test_wait_idle_capture_never_reuses_stale_frame(self):
+        # same shape as the wait-idle capture closure in main(): shot_recovering + read the file
+        with tempfile.TemporaryDirectory() as tmp:
+            frame = os.path.join(tmp, "frame.png")
+            Path(frame).write_bytes(b"STALE")
+
+            def runner(cmd, timeout=60):
+                # osascript state probe says Claude is frontmost; peekaboo "succeeds" but writes nothing
+                return (0, "true, 1\n") if cmd[0] == "osascript" else (0, "")
+            with self.assertRaises(desktop.DesktopError):
+                desktop.shot_recovering(frame, runner=runner, sleeper=lambda s: None)
+
+    def test_directory_target_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(desktop.DesktopError):
+                desktop.shot(tmp, runner=Recorder([]), sleeper=lambda s: None)
+
+
+class AutomationPermission(unittest.TestCase):
+    DENIED = "execution error: Not authorized to send Apple events to System Events. (-1743)"
+    PERMS = "Screen Recording (Required): Granted\nAccessibility (Required): Granted\n"
+
+    def test_doctor_reports_automation_denied_explicitly(self):
+        rec = Recorder([(0, "15.7\n"), (0, "Peekaboo 4.9.2\n"), (0, self.PERMS), (1, self.DENIED), (0, "1\n")])
+        ok, lines = desktop.doctor(runner=rec)
+        text = "\n".join(lines)
+        self.assertFalse(ok)
+        self.assertIn("Automation permission denied (-1743)", text)
+        self.assertIn("System Events", text)
+        self.assertTrue(any(c[0] == "osascript" and "System Events" in c[2] for c in rec.calls))
+
+    def test_doctor_reports_other_system_events_failure(self):
+        rec = Recorder([(0, "15.7\n"), (0, "Peekaboo 4.9.2\n"), (0, self.PERMS), (1, "weird failure"), (0, "1\n")])
+        ok, lines = desktop.doctor(runner=rec)
+        self.assertFalse(ok)
+        self.assertIn("System Events check failed: weird failure", "\n".join(lines))
+
+    def test_activate_error_names_automation_permission_when_that_is_the_cause(self):
+        def runner(cmd, timeout=60):
+            if cmd[0] == "osascript":
+                return (1, self.DENIED)
+            return (0, "1\n")
+        with self.assertRaises(desktop.DesktopError) as cm:
+            desktop.activate(runner=runner, sleeper=lambda s: None, attempts=2)
+        self.assertIn("Automation", str(cm.exception))
+        self.assertIn("-1743", str(cm.exception))
+
+    def test_activate_error_without_denial_does_not_blame_automation(self):
+        def runner(cmd, timeout=60):
+            if "get {frontmost" in " ".join(cmd):
+                return (0, "false, 0\n")
+            return (0, "Other\n")
+        with self.assertRaises(desktop.DesktopError) as cm:
+            desktop.activate(runner=runner, sleeper=lambda s: None, attempts=1)
+        self.assertNotIn("Automation", str(cm.exception))
+
+
+class TypeArgs(unittest.TestCase):
+    def test_plain_text_has_no_separator(self):
+        rec = Recorder([(0, "")])
+        desktop.type_text("hello -x", runner=rec)
+        self.assertEqual(rec.calls[0], ["peekaboo", "type", "--app", "Claude", "--foreground", "hello -x"])
+
+    def test_leading_dash_text_gets_double_dash_separator(self):
+        for text in ("-h", "--help", "- bullet", "-1"):
+            rec = Recorder([(0, "")])
+            desktop.type_text(text, runner=rec)
+            self.assertEqual(rec.calls[0], ["peekaboo", "type", "--app", "Claude", "--foreground", "--", text])
+
+    def test_cli_accepts_leading_dash_text_after_separator(self):
+        args = desktop.make_parser().parse_args(["type", "--", "-foo"])
+        self.assertEqual(args.text, "-foo")
+
+
+class ConfigSafety(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = os.path.join(self.tmp.name, "claude_desktop_config.json")
+        with open(self.path, "w") as fh:
+            json.dump({"mcpServers": {"keep": {"command": "a"}}}, fh)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def read(self):
+        with open(self.path) as fh:
+            return json.load(fh)
+
+    # 1. --restart ordering
+    def edit(self, prepare, restart, events, quit_exc=None, launch_exc=None):
+        def quit_():
+            events.append("quit")
+            if quit_exc:
+                raise quit_exc
+
+        def launch():
+            events.append("launch")
+            if launch_exc:
+                raise launch_exc
+        return desktop.edit_mcp(self.path, prepare, restart=restart, quit=quit_, launch=launch)
+
+    def test_invalid_input_never_quits_the_app(self):
+        events = []
+        with self.assertRaises(desktop.DesktopError):
+            self.edit(lambda: desktop.prepare_mcp_add(self.path, "bad name!", "c"), True, events)
+        with self.assertRaises(desktop.DesktopError):
+            self.edit(lambda: desktop.prepare_mcp_add(self.path, "keep", "c"), True, events)  # exists
+        with self.assertRaises(desktop.DesktopError):
+            self.edit(lambda: desktop.prepare_mcp_remove(self.path, "missing"), True, events)
+        with self.assertRaises(desktop.DesktopError):
+            self.edit(lambda: desktop.prepare_mcp_add(self.path, "ok", ""), True, events)
+        self.assertEqual(events, [])
+        self.assertEqual(self.read(), {"mcpServers": {"keep": {"command": "a"}}})
+
+    def test_main_invalid_input_never_quits_the_app(self):
+        calls = []
+        orig_quit, orig_launch = desktop.quit_app, desktop.launch_app
+        desktop.quit_app = lambda *a, **k: calls.append("quit")
+        desktop.launch_app = lambda *a, **k: calls.append("launch")
+        try:
+            rc = desktop.main(["config-mcp", "add", "bad name!", "--command", "c", "--restart",
+                               "--config", self.path])
+        finally:
+            desktop.quit_app, desktop.launch_app = orig_quit, orig_launch
+        self.assertEqual(rc, desktop.EXIT_ERROR)
+        self.assertEqual(calls, [])
+
+    def test_restart_flow_validates_then_quits_then_rereads_then_commits_then_launches(self):
+        events = []
+
+        def prepare():
+            events.append("prepare")
+            return desktop.prepare_mcp_add(self.path, "new", "c")
+        backup, relaunched = self.edit(prepare, True, events)
+        self.assertEqual(events, ["prepare", "quit", "prepare", "launch"])
+        self.assertTrue(relaunched)
+        self.assertIn("new", self.read()["mcpServers"])
+        self.assertTrue(os.path.exists(backup))
+
+    def test_config_rewritten_by_app_on_quit_is_preserved(self):
+        def quit_():
+            with open(self.path, "w") as fh:
+                json.dump({"mcpServers": {"keep": {"command": "a"}}, "appWroteThis": 1}, fh)
+        desktop.edit_mcp(self.path, lambda: desktop.prepare_mcp_add(self.path, "new", "c"), restart=True,
+                         quit=quit_, launch=lambda: None)
+        data = self.read()
+        self.assertEqual(data["appWroteThis"], 1)
+        self.assertIn("new", data["mcpServers"])
+
+    def test_failure_after_quit_relaunches_and_launch_failure_cannot_mask_it(self):
+        events = []
+        with self.assertRaises(desktop.DesktopError) as cm:
+            self.edit(lambda: desktop.prepare_mcp_add(self.path, "x", "c"), True, events,
+                      quit_exc=desktop.DesktopError("original quit problem"),
+                      launch_exc=desktop.DesktopError("launch also broke"))
+        self.assertIn("original quit problem", str(cm.exception))
+        self.assertEqual(events, ["quit", "launch"])
+
+    def test_prepare_failing_after_quit_relaunches(self):
+        events = []
+        state = {"n": 0}
+
+        def prepare():
+            state["n"] += 1
+            if state["n"] == 2:
+                raise desktop.DesktopError("changed under us")
+            return desktop.prepare_mcp_add(self.path, "x", "c")
+        with self.assertRaises(desktop.DesktopError) as cm:
+            self.edit(prepare, True, events, launch_exc=RuntimeError("boom"))
+        self.assertIn("changed under us", str(cm.exception))
+        self.assertEqual(events, ["quit", "launch"])
+        self.assertNotIn("x", self.read()["mcpServers"])
+
+    def test_no_restart_does_not_touch_the_app(self):
+        events = []
+        backup, relaunched = self.edit(lambda: desktop.prepare_mcp_add(self.path, "x", "c"), False, events)
+        self.assertEqual(events, [])
+        self.assertFalse(relaunched)
+
+    def test_prepare_does_not_write_or_back_up(self):
+        before = sorted(os.listdir(self.tmp.name))
+        desktop.prepare_mcp_add(self.path, "x", "c")
+        desktop.prepare_mcp_remove(self.path, "keep")
+        self.assertEqual(sorted(os.listdir(self.tmp.name)), before)
+        self.assertEqual(self.read(), {"mcpServers": {"keep": {"command": "a"}}})
+
+    # 2. backups
+    def test_backup_never_overwrites_existing_bak(self):
+        from datetime import datetime
+        now = datetime(2026, 1, 2, 3, 4, 5, 678901)
+        first = desktop.backup_config(self.path, now)
+        Path(first).write_text("PRECIOUS")
+        second = desktop.backup_config(self.path, now)
+        third = desktop.backup_config(self.path, now)
+        self.assertEqual(len({first, second, third}), 3)
+        self.assertEqual(Path(first).read_text(), "PRECIOUS")
+        self.assertIn("678901", first)
+        self.assertEqual(json.loads(Path(second).read_text()), self.read())
+
+    def test_backup_none_when_no_file(self):
+        self.assertIsNone(desktop.backup_config(os.path.join(self.tmp.name, "nope.json")))
+
+    # 3. write_config
+    def test_write_preserves_mode_and_leaves_no_temp(self):
+        os.chmod(self.path, 0o640)
+        desktop.write_config(self.path, {"a": 1})
+        self.assertEqual(os.stat(self.path).st_mode & 0o777, 0o640)
+        self.assertEqual(self.read(), {"a": 1})
+        self.assertEqual(sorted(os.listdir(self.tmp.name)), ["claude_desktop_config.json"])
+
+    def test_write_new_file_is_private_and_uses_unique_temp(self):
+        new = os.path.join(self.tmp.name, "sub", "c.json")
+        desktop.write_config(new, {"a": 1})
+        self.assertEqual(os.stat(new).st_mode & 0o777, 0o600)
+        # a leftover fixed-name temp from an older run is neither used nor clobbered
+        Path(self.path + ".tmp-desktop-skill").write_text("other")
+        desktop.write_config(self.path, {"b": 2})
+        self.assertEqual(Path(self.path + ".tmp-desktop-skill").read_text(), "other")
+
+    def test_write_failure_cleans_temp_and_keeps_original(self):
+        with self.assertRaises(TypeError):
+            desktop.write_config(self.path, {"a": object()})
+        self.assertEqual(self.read(), {"mcpServers": {"keep": {"command": "a"}}})
+        self.assertEqual(sorted(os.listdir(self.tmp.name)), ["claude_desktop_config.json"])
+
+    # 4. mcp_list redaction
+    def list_rows(self, spec):
+        with open(self.path, "w") as fh:
+            json.dump({"mcpServers": {"s": spec}}, fh)
+        return "\n".join(desktop.mcp_list(self.path))
+
+    def test_list_redacts_secret_looking_args(self):
+        rows = self.list_rows({"command": "npx", "args": [
+            "-y", "@modelcontextprotocol/server-filesystem", "/Users/me/docs",
+            "API_KEY=abc123secret", "--token=tok_value_1", "--password", "hunter2hunter2", "--verbose",
+            "--api-key", "sk-live-0123456789abcdef", "https://u:pw0rd@example.com/x?access_token=zzz&a=1",
+            "Authorization: Bearer abcdef", "A1b2C3d4E5f6G7h8I9j0K1l2M3"]})
+        for leaked in ("abc123secret", "tok_value_1", "hunter2", "sk-live", "pw0rd", "zzz", "abcdef", "A1b2C3d4E5"):
+            self.assertNotIn(leaked, rows)
+        for kept in ("npx", "-y", "@modelcontextprotocol/server-filesystem", "/Users/me/docs", "--verbose",
+                     "API_KEY=<redacted>", "--token=<redacted>", "a=1", "example.com"):
+            self.assertIn(kept, rows)
+
+    def test_list_flag_secret_does_not_eat_following_flag(self):
+        rows = self.list_rows({"command": "c", "args": ["--token", "--verbose", "plain"]})
+        self.assertIn("--verbose", rows)
+        self.assertIn("plain", rows)
+
+    def test_list_shows_env_names_only(self):
+        rows = self.list_rows({"command": "c", "env": {"TOKEN": "supersecret", "B": "x"}})
+        self.assertIn("B,TOKEN", rows)
+        self.assertNotIn("supersecret", rows)
+
+    def test_list_tolerates_bad_shapes(self):
+        for spec in ("a string", ["list"], 5, None, {"command": 5, "args": "oops", "env": ["x"]},
+                     {"command": "c", "args": [1, None, {"k": "v"}, ["n"]], "env": "SECRET=1"},
+                     {"command": "c", "args": ["ok"], "env": {1: "v"}}):
+            rows = self.list_rows(spec)  # must not raise
+            self.assertNotIn("SECRET=1", rows)
+        with open(self.path, "w") as fh:
+            json.dump({"mcpServers": ["not", "a", "dict"]}, fh)
+        self.assertIn("not an object", "\n".join(desktop.mcp_list(self.path)))
 
 
 if __name__ == "__main__":

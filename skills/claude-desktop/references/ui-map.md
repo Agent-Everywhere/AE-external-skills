@@ -118,10 +118,12 @@ status: check mark, Reconnect, or Connect).
 ### Local MCP servers (config file)
 
 `desktop.py config-mcp list|add|remove` edits `~/Library/Application Support/Claude/claude_desktop_config.json`
-`mcpServers` (stdio servers only): validates JSON, writes a timestamped `.bak-` copy next to the file, only
-adds/removes the one named entry, never reads values of `env` back to the screen. **Use `--restart`**: it quits
-Claude Desktop first (the app rewrites this file while running and would clobber an edit), edits, then
-relaunches. Restart stops any task in progress, so ask first. Verified: adding a dummy server made Desktop
+`mcpServers` (stdio servers only): validates JSON, writes a unique (microsecond-stamped, never overwritten)
+`.bak-` copy next to the file, only adds/removes the one named entry, and replaces the file atomically with its
+original permissions. `list` shows env variable names only and redacts secret-looking args (`KEY=...`,
+`--token X`, long random strings). **Use `--restart`**: it validates the request first (invalid input never
+quits the app), quits Claude Desktop (the app rewrites this file while running and would clobber an edit),
+re-reads the file, edits, then relaunches (also after a failure, without masking the original error). Restart stops any task in progress, so ask first. Verified: adding a dummy server made Desktop
 show a yellow toast "MCP <name>: Server disconnected" after relaunch (the entry was read); removing it and
 restoring the backup left the file byte-identical to the original. Delete the `.bak-` files you created when
 done if the user does not want them.

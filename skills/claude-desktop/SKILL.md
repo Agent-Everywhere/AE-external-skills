@@ -71,6 +71,9 @@ Before any of these, read the matching section of `references/ui-map.md` and the
      Accessibility (Event Synthesizing is optional but needed for some input). Verify with
      `peekaboo permissions status`. The user grants them in System Settings > Privacy & Security;
      you cannot.
+   - Automation permission for **System Events** (the same terminal app; macOS error -1743 "Not
+     authorized to send Apple events"). Without it `activate` cannot focus Claude. `doctor` runs a trivial
+     System Events call and reports this explicitly; the user grants it under Privacy & Security > Automation.
    - Claude Desktop is running (`open -a Claude`).
 2. **Confirm sign-in from a screenshot.** If you see a login screen, stop and ask the user to sign in;
    never type credentials.
@@ -140,6 +143,8 @@ When Desktop asks for permission (run a tool, access a folder or connector, edit
 | Symptom | Fix |
 |---|---|
 | `window minimized` / `target not found` although Claude runs | Claude is not frontmost (or is on another Space). `desktop.py activate` (System Events `set frontmost`; `open -a` and AppleScript `activate` do not work for this). `shot`, `click`, `type`, `press`, `scroll` and `wait-idle` call it for you |
+| `activate` fails mentioning Automation / -1743 | The terminal app lacks Automation permission for System Events; the user enables it in System Settings > Privacy & Security > Automation, then rerun `doctor` |
+| `type "-text"` is rejected by the CLI | Put `--` first: `desktop.py type -- "-text"` (the helper passes `--` on to Peekaboo itself) |
 | `type` says "indeterminate" | Normal with Peekaboo 4.9.2: the text usually landed. Screenshot to confirm; do not retype blindly |
 | A native file picker is open and `shot` shows a dimmed Claude | The picker is a separate window; drive it with System Events (see `references/ui-map.md`) and look with `screencapture -x` |
 | Screenshot is blank, or `see` fails with a permission error | Screen Recording not granted to the terminal app; grant it, restart the terminal, rerun `doctor` |

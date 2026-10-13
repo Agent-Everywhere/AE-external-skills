@@ -23,6 +23,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -100,13 +101,31 @@ def parse_coord(value):
     return n
 
 
+def _remove_stale(path):
+    """Delete a leftover file at `path` so a stale image can never pass for the new capture."""
+    if os.path.isdir(path):
+        raise DesktopError("%s is a directory; give a file path for the screenshot" % path)
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        raise DesktopError("cannot clear old screenshot %s: %s" % (path, exc))
+
+
 def shot(path, runner=run, sleeper=time.sleep):
-    """Capture the Claude window to `path`. If the window is minimized, bring the app up and retry."""
+    """Capture the Claude window to `path`. If the window is minimized, bring the app up and retry.
+
+    Any existing file at `path` is deleted before every capture attempt, so a file that is present
+    afterwards was written by this call (wait-idle relies on this to never compare a stale frame).
+    """
     cmd = ["peekaboo", "see", "--app", APP, "--no-elements", "--path", path]
+    _remove_stale(path)
     code, out = runner(cmd)
     if code != 0 and "minimized" in out.lower():
         runner(["open", "-a", APP])
         sleeper(1.5)
+        _remove_stale(path)
         code, out = runner(cmd)
     if code != 0:
         raise DesktopError("screenshot failed: %s" % out.strip()[:500])
@@ -123,7 +142,13 @@ def click(x, y, runner=run):
 
 
 def type_text(text, runner=run):
-    code, out = runner(["peekaboo", "type", "--app", APP, "--foreground", text])
+    cmd = ["peekaboo", "type", "--app", APP, "--foreground"]
+    # Text that starts with '-' would be parsed as an option ("Unknown option -h"). Peekaboo 4.9.2
+    # honours the `--` end-of-options separator (checked against `peekaboo type --help`/arg parsing).
+    if text.startswith("-"):
+        cmd.append("--")
+    cmd.append(text)
+    code, out = runner(cmd)
     # Peekaboo 4.9.2 often exits non-zero with "Action outcome is indeterminate" although the text
     # was typed. That is not a failure to retry blindly (a retry would type it twice): report it
     # and let the caller confirm with a screenshot.
@@ -151,6 +176,16 @@ _CLAUDE_STATE = _SE + 'tell process "%s" to get {frontmost, count of windows}' %
 _SET_FRONT = _SE + 'tell process "%s" to set frontmost to true' % APP
 _UNMINIMIZE = (_SE + 'tell process "%s" to if (count of windows) > 0 then '
                'set value of attribute "AXMinimized" of window 1 to false' % APP)
+
+
+def automation_denied(out):
+    """True when osascript output says macOS Automation permission for System Events is missing."""
+    low = (out or "").lower()
+    return "-1743" in low or "not authorized to send apple events" in low
+
+
+AUTOMATION_HINT = ("Automation permission is missing: allow the terminal app that runs Claude Code to "
+                   "control System Events (System Settings > Privacy & Security > Automation), then retry")
 
 
 def frontmost_app(runner=run):
@@ -196,8 +231,13 @@ def activate(runner=run, sleeper=time.sleep, attempts=4):
         if front and windows > 0:
             return windows
         sleeper(1.0)
+    code, out = runner(["osascript", "-e", _FRONT_APP])
+    if automation_denied(out):
+        raise DesktopError("could not bring Claude to the front: System Events refused (-1743). %s. "
+                           "Ask the user, do not send input." % AUTOMATION_HINT)
     raise DesktopError("could not bring Claude to the front (frontmost app is %r). Is it signed in and "
-                       "not blocked by a system dialog? Ask the user, do not send input." % frontmost_app(runner))
+                       "not blocked by a system dialog? Ask the user, do not send input."
+                       % (out.strip() if code == 0 else ""))
 
 
 def require_front(runner=run, sleeper=time.sleep):
@@ -271,39 +311,131 @@ def load_config(path):
 
 
 def backup_config(path, now=None):
-    """Copy the config next to itself with a timestamp. Returns the backup path (None if no file)."""
+    """Copy the config next to itself with a unique timestamp. Returns the backup path (None if no file).
+
+    The name carries microseconds plus a counter on collision, and the file is created exclusively,
+    so an existing .bak-* is never overwritten.
+    """
     if not os.path.exists(path):
         return None
-    stamp = (now or datetime.now()).strftime("%Y%m%d-%H%M%S")
-    dest = "%s.bak-%s" % (path, stamp)
-    shutil.copy2(path, dest)
-    return dest
+    stamp = (now or datetime.now()).strftime("%Y%m%d-%H%M%S-%f")
+    for counter in range(1000):
+        dest = "%s.bak-%s%s" % (path, stamp, "" if counter == 0 else "-%d" % counter)
+        try:
+            out = open(dest, "xb")
+        except FileExistsError:
+            continue
+        try:
+            with out, open(path, "rb") as src:
+                shutil.copyfileobj(src, out)
+            shutil.copystat(path, dest)
+        except BaseException:
+            try:
+                os.unlink(dest)
+            except OSError:
+                pass
+            raise
+        return dest
+    raise DesktopError("could not find an unused backup name next to %s" % path)
 
 
 def write_config(path, data):
-    """Validate by round-tripping, then replace atomically."""
+    """Validate by round-tripping, then replace atomically via a unique temp file in the same directory.
+
+    The temp file gets the original file's permission bits (0600 for a new file) before os.replace.
+    """
     text = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
     json.loads(text)
-    tmp = path + ".tmp-desktop-skill"
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with open(tmp, "w", encoding="utf-8") as fh:
-        fh.write(text)
-    os.replace(tmp, path)
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    try:
+        mode = stat.S_IMODE(os.stat(path).st_mode)
+    except FileNotFoundError:
+        mode = 0o600
+    fd, tmp = tempfile.mkstemp(prefix=".%s." % os.path.basename(path), suffix=".tmp", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+# --- mcp list: never show secrets ---------------------------------------------------------------
+_SECRET_WORDS = r"(?:token|secret|passw(?:or)?d|pwd|api[-_]?key|key|auth|credential|bearer|cookie|session)"
+_KV_SECRET_RE = re.compile(r"((?<![\w.-])[\w.-]*" + _SECRET_WORDS + r"[\w.-]*=)([^&\s]*)", re.I)
+_SECRET_FLAG_RE = re.compile(r"^-{1,2}[\w.-]*" + _SECRET_WORDS + r"[\w.-]*$", re.I)
+_URL_USERINFO_RE = re.compile(r"(://[^/\s:@]*:)([^/\s@]+)(@)")
+_HEADER_RE = re.compile(r"^((?:authorization|x-api-key|proxy-authorization)\s*:\s*).+$", re.I)
+_KNOWN_TOKEN_RE = re.compile(r"(?:sk-|ghp_|gho_|ghs_|github_pat_|xox[abprs]-|AKIA|eyJ|glpat-|npm_)[A-Za-z0-9_\-.]{8,}")
+_RANDOM_RE = re.compile(r"^[A-Za-z0-9_+=-]{20,}$")
+REDACTED = "<redacted>"
+
+
+def _looks_random(value):
+    """A long unbroken run of token characters mixing letters and digits (paths and words don't)."""
+    return bool(_RANDOM_RE.match(value)) and any(c.isdigit() for c in value) and any(c.isalpha() for c in value)
+
+
+def redact_args(args):
+    """Return display strings for an args list with secret-looking values replaced. Never raises."""
+    if not isinstance(args, list):
+        return ["<args not a list>"]
+    out = []
+    hide_next = False
+    for arg in args:
+        if not isinstance(arg, str):
+            out.append("<non-string arg>")
+            hide_next = False
+            continue
+        if hide_next and not arg.startswith("-"):
+            out.append(REDACTED)
+            hide_next = False
+            continue
+        hide_next = False
+        text = _KV_SECRET_RE.sub(lambda m: m.group(1) + REDACTED, arg)
+        text = _URL_USERINFO_RE.sub(lambda m: m.group(1) + REDACTED + m.group(3), text)
+        text = _HEADER_RE.sub(lambda m: m.group(1) + REDACTED, text)
+        text = _KNOWN_TOKEN_RE.sub(REDACTED, text)
+        if text == arg and _looks_random(arg):
+            text = REDACTED
+        if text == arg and _SECRET_FLAG_RE.match(arg):
+            hide_next = True
+        out.append(text)
+    return out
 
 
 def mcp_list(path):
     servers = load_config(path).get("mcpServers") or {}
+    if not isinstance(servers, dict):
+        return ["mcpServers is not an object (%s)" % type(servers).__name__]
     rows = []
-    for name, spec in sorted(servers.items()):
-        spec = spec if isinstance(spec, dict) else {}
-        env_keys = ",".join(sorted((spec.get("env") or {}).keys()))
-        rows.append("%s: %s %s%s" % (name, spec.get("command", "?"), " ".join(spec.get("args") or []),
-                                     "  [env keys: %s; values hidden]" % env_keys if env_keys else ""))
+    for name, spec in sorted(servers.items(), key=lambda kv: str(kv[0])):
+        if not isinstance(spec, dict):
+            rows.append("%s: <entry is not an object>" % name)
+            continue
+        command = spec.get("command")
+        command = redact_args([command])[0] if isinstance(command, str) else "?"
+        env = spec.get("env")
+        if env is None or env == {}:
+            env_note = ""
+        elif isinstance(env, dict):
+            env_note = "  [env names: %s; values hidden]" % ",".join(sorted(str(k) for k in env))
+        else:
+            env_note = "  [env: invalid shape, values hidden]"
+        rows.append("%s: %s %s%s" % (name, command, " ".join(redact_args(spec.get("args") or [])), env_note))
     return rows
 
 
-def mcp_add(path, name, command, args=(), env=(), replace=False, now=None):
-    """Add one stdio server under mcpServers. Never touches other keys. Returns the backup path."""
+def prepare_mcp_add(path, name, command, args=(), env=(), replace=False):
+    """Validate everything and return the new config dict. Writes nothing."""
     if not SERVER_NAME_RE.match(name or ""):
         raise DesktopError("server name must be letters, digits, . _ - (got %r)" % (name,))
     if not command:
@@ -327,23 +459,62 @@ def mcp_add(path, name, command, args=(), env=(), replace=False, now=None):
         entry["args"] = list(args)
     if env_map:
         entry["env"] = env_map
-    backup = backup_config(path, now)
     servers[name] = entry
     data["mcpServers"] = servers
-    write_config(path, data)
-    return backup
+    return data
 
 
-def mcp_remove(path, name, now=None):
-    """Remove one named server only. Returns the backup path."""
+def prepare_mcp_remove(path, name):
+    """Validate and return the new config dict with only `name` removed. Writes nothing."""
     data = load_config(path)
     servers = data.get("mcpServers")
     if not isinstance(servers, dict) or name not in servers:
         raise DesktopError("no server named %r in %s" % (name, path))
-    backup = backup_config(path, now)
     del servers[name]
+    return data
+
+
+def commit_config(path, data, now=None):
+    """Back up the current file, then write `data`. Returns the backup path."""
+    backup = backup_config(path, now)
     write_config(path, data)
     return backup
+
+
+def mcp_add(path, name, command, args=(), env=(), replace=False, now=None):
+    """Add one stdio server under mcpServers. Never touches other keys. Returns the backup path."""
+    return commit_config(path, prepare_mcp_add(path, name, command, args, env, replace), now)
+
+
+def mcp_remove(path, name, now=None):
+    """Remove one named server only. Returns the backup path."""
+    return commit_config(path, prepare_mcp_remove(path, name), now)
+
+
+def edit_mcp(path, prepare, restart=False, quit=None, launch=None, now=None):
+    """Run `prepare()` (all validation, returns the new config; no writes), then commit it.
+
+    With restart, validation runs BEFORE the app is quit, so invalid input never quits Claude. After
+    the quit the config is re-read and re-prepared (the app rewrites it while exiting) and then
+    committed. If anything fails after the quit, relaunch is attempted but can never mask the
+    original error. Returns (backup_path, relaunched).
+    """
+    quit = quit or quit_app
+    launch = launch or launch_app
+    data = prepare()  # raises before any side effect
+    if not restart:
+        return commit_config(path, data, now), False
+    try:
+        quit()
+        backup = commit_config(path, prepare(), now)
+    except BaseException:
+        try:
+            launch()  # do not leave the app quit because the edit was refused
+        except Exception as exc:
+            print("warning: could not relaunch Claude Desktop: %s" % exc, file=sys.stderr)
+        raise
+    launch()
+    return backup, True
 
 
 def quit_app(runner=run, sleeper=time.sleep):
@@ -575,6 +746,18 @@ def doctor(runner=run):
             ok = False
             lines.append("FAIL Screen Recording and Accessibility must both be granted to the terminal "
                          "app that runs Claude Code (System Settings > Privacy & Security)")
+    try:
+        code, out = runner(["osascript", "-e", _FRONT_APP])
+    except DesktopError as exc:
+        code, out = 1, str(exc)
+    if code == 0:
+        lines.append("ok   Automation: System Events accepts Apple events (needed to focus Claude)")
+    elif automation_denied(out):
+        ok = False
+        lines.append("FAIL Automation permission denied (-1743) for System Events. " + AUTOMATION_HINT)
+    else:
+        ok = False
+        lines.append("FAIL System Events check failed: %s" % out.strip()[:300])
     code, _ = runner(["pgrep", "-x", APP])
     if code != 0:
         ok = False
@@ -715,21 +898,18 @@ def main(argv=None):
             else:
                 if not args.name:
                     raise DesktopError("give the server name")
-                # Claude Desktop rewrites this file itself, so with --restart quit it first, edit, relaunch.
-                if args.restart:
-                    quit_app()
-                try:
-                    if args.action == "add":
-                        backup = mcp_add(args.config, args.name, args.command, args.arg, args.env, args.replace)
-                    else:
-                        backup = mcp_remove(args.config, args.name)
-                except DesktopError:
-                    if args.restart:
-                        launch_app()  # do not leave the app quit because the edit was refused
-                    raise
+                # Claude Desktop rewrites this file itself, so with --restart validate first, quit,
+                # re-read, edit, relaunch (edit_mcp).
+                if args.action == "add":
+                    def prepare():
+                        return prepare_mcp_add(args.config, args.name, args.command, args.arg, args.env,
+                                               args.replace)
+                else:
+                    def prepare():
+                        return prepare_mcp_remove(args.config, args.name)
+                backup, relaunched = edit_mcp(args.config, prepare, restart=args.restart)
                 print("%s %s; backup: %s" % ("added" if args.action == "add" else "removed", args.name, backup))
-                if args.restart:
-                    launch_app()
+                if relaunched:
                     print("Claude Desktop relaunched")
                 else:
                     print("Claude Desktop must be quit and reopened for this to take effect; it also rewrites "
