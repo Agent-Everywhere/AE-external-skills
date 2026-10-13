@@ -21,7 +21,7 @@ safeStorage ciphertext). Nothing is copied or printed; every error path is redac
 One command, no clone (single bundled file; rerun to update):
 
 ```sh
-mkdir -p ~/.local/bin && curl -fsSL https://raw.githubusercontent.com/Agent-Everywhere/AE-external-skills/main/skills/grokbot/cli/dist/grokbot.mjs -o ~/.local/bin/grokbot && chmod +x ~/.local/bin/grokbot
+mkdir -p ~/.local/bin && curl -fsSL https://github.com/Agent-Everywhere/AE-external-skills/releases/latest/download/grokbot.mjs -o ~/.local/bin/grokbot && chmod +x ~/.local/bin/grokbot
 grokbot doctor
 ```
 

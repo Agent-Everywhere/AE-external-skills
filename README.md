@@ -23,7 +23,7 @@ needs Claude Code (or another agent with shell access) on the Mac that has Grok 
 **Just the `grokbot` CLI** (no Claude needed; Node 20+; rerun to update):
 
 ```
-mkdir -p ~/.local/bin && curl -fsSL https://raw.githubusercontent.com/Agent-Everywhere/AE-external-skills/main/skills/grokbot/cli/dist/grokbot.mjs -o ~/.local/bin/grokbot && chmod +x ~/.local/bin/grokbot
+mkdir -p ~/.local/bin && curl -fsSL https://github.com/Agent-Everywhere/AE-external-skills/releases/latest/download/grokbot.mjs -o ~/.local/bin/grokbot && chmod +x ~/.local/bin/grokbot
 ```
 
 The **Agent Browser** skills drive Agent Everywhere's cloud-browser MCP. Other skills (such as
@@ -84,6 +84,18 @@ cd skills && zip -r ../dist/<skill-name>.zip <skill-name> -x '*/node_modules/*'
 
 `grokbot-box` does not bundle the CLI or the `grokbot` references; its install section clones this
 repo inside the box, and the zip needs nothing else.
+
+### Releasing the grokbot CLI
+
+The curl install downloads `grokbot.mjs` from the latest GitHub Release, which also gives a
+download count. After a change to `skills/grokbot/cli/` merges, rebuild `dist/` (`npm run build`),
+bump `version` in `package.json`, and publish:
+
+```
+gh release create grokbot-v<version> skills/grokbot/cli/dist/grokbot.mjs --title "grokbot v<version>" --latest
+```
+
+Only grokbot releases may be marked `--latest`: the install URL follows the repo's latest release.
 
 ## Requirements for users
 
