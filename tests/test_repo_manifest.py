@@ -45,6 +45,9 @@ class SkillManifests(unittest.TestCase):
         self.assertEqual(sync_runtime.load_manifest(ROOT / "skills" / "grokbot-box")["runtimes"], [])
         self.assertEqual(sync_runtime.load_manifest(ROOT / "skills" / "sales-navigator")["runtimes"],
                          ["local", "agent-browser"])
+        for name in ("salesnav-tam-accounts", "salesnav-tam-people", "salesnav-tam-tracker", "salesnav-outreach"):
+            self.assertEqual(sync_runtime.load_manifest(ROOT / "skills" / name)["runtimes"],
+                             ["local", "agent-browser"], name)
 
     def test_every_skill_has_a_matching_marketplace_entry(self):
         market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text())
@@ -208,6 +211,86 @@ class SyncHardening(unittest.TestCase):
         self.assertEqual([p.name for p in self.runtime.parent.iterdir() if p.name.startswith(".runtime-")], [])
 
 
+class ToolkitBundling(unittest.TestCase):
+    """uses_toolkit: a purpose skill's listed sales-navigator files are copied in, and drift fails --check."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name)
+        shutil.copytree(ROOT / "packages", self.repo / "packages")
+        shutil.copytree(ROOT / "skills" / "sales-navigator", self.repo / "skills" / "sales-navigator",
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        self.script = str(ROOT / "build" / "sync_runtime.py")
+        self.skill = self.repo / "skills" / "salesnav-demo"
+        self.skill.mkdir()
+        (self.skill / "SKILL.md").write_text("---\nname: salesnav-demo\n---\n")
+        self.write_yaml("[page/count.js, scripts/run_log.py, scripts/outreach_log.py, scripts/workspace.py, reference.md]")
+
+    def write_yaml(self, uses):
+        (self.skill / "skill.yaml").write_text("name: salesnav-demo\nversion: 0.1.0\ncategory: sales\n"
+                                               "runtimes: [local]\nuses_toolkit: %s\n" % uses)
+
+    def run_script(self, *args):
+        return subprocess.run([sys.executable, self.script, *args, "--root", str(self.repo)],
+                              capture_output=True, text=True)
+
+    def synced(self):
+        self.assertEqual(self.run_script().returncode, 0)
+        self.assertEqual(self.run_script("--check").returncode, 0)
+
+    def test_sync_copies_the_listed_files_to_the_same_relative_paths(self):
+        before = self.run_script("--check")
+        self.assertEqual(before.returncode, 1)
+        self.assertIn("missing: page/count.js", before.stdout)
+        self.synced()
+        for rel in ("page/count.js", "scripts/run_log.py", "scripts/outreach_log.py", "scripts/workspace.py", "reference.md"):
+            self.assertEqual((self.skill / rel).read_bytes(),
+                             (self.repo / "skills" / "sales-navigator" / rel).read_bytes(), rel)
+        self.assertFalse((self.skill / "page" / "lead_search.js").exists())  # only what is listed
+        self.assertIn("ok    salesnav-demo/toolkit", self.run_script("--check").stdout)
+
+    def test_check_detects_an_edited_missing_or_stale_copy(self):
+        self.synced()
+        (self.skill / "scripts" / "run_log.py").write_text("# edited copy\n")
+        (self.skill / "page" / "count.js").unlink()
+        (self.skill / "scripts" / "extra.py").write_text("# stale\n")
+        r = self.run_script("--check")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("differs: scripts/run_log.py", r.stdout)
+        self.assertIn("missing: page/count.js", r.stdout)
+        self.assertIn("stale: scripts/extra.py", r.stdout)
+        self.synced()
+        self.assertFalse((self.skill / "scripts" / "extra.py").exists())
+
+    def test_check_detects_a_change_at_the_source(self):
+        self.synced()
+        with open(self.repo / "skills" / "sales-navigator" / "reference.md", "a") as fh:
+            fh.write("\nchanged at the source\n")
+        r = self.run_script("--check")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("differs: reference.md", r.stdout)
+        self.synced()
+
+    def test_listing_a_file_the_toolkit_lacks_or_an_unsafe_path_fails(self):
+        for uses, needle in (("[scripts/nope.py]", "does not exist"), ("[../secret.txt]", "bad uses_toolkit path"),
+                             ("[/etc/hosts]", "bad uses_toolkit path")):
+            with self.subTest(uses=uses):
+                self.write_yaml(uses)
+                fix = self.run_script()
+                self.assertEqual(fix.returncode, 1)
+                check = self.run_script("--check")
+                self.assertEqual(check.returncode, 1)
+                self.assertIn(needle, check.stdout + check.stderr + fix.stderr)
+
+    def test_a_skill_without_uses_toolkit_is_untouched(self):
+        self.write_yaml("[]")
+        (self.skill / "page").mkdir()
+        (self.skill / "page" / "own.js").write_text("// the skill's own file\n")
+        self.synced()
+        self.assertTrue((self.skill / "page" / "own.js").exists())
+
+
 class PublicRepoHygiene(unittest.TestCase):
     """The runtime package and sales-navigator skill ship publicly: no identities or secrets."""
 
@@ -218,6 +301,7 @@ class PublicRepoHygiene(unittest.TestCase):
 
     def test_no_identities_or_cookies(self):
         roots = [ROOT / "packages", ROOT / "skills" / "sales-navigator"]
+        roots += sorted(p for p in (ROOT / "skills").iterdir() if p.name.startswith("salesnav-"))
         for root in roots:
             for path in root.rglob("*"):
                 if not path.is_file() or "__pycache__" in path.parts:

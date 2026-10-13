@@ -59,7 +59,7 @@ class HardRulesAndBudget(unittest.TestCase):
         self.assertLessEqual(words(SKILL / "reference.md"), 1500)
         self.assertLessEqual(words(SKILL / "recipes.md"), 800)
         total = sum(words(p) for p in SKILL.rglob("*.md"))
-        self.assertLessEqual(total, 3100, total)
+        self.assertLessEqual(total, 3200, total)
 
     def test_only_the_slim_docs_remain(self):
         names = sorted(str(p.relative_to(SKILL)) for p in SKILL.rglob("*.md"))

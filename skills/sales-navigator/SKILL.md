@@ -32,7 +32,8 @@ run it in one process (`runtime/README.md`). Neither: read result pages by hand 
 
 Scripts in `scripts/` (Python stdlib, no network): `salesnav_rows.py` (results to CSV),
 `shard_plan.py`, `dedupe.py`, `validate_csv.py`, `workspace.py` (locate or init the folder),
-`run_log.py` (usage log; `quota` prints usage against caps), `outreach_log.py` (send ledger and caps).
+`run_log.py` (usage log; `quota` prints usage against caps), `outreach_log.py` (send ledger and caps),
+`tam_tracker.py` (sub-list checklist for a TAM pulled under the cap).
 
 **Workspace** `~/Claude/sales-navigator`: `company-profile.md`, `run_log.csv`, `outreach_log.csv`,
 `quota.md`, `results/`, `drafts/`. Missing: ask the user once, then `workspace.py init`. No profile:
@@ -51,6 +52,13 @@ propose a filled `templates/company-profile.md` in one message for the user to c
    result; tell the user the exact message.
 6. **Stay proportional.** Do the step asked; do not chain big pulls, qualifies or sends unless asked.
    Pace calls 3 to 5 seconds apart, one session per seat.
+
+## Purpose skills
+
+Four focused skills sit on this toolkit, each bundling the tools it needs: `salesnav-tam-accounts`
+(company searches and counts), `salesnav-tam-people` (people searches and counts), `salesnav-tam-tracker`
+(split a master search under the cap, pull, track coverage), `salesnav-outreach` (daily sends with the
+ledger). Edit a tool here only; `build/sync_runtime.py` copies it into them.
 
 ## Build your own flow
 
