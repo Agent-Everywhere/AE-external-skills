@@ -1,0 +1,36 @@
+# AE GBrain: index this repo (docs + code) as gbrain source <repo> on every relevant change to main (and on demand).
+# Logic lives in one place: Agent-Everywhere/ae-gbrain-deploy/.github/workflows/gbrain-source-push.yml
+name: gbrain-sync
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**.md"
+      - "**.mdx"
+      - "**.ts"
+      - "**.tsx"
+      - "**.mts"
+      - "**.js"
+      - "**.jsx"
+      - "**.mjs"
+      - "**.cjs"
+      - "**.py"
+      - "**.go"
+      - "**.rs"
+      - "**.rb"
+      - "**.sh"
+      - "**.sql"
+      - "**.css"
+      - "**.html"
+      - "**.json"
+      - "**.yaml"
+      - "**.yml"
+      - "**.toml"
+      - "**.astro"
+      - "**.svelte"
+      - "**.vue"
+  workflow_dispatch:
+jobs:
+  gbrain:
+    uses: Agent-Everywhere/ae-gbrain-deploy/.github/workflows/gbrain-source-push.yml@main
+    secrets: inherit
