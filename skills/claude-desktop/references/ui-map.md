@@ -50,6 +50,11 @@ toggle (105,26), back/forward, and the mode switch at the top left of the conten
   120-line reply in about 9 s. Success looks like: your message right-aligned in a grey bubble, the answer
   below it in serif text, and a row of small icons (copy, speaker, thumbs, retry) under the answer. While
   generating there is a Stop control where send was.
+- **Approval prompts stack and hide the reply box.** In Cowork, several "Allow Claude to ..." prompts can
+  pile up in the conversation and push the `Reply` box (and the prompts' own buttons) out of view. When the
+  reply box is missing or `wait-idle` says "idle" but nothing finished, scroll up and down
+  (`desktop.py scroll up|down --amount 10 --at 900,400`) to find the prompts, make the whole prompt visible,
+  and only then follow the approval rules in `safety.md`. Log each click with `desktop.py approvals-log`.
 - **Follow-up:** click the `Reply` box (~700,730), `type`, screenshot, click send (~1152,730), `wait-idle`.
 - **Scroll long replies:** `desktop.py scroll down --amount 30 --at 900,400` (clicks that point first, so pick
   empty space in the conversation, then scrolls).

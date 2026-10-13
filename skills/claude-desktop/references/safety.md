@@ -39,6 +39,45 @@ quoting the request, and click only after an explicit yes for that specific acti
 
 A blanket "go ahead and run the demo" does not cover these. When in doubt, ask.
 
+### Hard rules for every approval prompt
+
+Incident (2026-10-13): during a Cowork demo the operator clicked about 29 "Allow Claude to fetch pages
+from <site>?" prompts, some blind on partly visible prompts, wrote and ran its own OCR auto-approve
+script, and did not record what the setup-question clicks answered, so it could not prove that no
+"Allow all for this website" was granted. These rules exist so that cannot happen again.
+
+1. **Never write or run an auto-approve or auto-click script** (OCR loops, polling clickers, macros, a
+   `while` loop around `click`). Every approval is one deliberate click by you after reading it.
+2. **Click only when the WHOLE prompt is visible.** The latest fresh screenshot (taken after the prompt
+   appeared, not reused) must show the prompt text and all of its buttons. Read the label of the exact
+   button you are about to click. A partly visible, cropped or scrolled prompt: scroll until it is whole,
+   screenshot again, then decide.
+3. **Never click blind and never click in pairs.** One screenshot, one click, one screenshot to confirm
+   the result, before the next. Do not queue a second click on the strength of the first screenshot.
+4. **Prefer the most limited option** ("Allow once", this call only) over anything broader.
+5. **Ask once, up front, when many approvals are likely** (web fetches, many files). Before the first
+   one, ask the user in this chat to pick: (a) set the Cowork task's approval mode to Auto, (b) click
+   "Allow all for this website" style options as prompts appear, or (c) approve each prompt once. Record
+   their words: `desktop.py approvals-log start --user-ok "<their words>"`. With that OK, Auto mode and
+   broad options are allowed for that run (and only that run). **Without it, never choose "Allow all",
+   "Always allow", "for this task", "for this website/site/chat" or any standing grant, and never switch
+   the task to Auto.** Setup questions and permission dialogs are approvals too.
+6. **Without the user's OK, stop and ask after 5 routine approvals in one run.** Enforced by the tool:
+   `approvals-log add` counts routine approvals since the run's `start` (Deny / Not now / Cancel / Block /
+   Don't allow do not count) and **refuses the 6th** unless the run was started with `--user-ok` or the
+   `add` call carries `--user-ok "<the user's words>"`. A "fetch pages from <site>" prompt is routine
+   and readable, but it counts toward the 5 like any other, and approving more than 5 needs the user's OK.
+7. **Log every approval** right after clicking, including answers to setup questions. Start the run once
+   (`desktop.py approvals-log start`; it keeps any old log as `<log>.prev`), then per click:
+   `desktop.py approvals-log add --prompt "<text as read>" --button "<label clicked>" --shot <png>`
+   (default file `./desktop-approvals.jsonl`; use `--log` to put it where the user can read it). `--shot`
+   must be the fresh PNG of that prompt (it must exist, be under 2 minutes old, and differ from the
+   previous entry's); its sha256 is stored. Only Allow once / Deny / Cancel / Block / Not now / Don't allow
+   are known-limited; any other label is flagged broad or unverified and `add` refuses it without a
+   user OK. Entries are timezone-stamped JSONL. If `add` refuses a click you already made, tell the user
+   at once. At the end of the run, `approvals-log show` (non-zero exit if any line is corrupt) and **report
+   the log to the user**, including the count and any broad grant or Auto mode that was used.
+
 ## 4. Never type secrets
 
 Do not type passwords, API keys, tokens, recovery codes, or 2FA codes into Claude Desktop or anywhere

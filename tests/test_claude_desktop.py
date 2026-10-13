@@ -1,11 +1,15 @@
 """Tests for skills/claude-desktop/scripts/desktop.py. No Peekaboo or Claude Desktop needed."""
+import hashlib
 import importlib.util
 import json
 import os
 import struct
 import tempfile
+import threading
+import time
 import unittest
 import zlib
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -776,6 +780,305 @@ class ConfigSafety(unittest.TestCase):
         with open(self.path, "w") as fh:
             json.dump({"mcpServers": ["not", "a", "dict"]}, fh)
         self.assertIn("not an object", "\n".join(desktop.mcp_list(self.path)))
+
+
+class ShotTransientRetry(unittest.TestCase):
+    def test_target_changed_during_capture_retries_once_then_succeeds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "s.png")
+            rec = WritingRecorder(path, [(1, "Error: target changed during capture"), (0, "")])
+            self.assertEqual(desktop.shot(path, runner=rec, sleeper=lambda s: None), path)
+            self.assertEqual(len(rec.calls), 2)
+            self.assertEqual(rec.calls[0], rec.calls[1])
+
+    def test_target_changed_twice_fails_after_exactly_one_retry(self):
+        rec = Recorder([(1, "target changed during capture"), (1, "target changed during capture")])
+        with self.assertRaises(desktop.DesktopError):
+            desktop.shot("/nonexistent/never.png", runner=rec, sleeper=lambda s: None)
+        self.assertEqual(len(rec.calls), 2)
+
+
+class ShotRetryOrdering(unittest.TestCase):
+    def test_transient_retry_still_happens_after_minimized_recovery(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "s.png")
+            rec = WritingRecorder(path, [(1, "window minimized"), (0, ""), (1, "target changed during capture"),
+                                         (0, "")])
+            self.assertEqual(desktop.shot(path, runner=rec, sleeper=lambda s: None), path)
+            self.assertEqual([c[0] for c in rec.calls], ["peekaboo", "open", "peekaboo", "peekaboo"])
+
+    def test_first_error_is_kept_when_the_retry_fails_differently(self):
+        rec = Recorder([(1, "target changed during capture"), (1, "permission denied")])
+        with self.assertRaises(desktop.DesktopError) as cm:
+            desktop.shot("/nonexistent/never.png", runner=rec, sleeper=lambda s: None)
+        text = str(cm.exception)
+        self.assertIn("permission denied", text)
+        self.assertIn("first error was: target changed during capture", text)
+        self.assertEqual(cm.exception.output, "permission denied")
+
+    def test_same_error_twice_is_not_duplicated(self):
+        rec = Recorder([(1, "target changed during capture"), (1, "target changed during capture")])
+        with self.assertRaises(desktop.DesktopError) as cm:
+            desktop.shot("/nonexistent/never.png", runner=rec, sleeper=lambda s: None)
+        self.assertNotIn("first error", str(cm.exception))
+
+    def test_recovering_wrapper_decides_from_the_last_error_only(self):
+        # first error mentions "minimized" but the final one is a hard failure: no extra recovery rounds
+        calls = {"see": 0}
+
+        def runner(cmd, timeout=60):
+            if cmd[0] == "peekaboo":
+                calls["see"] += 1
+                return (1, "window minimized") if calls["see"] == 1 else (1, "permission denied")
+            return (0, "true, 1\n")
+        with self.assertRaises(desktop.DesktopError):
+            desktop.shot_recovering("/nonexistent/never.png", runner=runner, sleeper=lambda s: None)
+        self.assertEqual(calls["see"], 2)
+
+
+class ApprovalsLog(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.log = os.path.join(self._tmp.name, "sub", "approvals.jsonl")
+        self.n = 0
+
+    def png(self):
+        """A fresh, distinct PNG file (new content each call)."""
+        self.n += 1
+        path = os.path.join(self._tmp.name, "shot%d.png" % self.n)
+        shade = self.n
+        Path(path).write_bytes(make_png(16, 16, lambda x, y: (shade % 256, shade // 256, 7)))
+        return path
+
+    def add(self, button="Allow once", prompt="Allow Claude to fetch pages from example.com?", shot=None, **kw):
+        return desktop.add_approval(self.log, prompt, button, shot or self.png(), **kw)
+
+    def lines(self):
+        return [json.loads(x) for x in Path(self.log).read_text(encoding="utf-8").splitlines()]
+
+    def test_add_appends_jsonl_with_fields_tz_timestamp_and_sha(self):
+        shot = self.png()
+        entry, count, warnings = self.add(shot=shot)
+        self.assertEqual((count, warnings), (1, []))
+        _, count, _ = self.add(button="Deny")
+        self.assertEqual(count, 1)  # a Deny is logged but is not a routine approval
+        first, second = self.lines()
+        self.assertEqual(set(first), {"type", "time", "run", "prompt", "button", "shot", "shot_sha256", "broad"})
+        self.assertEqual((first["button"], first["broad"]), ("Allow once", False))
+        self.assertEqual(first["shot_sha256"], hashlib.sha256(Path(shot).read_bytes()).hexdigest())
+        self.assertEqual(second["button"], "Deny")
+        self.assertIsNotNone(datetime.fromisoformat(first["time"]).tzinfo)
+
+    def test_requires_prompt_button_and_shot(self):
+        for kw in ({"prompt": ""}, {"button": " "}):
+            with self.assertRaises(desktop.DesktopError):
+                self.add(**kw)
+        with self.assertRaises(desktop.DesktopError):
+            desktop.add_approval(self.log, "p", "Allow once", None)
+        self.assertFalse(os.path.exists(self.log))
+
+    # --- counter: per run, refuses the 6th routine approval ---------------------------------------
+    def test_start_rotates_old_log_to_prev_and_writes_header(self):
+        self.add()
+        run_id, prev = desktop.start_run(self.log)
+        self.assertEqual(prev, self.log + ".prev")
+        self.assertEqual(len(json.loads(Path(prev).read_text().splitlines()[0]).keys() & {"button"}), 1)
+        (header,) = self.lines()
+        self.assertEqual((header["type"], header["run"]), ("header", run_id))
+        self.assertNotIn("user_ok", header)
+        # starting again over a header-only log must not clobber the real .prev
+        desktop.start_run(self.log)
+        self.assertIn("Allow once", Path(prev).read_text())
+
+    def test_count_is_per_run_not_per_file(self):
+        for _ in range(5):
+            self.add()
+        desktop.start_run(self.log)
+        _, count, warnings = self.add()
+        self.assertEqual((count, warnings), (1, []))
+
+    def test_sixth_routine_approval_is_refused_without_user_ok_and_declines_do_not_count(self):
+        desktop.start_run(self.log)
+        for i in range(5):
+            _, count, warnings = self.add()
+            self.add(button="Not now")
+            self.assertEqual(count, i + 1)
+            self.assertEqual(len(warnings), 1 if i == 4 else 0, i)
+        self.assertIn("refused", warnings[0])
+        before = Path(self.log).read_text()
+        with self.assertRaises(desktop.DesktopError) as cm:
+            self.add()
+        self.assertIn("--user-ok", str(cm.exception))
+        self.assertEqual(Path(self.log).read_text(), before)  # nothing written
+        entry, count, _ = self.add(user_ok="yes, approve them all")
+        self.assertEqual((count, entry["user_ok"]), (6, "yes, approve them all"))
+        self.assertEqual(desktop.main(["approvals-log", "add", "--log", self.log, "--prompt", "p",
+                                       "--button", "Allow once", "--shot", self.png()]), 1)
+
+    def test_start_user_ok_lifts_the_limits_for_the_run(self):
+        desktop.start_run(self.log, user_ok="Auto mode is fine for this run")
+        self.assertEqual(self.lines()[0]["user_ok"], "Auto mode is fine for this run")
+        for _ in range(7):
+            self.add()
+        entry, _, warnings = self.add(button="Allow all for this website")
+        self.assertIs(entry["broad"], True)
+        self.assertTrue(any("standing grant" in w for w in warnings))
+
+    # --- broad detection: fail closed ------------------------------------------------------------
+    def test_scope_classification_fails_closed(self):
+        for label in ("Allow once", "Deny", "Cancel", "Block", "Not now", "Don't allow", "Don’t allow", "allow once."):
+            self.assertEqual(desktop.approval_scope(label), "limited", label)
+        for label in ("Allow all for this website", "Always allow", "Allow for this task", "Allow all",
+                      "Allow for all sites", "Allow for this conversation", "Allow on this domain",
+                      "Allow every time", "Trust this site", "Allow for all chats", "Remember my choice",
+                      "Don't ask again", "Skip all", "Auto"):
+            self.assertEqual(desktop.approval_scope(label), "broad", label)
+            self.assertTrue(desktop.is_broad_approval(label), label)
+        for label in ("Allow", "Okay", "Proceed", "Yes"):
+            self.assertEqual(desktop.approval_scope(label), "unverified", label)
+
+    def test_broad_and_unverified_need_a_user_ok(self):
+        for label in ("Allow all for this website", "Allow", "Remember my choice"):
+            with self.assertRaises(desktop.DesktopError, msg=label):
+                self.add(button=label)
+        self.assertFalse(os.path.exists(self.log))
+        entry, _, warnings = self.add(button="Allow", user_ok="the user said click Allow")
+        self.assertEqual(entry["broad"], "unverified")
+        self.assertTrue(any("unverified" in w for w in warnings))
+
+    def test_show_recomputes_broad_instead_of_trusting_the_stored_flag(self):
+        os.makedirs(os.path.dirname(self.log))
+        old = {"time": "t", "prompt": "p", "button": "Allow all for this website", "shot": "s", "broad": False}
+        missing_key = {"time": "t", "prompt": "p", "button": "Always allow", "shot": "s"}
+        Path(self.log).write_text(json.dumps(old) + "\n" + json.dumps(missing_key) + "\n", encoding="utf-8")
+        text = "\n".join(desktop.format_approvals(*desktop.read_log(self.log)))
+        self.assertEqual(text.count("[BROAD GRANT]"), 2)
+        self.assertIn("2 approval(s) logged; 2 broad grant(s)", text)
+
+    def test_show_lists_entries_headers_count_and_warning(self):
+        desktop.start_run(self.log, user_ok="ok to go past five")
+        for _ in range(5):
+            self.add()
+        self.add(button="Allow all for this website")
+        text = "\n".join(desktop.format_approvals(*desktop.read_log(self.log)))
+        self.assertIn("6 approval(s) logged; 1 broad grant(s)", text)
+        self.assertIn("[BROAD GRANT]", text)
+        self.assertIn("user OK: ok to go past five", text)
+        self.assertIn("WARNING", text)
+        self.assertEqual(desktop.read_approvals(os.path.join(self._tmp.name, "none.jsonl")), [])
+
+    # --- screenshot evidence ---------------------------------------------------------------------
+    def test_shot_must_exist_be_png_fresh_and_new(self):
+        missing = os.path.join(self._tmp.name, "nope.png")
+        notpng = os.path.join(self._tmp.name, "x.png")
+        Path(notpng).write_bytes(b"not a png")
+        stale = self.png()
+        os.utime(stale, (time.time() - 600, time.time() - 600))
+        for bad in (missing, notpng, stale):
+            with self.assertRaises(desktop.DesktopError, msg=bad):
+                self.add(shot=bad)
+        self.assertFalse(os.path.exists(self.log))
+        first = self.png()
+        self.add(shot=first)
+        with self.assertRaises(desktop.DesktopError):  # same path as the previous entry
+            self.add(shot=first)
+        copy = os.path.join(self._tmp.name, "copy.png")
+        Path(copy).write_bytes(Path(first).read_bytes())
+        with self.assertRaises(desktop.DesktopError):  # different path, same bytes
+            self.add(shot=copy)
+        self.assertEqual(len(self.lines()), 1)
+        self.add()  # a genuinely new screenshot is fine
+
+    # --- corrupt log -----------------------------------------------------------------------------
+    def test_corrupt_log_is_tolerated_by_show_and_add(self):
+        os.makedirs(os.path.dirname(self.log))
+        good = {"type": "approval", "time": "t", "prompt": "p", "button": "Allow once", "shot": "s", "broad": False}
+        with open(self.log, "wb") as fh:
+            fh.write(json.dumps(good).encode() + b"\nnot json\n\xff\xfe bad bytes\n[1, 2]\n" + json.dumps(good).encode())
+        records, corrupt = desktop.read_log(self.log)  # no trailing newline on the last line
+        self.assertEqual((len(records), [n for n, _ in corrupt]), (2, [2, 3, 4]))
+        self.assertEqual(desktop.main(["approvals-log", "show", "--log", self.log]), 1)
+        text = "\n".join(desktop.format_approvals(records, corrupt))
+        self.assertIn("CORRUPT line 2", text)
+        self.assertIn("CORRUPT line 4", text)
+        entry, count, warnings = self.add()
+        self.assertEqual(count, 3)
+        self.assertTrue(any("corrupt" in w for w in warnings))
+        self.assertTrue(any("newline" in w for w in warnings))
+        records, corrupt = desktop.read_log(self.log)
+        self.assertEqual((len(records), len(corrupt)), (3, 3))  # new entry sits on its own line
+        self.assertEqual(records[-1]["button"], "Allow once")
+
+    def test_clean_show_exits_zero_and_add_does_not_warn_about_newline(self):
+        self.add()
+        self.assertEqual(desktop.main(["approvals-log", "show", "--log", self.log]), 0)
+        _, _, warnings = self.add()
+        self.assertEqual(warnings, [])
+
+    def test_unencodable_text_is_a_desktop_error_not_a_traceback(self):
+        with self.assertRaises(desktop.DesktopError):
+            self.add(prompt="bad \udcff surrogate")
+        self.assertFalse(os.path.exists(self.log))
+        self.assertEqual(desktop.main(["approvals-log", "add", "--log", self.log, "--prompt", "bad \udcff",
+                                       "--button", "Allow once", "--shot", self.png()]), 1)
+
+    # --- concurrency -----------------------------------------------------------------------------
+    def test_add_waits_for_the_lock(self):
+        done = threading.Event()
+        shot = self.png()
+
+        def worker():
+            self.add(shot=shot)
+            done.set()
+        with desktop._approvals_lock(self.log):
+            t = threading.Thread(target=worker)
+            t.start()
+            self.assertFalse(done.wait(0.4))
+        self.assertTrue(done.wait(5))
+        t.join()
+
+    def test_concurrent_adds_get_distinct_counts_and_all_land(self):
+        shots = [self.png() for _ in range(5)]
+        counts = []
+
+        def worker(shot):
+            counts.append(self.add(shot=shot)[1])
+        threads = [threading.Thread(target=worker, args=(s,)) for s in shots]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(sorted(counts), [1, 2, 3, 4, 5])
+        self.assertEqual(len(self.lines()), 5)
+
+    def test_cli_start_add_show_and_default_path(self):
+        args = desktop.make_parser().parse_args(["approvals-log", "show"])
+        self.assertEqual(args.log, "desktop-approvals.jsonl")
+        self.assertEqual(desktop.main(["approvals-log", "start", "--log", self.log, "--user-ok", "go"]), 0)
+        self.assertEqual(desktop.main(["approvals-log", "add", "--log", self.log, "--prompt", "p",
+                                       "--button", "Allow once", "--shot", self.png()]), 0)
+        self.assertEqual(desktop.main(["approvals-log", "add", "--log", self.log, "--prompt", "p"]), 1)
+        self.assertEqual(desktop.main(["approvals-log", "show", "--log", self.log]), 0)
+        self.assertEqual(len(desktop.read_approvals(self.log)), 1)
+
+
+class WaitIdleReminder(unittest.TestCase):
+    def test_wait_idle_prints_blocked_on_prompt_reminder(self):
+        import contextlib
+        import io
+        real_shot, real_wait = desktop.shot_recovering, desktop.wait_idle
+        desktop.shot_recovering = lambda path, **kw: Path(path).write_bytes(b"x")
+        desktop.wait_idle = lambda *a, **kw: ("idle", 2, b"x")
+        buf = io.StringIO()
+        try:
+            with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(buf):
+                code = desktop.main(["wait-idle", "--out", os.path.join(tmp, "o.png")])
+        finally:
+            desktop.shot_recovering, desktop.wait_idle = real_shot, real_wait
+        self.assertEqual(code, 0)
+        self.assertIn("idle after 2 captures", buf.getvalue())
+        self.assertIn("blocked on an approval prompt", buf.getvalue())
 
 
 if __name__ == "__main__":
