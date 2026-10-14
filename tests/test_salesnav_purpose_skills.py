@@ -49,7 +49,10 @@ def text(name):
 
 
 def squash(name):
-    return " ".join(text(name).split()).lower()
+    """Whitespace-collapsed, lowercased SKILL.md with the `python3 "$ENGINE/scripts/` command prefix removed, so
+    phrases like "run_log.py quota" match the full-form command."""
+    flat = " ".join(text(name).split()).replace('python3 "$ENGINE/scripts/', "").replace('.py"', ".py")
+    return flat.lower()
 
 
 class PurposeSkillFolders(unittest.TestCase):

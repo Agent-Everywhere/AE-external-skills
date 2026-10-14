@@ -5,7 +5,7 @@ short result and a few suggestions.
 
 ## 1. Set up a profile (one or two turns, no LinkedIn calls)
 
-Take the user's one-line description of what they sell. Fill `templates/company-profile.md`
+Take the user's one-line description of what they sell. Fill `$ENGINE/templates/company-profile.md`
 yourself (offer, ICP, buyer types, "not a buyer" types, titles by size, keywords, tone, size goal 25), show
 it as a numbered list, and ask only "Confirm, or correct by number." A guessed profile grants no
 permissions: list creation and sending stay off until the user says yes. Save it in the workspace
@@ -36,7 +36,7 @@ an estimate and the calls used (`run_log.py add --small-calls N`, then `quota`).
 Pick qualified leads, one per account. `outreach_log.py check` drops anyone contacted; drop pending
 invitations and the do-not-contact list too. Connection note (300 characters or fewer)
 for 2nd degree, InMail for people you cannot connect with. Each draft names one true thing
-about them and one reason for writing; list each claim's source in `sources`, cutting any without one. Write `drafts/<date>.csv` from `templates/drafts.csv`, run `validate_csv.py`, show the exact texts; send nothing. If the user then asks to send: show the exact batch and wait for their typed approval,
+about them and one reason for writing; list each claim's source in `sources`, cutting any without one. Write `drafts/<date>.csv` from `$ENGINE/templates/drafts.csv`, run `validate_csv.py`, show the exact texts; send nothing. If the user then asks to send: show the exact batch and wait for their typed approval,
 which covers only that batch (a changed person, text or kind is a new batch). Open each lead first; skip
 anyone with an existing message thread or pending invitation. Click in the Sales Nav UI one person
 at a time (`add --pending`, verify the sent state on screen, `status --status sent`, then a random 30 to

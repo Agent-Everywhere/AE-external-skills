@@ -14,8 +14,14 @@ The engine: one folder of page snippets and scripts that the other four `salesna
 Compose the user's flow from these tools. Endpoints, filters, caps, gotchas: `$ENGINE/reference.md`.
 Example flows: `$ENGINE/recipes.md`. Runtime: `$ENGINE/runtime/README.md`.
 
-**Engine path.** `ENGINE` is `${CLAUDE_PLUGIN_ROOT}/skills/sales-navigator` when `CLAUDE_PLUGIN_ROOT` is set,
-else this SKILL.md's own folder. Set it at the top of every shell call (each call starts fresh).
+**Engine path.** Run this at the top of every shell call (it sets `ENGINE`; quote every path, it may contain
+spaces). `ENGINE` is `${CLAUDE_PLUGIN_ROOT}/skills/sales-navigator` when that variable is set, else this
+SKILL.md's own folder. Replace the angle-bracket part with the absolute folder you read this SKILL.md from. If
+neither resolves, stop and tell the user.
+
+```sh
+ENGINE="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/sales-navigator}"; [ -f "$ENGINE/scripts/doctor.py" ] || ENGINE="<absolute folder of this SKILL.md>"
+```
 
 **Step 0, every flow.** Run `python3 "$ENGINE/scripts/doctor.py"`. If doctor fails or the engine can't be
 found, stop and tell the user. Never fall back to driving the Sales Navigator UI by hand (clicking
@@ -56,10 +62,10 @@ script call and save it as `workspace:` in the profile. Missing: ask the user on
 2. **A send needs the user's typed approval of the exact batch** (people and text), covering only that
    batch. A question card default, timeout, silence or auto-approve mode is never approval. Never send
    from a schedule. Skip anyone with an existing message thread or pending invitation: look first.
-3. **Respect caps.** Log with `run_log.py` and `outreach_log.py` in the workspace and run
-   `run_log.py quota` before and after work. Lower caps in the profile go to `outreach_log.py` and
-   `run_log.py quota` as `--daily/--weekly/--followup-daily` every time. Never raise a cap without the
-   user's explicit go.
+3. **Respect caps.** Log with `python3 "$ENGINE/scripts/run_log.py"` and `python3 "$ENGINE/scripts/outreach_log.py"`
+   in the workspace and run `python3 "$ENGINE/scripts/run_log.py" quota` before and after work. Lower caps in
+   the profile go to both scripts as `--daily/--weekly/--followup-daily` every time. Never raise a cap
+   without the user's explicit go.
 4. **Never invent claims.** Seller facts come from the company profile, prospect facts from the
    row's data; cite sources in drafts. Refuse seller facts from a profile marked EXAMPLE or holding
    `<...>` placeholders.

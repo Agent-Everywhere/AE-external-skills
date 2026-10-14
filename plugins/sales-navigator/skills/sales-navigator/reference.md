@@ -149,11 +149,16 @@ seat mutation, without the user's explicit confirmation of that exact action.
 
 ## Engine path and doctor
 
-Skills find the engine with `ENGINE=${CLAUDE_PLUGIN_ROOT}/skills/sales-navigator` when `CLAUDE_PLUGIN_ROOT` is
-set, else the `sales-navigator` folder beside the skill's own folder. Relative paths such as `scripts/x.py`
-resolve against the user's project folder, not the skill: always use `"$ENGINE/..."`. Step 0 of every flow is
-`python3 "$ENGINE/scripts/doctor.py"` (engine folder, Python, required snippets and scripts, workspace). If it
-fails or the engine is not found, stop and tell the user; never drive the Sales Nav UI by hand.
+Every skill opens with the same shell block (it sets `ENGINE`; quote every path, it may contain spaces):
+
+```sh
+ENGINE="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/sales-navigator}"; [ -f "$ENGINE/scripts/doctor.py" ] || ENGINE="<absolute folder of this SKILL.md>/../sales-navigator"
+```
+
+A relative script or snippet path resolves against the user's project folder, not the skill: always use
+`"$ENGINE/..."`. Step 0 of every flow is `python3 "$ENGINE/scripts/doctor.py"` (engine folder, Python, required
+snippets and scripts, workspace). If it fails or the engine is not found, stop and tell the user; never drive
+the Sales Nav UI by hand. If no page snippet can run (no browser JS tool, Agent Browser or CDP), stop too.
 
 ## CSVs
 

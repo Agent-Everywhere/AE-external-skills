@@ -49,7 +49,10 @@ Claude GitHub App to have access to this repository; without that the plugin ins
 update itself.
 
 **Without plugins** (claude.ai, or a one-off skill): download the folder you want from
-`skills/<skill-name>/` as a zip and add it as a skill. `grokbot` runs a local CLI, so it needs Claude
+`skills/<skill-name>/` as a zip and add it as a skill. The Sales Navigator skills are the exception:
+they share one engine, so a `salesnav-*` skill on its own has no tools. Zip all of
+`plugins/sales-navigator/` (its `skills/` folder holds the engine and the four purpose skills) and add the
+skills from that zip together. `grokbot` runs a local CLI, so it needs Claude
 Code (or another agent with shell access) on the Mac that has Grok Bot installed.
 
 **Just the `grokbot` CLI** (no Claude needed; Node 20+; rerun to update):

@@ -1,6 +1,6 @@
 # browser-runtime
 
-Runs a skill's page snippets (`page/*.js`: one `async (params) => {...}` doing a same-origin `fetch` in
+Runs a skill's page snippets (`$ENGINE/page/*.js`: one `async (params) => {...}` doing a same-origin `fetch` in
 the signed-in page, returning compact JSON). This folder is the source of truth; `python3
 build/sync_runtime.py` vendors it into the engine skill's `runtime/` (`--check` fails on drift; `$ENGINE` is the engine folder the skills resolve, see their "Engine path" line). Code runtimes
 need `pip install playwright` (it attaches to an existing browser). `session.py --help` lists every flag.

@@ -19,6 +19,7 @@ import os
 import sys
 from pathlib import Path
 
+sys.dont_write_bytecode = True   # never leave __pycache__ inside an installed plugin
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 

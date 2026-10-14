@@ -67,6 +67,10 @@ class SkillManifests(unittest.TestCase):
         self.assertEqual(bundle["category"], "sales")
         self.assertEqual(bundle["version"], sync_runtime.load_manifest(ENGINE)["version"],
                          "bump the marketplace version with the engine so clients see an update")
+        newest = tuple(int(x) for x in bundle["version"].split("."))
+        for d in sorted(PLUGIN_SKILLS.iterdir()):   # never older than any skill it ships
+            v = tuple(int(x) for x in sync_runtime.load_manifest(d)["version"].split("."))
+            self.assertGreaterEqual(newest, v, d.name)
         self.assertTrue(bundle.get("description"))
         bundled = set()
         for ref in bundle["skills"]:
@@ -106,6 +110,8 @@ class SkillManifests(unittest.TestCase):
                          sorted(("sales-navigator",) + PURPOSE))
         banned = {"tests", "build", "packages", "__pycache__"}
         for path in source.rglob("*"):
+            if "__pycache__" in path.parts or path.suffix in (".pyc", ".pyo"):
+                continue   # bytecode from running the scripts is not shipped content (and is not tracked)
             self.assertFalse(banned & set(path.relative_to(source).parts), str(path))
 
     def test_purpose_skills_hold_no_copies_of_the_engine(self):
