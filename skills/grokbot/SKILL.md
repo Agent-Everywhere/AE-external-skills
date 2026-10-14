@@ -13,14 +13,14 @@ description: >-
 
 > **Unofficial.** `grokbot` is not affiliated with or endorsed by Cursor or xAI. It uses Grok Bot's private, undocumented interfaces, which may change or break at any time. Use at your own risk: some commands can delete agents and sections.
 
-`grokbot` drives **Cursor's Grok Bot desktop app** (bundle `com.anysphere.sand`) from your own
+**What this is:** a CLI plus this skill, for a person on a Mac. `grokbot` drives **Cursor's Grok Bot desktop app** (bundle `com.anysphere.sand`) from your own
 Claude Code on your Mac, under the operator policy: everything is allowed, and destructive
 commands still need their own `--yes` / `--confirm-count` gates. The app is a thin Electron client;
 agents, transcripts, sections, and pins live on your per-user cloud **host** ("box"), and the CLI
 talks to the same host API the app uses. Credentials come from the signed-in app (Keychain item
 "Grok Bot Safe Storage"); nothing is copied or printed.
 
-If you are a Grok Bot agent running inside your own cloud box, use the **grokbot-box** skill instead.
+Not the same as **grokbot-box**: use that skill if you are a Grok Bot agent running inside your own cloud box.
 
 ## What it can do on the Mac
 

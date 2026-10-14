@@ -13,10 +13,10 @@ description: >-
 
 > **Unofficial.** `grokbot` is not affiliated with or endorsed by Cursor or xAI. It uses Grok Bot's private, undocumented interfaces, which may change or break at any time. Use at your own risk: some commands can delete agents and sections.
 
-This skill is for a **Grok Bot agent inside its own cloud box** that manages its sibling Grok Bot
-workers. The CLI, command reference, and internals live in the `grokbot` skill and are not
-duplicated here. This skill is installed on its own, so it does not ship the CLI: install it in
-the box by cloning the repo (see "Install inside the box"), and read the docs from that clone
+This is a skill only, for a **Grok Bot agent inside its own cloud box** that manages its sibling Grok Bot
+workers. Not the same as **grokbot**: use that skill when you are a person on a Mac driving the desktop app.
+The CLI, command reference, and internals live in the `grokbot` skill and are not duplicated here. This
+skill does not ship the CLI: install it in the box by cloning the repo (see "Install inside the box"), and read the docs from that clone
 (`AE-external-skills/skills/grokbot/...`) or from GitHub
 (<https://github.com/Agent-Everywhere/AE-external-skills/tree/main/skills/grokbot>). A human on a
 Mac uses the `grokbot` skill directly.

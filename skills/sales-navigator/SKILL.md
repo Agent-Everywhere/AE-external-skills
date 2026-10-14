@@ -10,7 +10,7 @@ description: >-
 
 # Sales Navigator
 
-A toolkit, not a procedure: compose the user's flow from these tools. Endpoints, filters, caps, gotchas:
+A Sales Navigator toolkit, not a procedure: compose the user's flow from these tools. Endpoints, filters, caps, gotchas:
 `reference.md`. Example flows: `recipes.md`. Runtime: `runtime/README.md`.
 
 ## Toolkit
