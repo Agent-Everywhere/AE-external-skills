@@ -23,7 +23,7 @@
       "tags": ["grok-bot", "cursor", "agents"]
     },
     {
-      "name": "ae-desktop-operator",
+      "name": "desktop-cowork",
       "source": "./skills/claude-desktop",
       "description": "Skill + helper: operate the Claude Desktop app on your Mac from Claude Code: tasks, replies, approvals, projects, skills, connectors. Unofficial; needs macOS 15+ and Peekaboo.",
       "skills": ["."],
