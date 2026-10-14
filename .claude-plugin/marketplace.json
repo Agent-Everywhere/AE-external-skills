@@ -9,7 +9,7 @@
     {
       "name": "grokbot",
       "source": "./skills/grokbot",
-      "description": "Operate your Grok Bot desktop app from Claude Code on your Mac: agents, groups, sections, pins, transcripts, send --wait. Unofficial; needs Node 20+.",
+      "description": "CLI + skill: operate your Grok Bot desktop app from Claude Code on your Mac: agents, groups, sections, pins, transcripts, send --wait. Unofficial; needs Node 20+.",
       "skills": ["."],
       "category": "productivity",
       "tags": ["grok-bot", "cursor", "agents"]
@@ -17,7 +17,7 @@
     {
       "name": "grokbot-box",
       "source": "./skills/grokbot-box",
-      "description": "For a Grok Bot agent inside its own cloud box: manage sibling Grok Bot workers (list, create, organize, send, delete) under an advisory agent policy. Unofficial.",
+      "description": "Skill: for a Grok Bot agent inside its own cloud box: manage sibling Grok Bot workers (list, create, organize, send, delete) under an advisory agent policy. Unofficial.",
       "skills": ["."],
       "category": "productivity",
       "tags": ["grok-bot", "cursor", "agents"]
@@ -25,7 +25,7 @@
     {
       "name": "ae-desktop-operator",
       "source": "./skills/claude-desktop",
-      "description": "Operate the Claude Desktop app on your Mac from Claude Code: tasks, replies, approvals, projects, skills, connectors. Unofficial; needs macOS 15+ and Peekaboo.",
+      "description": "Skill + helper: operate the Claude Desktop app on your Mac from Claude Code: tasks, replies, approvals, projects, skills, connectors. Unofficial; needs macOS 15+ and Peekaboo.",
       "skills": ["."],
       "category": "productivity",
       "tags": ["claude-desktop", "cowork", "peekaboo", "macos"]
@@ -33,7 +33,7 @@
     {
       "name": "sales-navigator",
       "source": "./",
-      "description": "LinkedIn Sales Navigator toolkit plus TAM accounts, TAM people, TAM tracker and outreach skills. Runs in your own browser or Agent Browser.",
+      "description": "5 skills: LinkedIn Sales Navigator toolkit plus TAM accounts, TAM people, TAM tracker and outreach skills. Runs in your own browser or Agent Browser.",
       "strict": false,
       "skills": [
         "./skills/sales-navigator",

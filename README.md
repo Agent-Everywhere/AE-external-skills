@@ -1,12 +1,39 @@
 # AE external skills
 
-Agent Everywhere's shareable skills for subscribers and readers. Each skill is portable: it works
-for any company, asks the user only for what it needs, and runs inside the user's own Claude
-(Claude Desktop, claude.ai, Claude Code, Codex, and other MCP clients).
+Agent Everywhere's shareable Claude skills and plugins, installable from one marketplace
+(`Agent-Everywhere/AE-external-skills`). Each skill is portable: it works for any company, asks the
+user only for what it needs, and runs inside the user's own Claude (Claude Code, Claude Desktop, or
+another agent with shell or browser access, as noted per plugin below).
+
+## What's in here
+
+Four plugins. Install only the ones you need.
+
+| Plugin | What it is | Who it's for | Where it runs | Needs | Install |
+|---|---|---|---|---|---|
+| [`grokbot`](skills/grokbot/SKILL.md) | CLI + skill. The `grokbot` command (bundled single-file Node CLI) plus a skill that drives it: status/doctor, agents, groups, sections, pins, transcripts, `send --wait`, app restart | A person on their Mac who wants Claude Code to drive their Grok Bot desktop app | Claude Code on the Mac that has Grok Bot installed | Node 20+, the signed-in Grok Bot app | `/plugin install grokbot@ae-external-skills` (CLI alone: see Install) |
+| [`grokbot-box`](skills/grokbot-box/SKILL.md) | Skill only. No CLI bundled: it clones this repo inside the box and uses the `grokbot` CLI from there | A Grok Bot agent inside its own cloud box that manages its sibling workers (list, create, organize, send, delete) under a restricted, audited agent policy | Inside a Grok Bot cloud box | Node 20+ in the box, a clone of this repo | `/plugin install grokbot-box@ae-external-skills` |
+| [`ae-desktop-operator`](skills/claude-desktop/SKILL.md) | Skill + helper script (`desktop.py`, using Peekaboo). The skill folder is `claude-desktop`; the plugin name avoids the `claude-` prefix, which the marketplace reserves | Claude Code on a Mac driving the Claude Desktop app: Cowork tasks, replies, approvals, projects, skills, connectors, plugins, scheduled tasks | Claude Code on your Mac, controlling the Desktop app by screenshots and clicks | macOS 15+, Peekaboo, Screen Recording / Accessibility / Automation permission | `/plugin install ae-desktop-operator@ae-external-skills` |
+| [`sales-navigator`](skills/sales-navigator/SKILL.md) | One plugin bundling 5 skills: the `sales-navigator` toolkit plus `salesnav-tam-accounts`, `salesnav-tam-people`, `salesnav-tam-tracker` and `salesnav-outreach` | Anyone with a LinkedIn Sales Navigator seat who sizes markets, builds lists and runs outreach | Claude Desktop / Cowork's built-in browser, your own Chrome, or Agent Browser | A signed-in Sales Navigator seat; Agent Browser only: the connector `https://browser-mcp-production-6535.up.railway.app/mcp` (Google sign-in) | `/plugin install sales-navigator@ae-external-skills` |
+
+`grokbot` and `grokbot-box` are not the same thing: `grokbot` is for a human on a Mac, `grokbot-box`
+is for an agent inside a box. Each skill points to the other.
+
+The `sales-navigator` plugin's five skills:
+
+- [`sales-navigator`](skills/sales-navigator/SKILL.md): the slim toolkit for your own seat: exact counts, account and lead searches through the in-page API, website lookups, CSV and cap-tracking scripts, example flows. Read-only unless you explicitly ask it to send, and then only for batches you approve.
+- [`salesnav-tam-accounts`](skills/salesnav-tam-accounts/SKILL.md): size a company-side market: account filters, exact counts per variant, one master search. Counts only.
+- [`salesnav-tam-people`](skills/salesnav-tam-people/SKILL.md): size a people-side market: title, seniority, function, geography and headcount filters, a master lead search under the 2,500 cap. Counts and samples only.
+- [`salesnav-tam-tracker`](skills/salesnav-tam-tracker/SKILL.md): cut a master search over the viewable cap into sub-lists, pull them, dedupe across shards, track coverage in `tam_tracker.csv`.
+- [`salesnav-outreach`](skills/salesnav-outreach/SKILL.md): daily connection requests, InMails, messages and follow-ups with an outreach ledger. Drafts by default; sends only after you type approval of the exact batch.
+
+> **Unofficial.** `ae-desktop-operator` is not affiliated with or endorsed by Anthropic. It drives the app by screenshots and clicks, which may break when the app's layout changes, and it takes over your mouse and keyboard while it runs: read the rules in its [`SKILL.md`](skills/claude-desktop/SKILL.md) first.
+>
+> **Unofficial.** `grokbot` and `grokbot-box` are not affiliated with or endorsed by Cursor or xAI. They use Grok Bot's private, undocumented interfaces, which may change or break at any time. Use at your own risk: some commands can delete agents and sections.
 
 ## Install
 
-**Claude Code** (pick the plugins you need):
+**Claude Code**: add the marketplace once, then install the plugins you want:
 
 ```
 /plugin marketplace add Agent-Everywhere/AE-external-skills
@@ -16,15 +43,14 @@ for any company, asks the user only for what it needs, and runs inside the user'
 /plugin install sales-navigator@ae-external-skills
 ```
 
-`sales-navigator` installs all five Sales Navigator skills at once (`sales-navigator`,
-`salesnav-tam-accounts`, `salesnav-tam-people`, `salesnav-tam-tracker`, `salesnav-outreach`).
-The `ae-desktop-operator` plugin ships the `claude-desktop` skill (the plugin name avoids the
-reserved `claude-` prefix).
+**Claude Desktop**: Customize > Plugins > Add > Add marketplace > Add from a repository >
+`Agent-Everywhere/AE-external-skills` > Sync, then Add the plugin you want. Auto-sync needs the
+Claude GitHub App to have access to this repository; without that the plugin installs but does not
+update itself.
 
-**Other Claude apps** (Claude Desktop, claude.ai): download the skill folder you want from
-`skills/<skill-name>/` as a zip and add it as a skill. Note that `grokbot` runs a local CLI and
-needs Claude Code (or another agent with shell access) on the Mac that has Grok Bot installed;
-`grokbot-box` runs inside a Grok Bot box.
+**Without plugins** (claude.ai, or a one-off skill): download the folder you want from
+`skills/<skill-name>/` as a zip and add it as a skill. `grokbot` runs a local CLI, so it needs Claude
+Code (or another agent with shell access) on the Mac that has Grok Bot installed.
 
 **Just the `grokbot` CLI** (no Claude needed; Node 20+; rerun to update):
 
@@ -33,31 +59,14 @@ mkdir -p ~/.local/bin && curl -fsSL https://github.com/Agent-Everywhere/AE-exter
 ```
 
 Skills that list `agent-browser` in their `skill.yaml` `runtimes` can drive Agent Everywhere's
-cloud-browser MCP; `sales-navigator` and the `salesnav-*` purpose skills can also run in the user's own browser (`local`). Other skills
-(such as `grokbot`) ship their own tooling and do not need that connector.
+cloud-browser MCP; `sales-navigator` and the `salesnav-*` skills can also run in the user's own
+browser (`local`). The other skills ship their own tooling and do not need that connector.
 
-### Upgrading
+## Upgrading
 
 If you installed the older `claude-desktop`, `salesnav-tam-accounts`, `salesnav-tam-people`,
 `salesnav-tam-tracker` or `salesnav-outreach` plugins, run `/plugin uninstall <name>@ae-external-skills`
 for each, then install `ae-desktop-operator` and `sales-navigator`.
-
-## Skills
-
-| Skill | What it does |
-|---|---|
-| [`sales-navigator`](skills/sales-navigator/SKILL.md) | A slim toolkit for your own LinkedIn Sales Navigator seat: exact counts, account and lead searches through the in-page API (your browser's JavaScript tool or a cloud browser), website lookups, CSV and cap-tracking scripts, and example flows to adapt. Read-only unless you explicitly ask it to send, and then only for batches you approve |
-| [`salesnav-tam-accounts`](skills/salesnav-tam-accounts/SKILL.md) | Size a company-side market on your Sales Navigator seat: build account filters and keywords with typeahead, count variants exactly, compare options and pick one master search. Counts only; part of the `sales-navigator` plugin |
-| [`salesnav-tam-people`](skills/salesnav-tam-people/SKILL.md) | Size a people-side market: title, seniority, function, geography and company-headcount filters, exact counts per variant and a master lead search under the 2,500 cap. Counts and samples only; part of the `sales-navigator` plugin |
-| [`salesnav-tam-tracker`](skills/salesnav-tam-tracker/SKILL.md) | Cut a master search that is over the viewable cap into sub-lists (state, headcount, metro), pull them, dedupe across shards and track coverage in `tam_tracker.csv`. Part of the `sales-navigator` plugin |
-| [`salesnav-outreach`](skills/salesnav-outreach/SKILL.md) | Daily connection requests, InMails, messages and follow-ups with an outreach ledger: sourced drafts, a send only after you type approval of the exact batch, caps and a quota line. Drafts by default; part of the `sales-navigator` plugin |
-| [`grokbot`](skills/grokbot/SKILL.md) | Your own Claude Code operates your Grok Bot desktop app on your Mac: status/doctor, agents, groups, sections, pins, transcripts, `send --wait`, app restart (bundled Node CLI, no `npm install`) |
-| [`grokbot-box`](skills/grokbot-box/SKILL.md) | For a Grok Bot agent inside its own cloud box: list, create, organize, send to, and delete its sibling workers under an advisory, audited agent policy (uses the `grokbot` CLI) |
-| [`claude-desktop`](skills/claude-desktop/SKILL.md) | Your Claude Code operates the Claude Desktop app on your Mac: open Chat, Cowork, or Code tasks with a prompt, send, read replies, follow up, and click approvals, plus projects, skills, custom connectors, local MCP config, and scheduled tasks, for example to dry-run skills in Cowork, hand work off to Desktop, or run a demo. Uses the official `claude://` deep links plus Peekaboo (screenshots and clicks); needs macOS 15+ |
-
-> **Unofficial.** `claude-desktop` is not affiliated with or endorsed by Anthropic. It drives the app by screenshots and clicks, which may break when the app's layout changes, and it takes over your mouse and keyboard while it runs: read the rules in its [`SKILL.md`](skills/claude-desktop/SKILL.md) first.
-
-> **Unofficial.** `grokbot` and `grokbot-box` are not affiliated with or endorsed by Cursor or xAI. It uses Grok Bot's private, undocumented interfaces, which may change or break at any time. Use at your own risk: some commands can delete agents and sections.
 
 ## Layout
 
@@ -126,34 +135,11 @@ ship the CLI; it installs it inside the box by cloning this repo.
   `package.json` and lockfile; install with `npm install --omit=dev`, or run the committed bundle
   `cli/dist/grokbot.mjs` directly). This is the one exception
   to the Python-stdlib scripts rule, and the skill's `SKILL.md` documents the install.
-
-## Packaging
-
-Each skill folder zips into an installable skill:
-
-```
-cd skills && zip -r ../dist/<skill-name>.zip <skill-name> -x '*/node_modules/*'
-```
-
-`grokbot-box` does not bundle the CLI or the `grokbot` references; its install section clones this
-repo inside the box, and the zip needs nothing else.
-
-### Releasing the grokbot CLI
-
-The curl install downloads `grokbot.mjs` from the latest GitHub Release, which also gives a
-download count. After a change to `skills/grokbot/cli/` merges, rebuild `dist/` (`npm run build`),
-bump `version` in `package.json`, and publish:
-
-```
-gh release create grokbot-v<version> skills/grokbot/cli/dist/grokbot.mjs --title "grokbot v<version>" --latest
-```
-
-Only grokbot releases may be marked `--latest`: the install URL follows the repo's latest release.
-
-## Requirements for users
-
-- Agent Browser skills only: the Agent Browser connector,
-  `https://browser-mcp-production-6535.up.railway.app/mcp` (Google sign-in).
-- Any other connector the skill names (e.g. their CRM's MCP).
-- Skills with a `cli/`: Node >= 20, plus whatever the skill's `SKILL.md` lists (`grokbot` needs
-  the Grok Bot desktop app on a Mac; `grokbot-box` runs inside a Grok Bot box).
+- **Packaging.** Each skill folder zips into an installable skill:
+  `cd skills && zip -r ../dist/<skill-name>.zip <skill-name> -x '*/node_modules/*'`.
+  `grokbot-box` needs nothing else (it clones this repo inside the box).
+- **Releasing the grokbot CLI.** The curl install downloads `grokbot.mjs` from the latest GitHub
+  Release. After a change to `skills/grokbot/cli/` merges, rebuild `dist/` (`npm run build`), bump
+  `version` in `package.json`, and publish:
+  `gh release create grokbot-v<version> skills/grokbot/cli/dist/grokbot.mjs --title "grokbot v<version>" --latest`.
+  Only grokbot releases may be marked `--latest`: the install URL follows the repo's latest release.
