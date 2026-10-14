@@ -107,9 +107,19 @@ class PageSnippets(unittest.TestCase):
                           [{"status": 200, "body": {"paging": {"total": 1}, "elements": [el]}}])
         self.assertEqual(out["result"]["elements"], [el])
 
-    def test_count_is_clamped_to_25(self):
-        out = run_snippet("lead_search.js", {"query": CLEAN, "count": 500}, [{"status": 200, "body": {}}])
-        self.assertIn("&count=25&", out["calls"][0]["url"])
+    def test_count_defaults_to_25_and_is_clamped_to_100_and_the_viewable_cap(self):
+        for name, cap in (("lead_search.js", 2500), ("account_search.js", 1000)):
+            with self.subTest(snippet=name):
+                def count_of(params):
+                    out = run_snippet(name, dict({"query": CLEAN}, **params), [{"status": 200, "body": {}}])
+                    return out["calls"][0]["url"].split("&count=")[1].split("&")[0]
+                self.assertEqual(count_of({}), "25")
+                self.assertEqual(count_of({"count": 500}), "100")
+                self.assertEqual(count_of({"count": 100}), "100")
+                self.assertEqual(count_of({"count": 0}), "1")
+                self.assertEqual(count_of({"count": 100, "start": cap - 40}), "40")  # never past the viewable cap
+                out = run_snippet(name, {"query": CLEAN, "start": cap}, [])
+                self.assertEqual(out["result"]["error"], "beyond_viewable_cap_%d" % cap)
 
     def test_query_cleaning(self):
         recent = "recentSearchParam:(id:5185,doLogHistory:true)"
@@ -238,18 +248,19 @@ class PageSnippets(unittest.TestCase):
         self.assertEqual(out["calls"][0]["url"].split("&decoration=")[0].count(","), 99)
 
     def test_companies_details_encoding_shape_and_missing(self):
-        ids = ["urn:li:fs_salesCompany:1", "2", "x3", "2", "junk"]
+        ids = ["urn:li:fs_salesCompany:1", "2", "x3", "2", "junk", "urn:li:fs_salesCompany:4a", ""]
         full = {"entityUrn": "urn:li:fs_salesCompany:1", "name": "N1", "website": "http://n1.com",
                 "description": "D" * 3000, "specialties": ["a", "b"], "type": "Privately Held", "yearFounded": 1999,
                 "industry": "Advertising Services", "employeeCount": 12, "flagshipCompanyUrl": "https://x/1",
                 "employeeCountRange": {"start": 11, "end": 50},
                 "revenueRange": {"estimatedMinRevenue": {"amount": 1, "unit": "MILLION", "currencyCode": "USD"},
                                  "estimatedMaxRevenue": {"amount": 5, "unit": "MILLION", "currencyCode": "USD"}},
-                "headquarters": {"city": "Austin", "geographicArea": "Texas", "country": "US"}}
+                "headquarters": {"city": "Austin", "geographicArea": "Texas", "country": "US"},
+                "employeeGrowthPercentages": [{"timePeriod": {"unit": "YEAR"}, "growthPercentage": 12}]}
         out = run_snippet("companies_details.js", {"ids": ids}, [{"status": 200, "body": {"results": {"1": full}, "errors": {}}}])
         call = out["calls"][0]["url"]
         self.assertEqual(len(out["calls"]), 1)
-        self.assertIn("ids=List(1,2,3)&decoration=", call)  # normalized, deduplicated, junk dropped
+        self.assertIn("ids=List(1,2)&decoration=", call)  # normalized and deduplicated; non-numeric ids rejected
         deco = call.split("&decoration=")[1]
         self.assertEqual(deco, "%28entityUrn%2Cname%2Cwebsite%2Cdescription%2Cspecialties%2Ctype%2CyearFounded%2Cindustry"
                                "%2Cheadquarters%2CrevenueRange%2CemployeeCount%2CemployeeCountRange"
@@ -259,7 +270,8 @@ class PageSnippets(unittest.TestCase):
         res = out["result"]
         self.assertEqual(res["status"], 200)
         self.assertEqual(res["rows"], 1)
-        self.assertEqual(res["missing"], ["2", "3"])
+        self.assertEqual(res["missing"], ["2"])
+        self.assertEqual(res["invalid"], 4)
         row = res["companies"][0]
         self.assertEqual(row["description"], "D" * 3000)  # never truncated
         self.assertEqual(row["specialties"], "a; b")
@@ -268,6 +280,7 @@ class PageSnippets(unittest.TestCase):
         self.assertEqual(row["revenueRange"], "1 MILLION USD - 5 MILLION USD")
         self.assertEqual(row["yearFounded"], 1999)
         self.assertEqual(row["id"], "1")
+        self.assertEqual(row["employeeGrowthPercentages"], "timePeriod=unit=YEAR growthPercentage=12")
 
     def test_companies_details_chunks_at_most_100_and_fields_override(self):
         ids = [str(n) for n in range(1, 251)]
@@ -278,7 +291,10 @@ class PageSnippets(unittest.TestCase):
         out = run_snippet("companies_details.js", {"ids": ["1"], "fields": ["name", "foundedOn", "bad field!"]},
                           [{"status": 200, "body": {"results": {"1": {"name": "N", "foundedOn": {"year": 1}}}}}])
         self.assertTrue(out["calls"][0]["url"].endswith("&decoration=%28entityUrn%2Cname%2CfoundedOn%2Cbadfield%29"))
-        self.assertEqual(out["result"]["companies"][0]["foundedOn"], {"year": 1})
+        self.assertEqual(out["result"]["companies"][0], {"id": "1", "name": "N", "foundedOn": {"year": 1}})  # only requested keys
+        out = run_snippet("companies_details.js", {"ids": ["1"], "fields": ["id", "name"]},
+                          [{"status": 200, "body": {"results": {"1": {"name": "N", "id": "evil"}}}}])
+        self.assertEqual(out["result"]["companies"][0], {"id": "1", "name": "N"})  # passthrough never overwrites id
 
     def test_companies_details_reports_non_200_with_partial_rows(self):
         ids = [str(n) for n in range(1, 151)]
@@ -307,9 +323,11 @@ class PageSnippets(unittest.TestCase):
                                        "authToken:tok9),(profileId:SECONDID999,authType:NAME_SEARCH,authToken:tok8))&decoration="))
         deco = url.split("&decoration=")[1]
         self.assertEqual(deco, "%28entityUrn%2CfullName%2Cheadline%2Csummary%2Clocation%2CdefaultPosition%2C"
-                               "positions*%28companyName%2Ccurrent%2Ctitle%2Cdescription%2CstartedOn%29%2Cskills*%29")
+                               "positions*%28companyName%2Ccurrent%2Ctitle%2Cdescription%2CstartedOn%29%29")
         res = out["result"]
         self.assertEqual((res["status"], res["rows"], res["invalid"]), (200, 1, 2))
+        self.assertEqual(res["missing"], ["SECONDID999"])  # requested, not returned
+        self.assertNotIn("errors", res)
         prof = res["profiles"][0]
         self.assertEqual((prof["currentTitle"], prof["currentCompany"]), ("CEO", "Now"))
         self.assertEqual(prof["summary"], "S" * 2000)
@@ -318,6 +336,12 @@ class PageSnippets(unittest.TestCase):
         self.assertEqual(prof["entityUrn"], LEAD_URN)
         self.assertNotIn("contactInfo", json.dumps(res))
         self.assertNotIn("x@example.invalid", json.dumps(res))
+
+    def test_profiles_batch_surfaces_response_errors(self):
+        body = {"results": {}, "errors": {"urn:li:fs_salesProfile:(FIXTUREID123,NAME_SEARCH,tok9)": {"status": 404}}}
+        out = run_snippet("profiles_batch.js", {"leads": [LEAD]}, [{"status": 200, "body": body}])
+        self.assertEqual(out["result"]["missing"], ["FIXTUREID123"])
+        self.assertEqual(out["result"]["errors"], ["urn:li:fs_salesProfile:(FIXTUREID123,NAME_SEARCH,tok9)"])
 
     def test_profiles_batch_chunking_default_25_max_100_and_errors(self):
         leads = ["urn:li:fs_salesProfile:(ID%07d,NAME_SEARCH,t%d)" % (n, n) for n in range(60)]

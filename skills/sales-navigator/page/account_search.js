@@ -7,7 +7,7 @@
 //           "(filters:List((type:REGION,values:List((id:103644278,selectionType:INCLUDED)))),keywords:supplement%20OR%20vitamin)"
 //           (keywords URL-encoded; Boolean OR and quoted phrases work). A query copied from a page
 //           URL is cleaned (recentSearchParam stripped, unquoted once).
-//   start?: 0, count?: 25 (1..25; use count 1 to size a search), decorationId?: override,
+//   start?: 0, count?: 25 (1..100, cut at the viewable cap; use count 1 to size a search), decorationId?: override,
 //   raw?:   true to keep every field instead of the slim form
 // }
 // returns: { status, ms, total, start, rows, elements: [...] }  or  { status, error|body }
@@ -55,7 +55,7 @@ async (params) => {
   const query = cleanQuery(p.query);
   if (!query) return { status: 0, error: 'query_required' };
   const start = Number.isInteger(p.start) && p.start >= 0 ? p.start : 0;
-  const count = Math.min(25, Math.max(1, Number.isInteger(p.count) ? p.count : 25));
+  const count = Math.min(100, Math.max(1, Number.isInteger(p.count) ? p.count : 25), p.ignoreCap ? 100 : Math.max(1, 1000 - start));
   if (start >= 1000 && !p.ignoreCap) return { status: 0, error: 'beyond_viewable_cap_1000' };
   const deco = p.decorationId || 'com.linkedin.sales.deco.desktop.searchv2.AccountSearchResult-4';
   const path = '/sales-api/salesApiAccountSearch?q=searchQuery&query=' + query +
