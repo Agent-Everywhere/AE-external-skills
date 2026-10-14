@@ -36,10 +36,11 @@ REQUIRED = {
                           "templates/drafts.csv", "templates/company-profile.md", "reference.md"},
 }
 NAMES = sorted(REQUIRED)
-# (words, lines) per SKILL.md; default (750, 70). 0.6.0: the accounts flow carries the compact intake steps.
-BUDGET = {"salesnav-tam-accounts": (825, 75)}
+# (words, lines) per SKILL.md; default (800, 76). 0.6.0: the accounts flow carries the intake steps; 0.6.1: 4-step ENGINE block.
+BUDGET = {"salesnav-tam-accounts": (930, 84)}
 # Files the user's workspace holds; a SKILL.md may name them without the engine shipping them.
-WORKSPACE_FILES = {"company-profile.md", "leads.csv", "accounts.csv", "tam_tracker.csv", "FILE.csv"}
+WORKSPACE_FILES = {"company-profile.md", "leads.csv", "accounts.csv", "tam_tracker.csv", "FILE.csv",
+                   "/Claude/company-profile.md"}
 
 
 def squash_text(path):
@@ -94,6 +95,9 @@ class PurposeSkillFolders(unittest.TestCase):
             for token in sorted(tokens):
                 with self.subTest(skill=name, file=token):
                     token = token[len("ENGINE/"):] if token.startswith("ENGINE/") else token
+                    # the ENGINE block's search pattern and its ${ENGINE%/scripts/doctor.py} strip name doctor.py
+                    token = token[len("sales-navigator/"):] if token.startswith("sales-navigator/") else token
+                    token = token.lstrip("/") if token.startswith("/scripts/") else token
                     if token in WORKSPACE_FILES:
                         continue
                     if "/" in token:
@@ -106,7 +110,7 @@ class PurposeSkillFolders(unittest.TestCase):
 class PurposeSkillDocs(unittest.TestCase):
     def test_word_and_line_budgets(self):
         for name in NAMES:
-            words, lines = BUDGET.get(name, (750, 70))
+            words, lines = BUDGET.get(name, (800, 76))
             with self.subTest(skill=name):
                 self.assertLessEqual(len(text(name).split()), words)
                 self.assertLessEqual(len(text(name).splitlines()), lines)
@@ -166,20 +170,22 @@ class PurposeSkillDocs(unittest.TestCase):
         flow = raw.split("## Flow", 1)[1].split("## Hard rules", 1)[0]
         steps = re.split(r"(?m)^(?=\d+\. )", flow)
         steps = [" ".join(x.split()).lower() for x in steps if re.match(r"\d+\. ", x)]
-        self.assertIn("doctor.py", steps[0])
-        self.assertIn("seller research first, before any question", steps[1])
+        # 0.6.1: research and intake need no engine, so they come before the doctor gate
+        self.assertIn("seller research first, before any question", steps[0])
+        self.assertIn("no engine needed", steps[0])
         for phrase in ("read the website", "untrusted data", "sections 1 to 3", "likely buyer types",
-                       "likely not-a-buyer types", "workspace.py init ~/claude"):
+                       "likely not-a-buyer types"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, steps[0])
+        # intake comes second and holds exactly five numbered questions, one round
+        self.assertIn("one round, at most 5 questions", steps[1])
+        self.assertIn("just pick", steps[1])
+        self.assertEqual(re.findall(r"\((\d)\) ", steps[1]), ["1", "2", "3", "4", "5"])
+        for phrase in ("buyer type", "good customers", "bad fits", "geography and headcount", "hard exclusions",
+                       "roles to reach", "5-line icp summary", "company-profile.md", "workspace.py init ~/claude"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, steps[1])
-        # intake comes second and holds exactly five numbered questions, one round
-        self.assertIn("one round, at most 5 questions", steps[2])
-        self.assertIn("just pick", steps[2])
-        self.assertEqual(re.findall(r"\((\d)\) ", steps[2]), ["1", "2", "3", "4", "5"])
-        for phrase in ("buyer type", "good customers", "bad fits", "geography and headcount", "hard exclusions",
-                       "roles to reach", "5-line icp summary", "company-profile.md"):
-            with self.subTest(phrase=phrase):
-                self.assertIn(phrase, steps[2])
+        self.assertIn("doctor.py", steps[2])
         # the browser gate follows the profile; no snippet runs before step 3, and keywords never lead
         self.assertIn("browser gate", steps[3])
         self.assertIn("profile is written", steps[3])
@@ -189,7 +195,7 @@ class PurposeSkillDocs(unittest.TestCase):
         self.assertIn("scoring rubric", steps[4])
         for early in steps[:3]:
             self.assertNotRegex(early, r"(count|account_search|typeahead|csrf_ready)\.js")
-        self.assertIn("never with keyword searches", steps[0])
+        self.assertIn("never with keyword searches", steps[1])
         self.assertIn("broad net", steps[5])
         self.assertIn("no keywords", steps[5])
 
