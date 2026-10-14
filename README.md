@@ -6,7 +6,7 @@ for any company, asks the user only for what it needs, and runs inside the user'
 
 ## Install
 
-**Claude Code** (pick only the skills you need):
+**Claude Code** (pick the plugins you need):
 
 ```
 /plugin marketplace add Agent-Everywhere/AE-external-skills
@@ -36,15 +36,21 @@ Skills that list `agent-browser` in their `skill.yaml` `runtimes` can drive Agen
 cloud-browser MCP; `sales-navigator` and the `salesnav-*` purpose skills can also run in the user's own browser (`local`). Other skills
 (such as `grokbot`) ship their own tooling and do not need that connector.
 
+### Upgrading
+
+If you installed the older `claude-desktop`, `salesnav-tam-accounts`, `salesnav-tam-people`,
+`salesnav-tam-tracker` or `salesnav-outreach` plugins, run `/plugin uninstall <name>@ae-external-skills`
+for each, then install `ae-desktop-operator` and `sales-navigator`.
+
 ## Skills
 
 | Skill | What it does |
 |---|---|
 | [`sales-navigator`](skills/sales-navigator/SKILL.md) | A slim toolkit for your own LinkedIn Sales Navigator seat: exact counts, account and lead searches through the in-page API (your browser's JavaScript tool or a cloud browser), website lookups, CSV and cap-tracking scripts, and example flows to adapt. Read-only unless you explicitly ask it to send, and then only for batches you approve |
-| [`salesnav-tam-accounts`](skills/salesnav-tam-accounts/SKILL.md) | Size a company-side market on your Sales Navigator seat: build account filters and keywords with typeahead, count variants exactly, compare options and pick one master search. Counts only; installs alone |
-| [`salesnav-tam-people`](skills/salesnav-tam-people/SKILL.md) | Size a people-side market: title, seniority, function, geography and company-headcount filters, exact counts per variant and a master lead search under the 2,500 cap. Counts and samples only; installs alone |
-| [`salesnav-tam-tracker`](skills/salesnav-tam-tracker/SKILL.md) | Cut a master search that is over the viewable cap into sub-lists (state, headcount, metro), pull them, dedupe across shards and track coverage in `tam_tracker.csv`. Installs alone |
-| [`salesnav-outreach`](skills/salesnav-outreach/SKILL.md) | Daily connection requests, InMails, messages and follow-ups with an outreach ledger: sourced drafts, a send only after you type approval of the exact batch, caps and a quota line. Drafts by default; installs alone |
+| [`salesnav-tam-accounts`](skills/salesnav-tam-accounts/SKILL.md) | Size a company-side market on your Sales Navigator seat: build account filters and keywords with typeahead, count variants exactly, compare options and pick one master search. Counts only; part of the `sales-navigator` plugin |
+| [`salesnav-tam-people`](skills/salesnav-tam-people/SKILL.md) | Size a people-side market: title, seniority, function, geography and company-headcount filters, exact counts per variant and a master lead search under the 2,500 cap. Counts and samples only; part of the `sales-navigator` plugin |
+| [`salesnav-tam-tracker`](skills/salesnav-tam-tracker/SKILL.md) | Cut a master search that is over the viewable cap into sub-lists (state, headcount, metro), pull them, dedupe across shards and track coverage in `tam_tracker.csv`. Part of the `sales-navigator` plugin |
+| [`salesnav-outreach`](skills/salesnav-outreach/SKILL.md) | Daily connection requests, InMails, messages and follow-ups with an outreach ledger: sourced drafts, a send only after you type approval of the exact batch, caps and a quota line. Drafts by default; part of the `sales-navigator` plugin |
 | [`grokbot`](skills/grokbot/SKILL.md) | Your own Claude Code operates your Grok Bot desktop app on your Mac: status/doctor, agents, groups, sections, pins, transcripts, `send --wait`, app restart (bundled Node CLI, no `npm install`) |
 | [`grokbot-box`](skills/grokbot-box/SKILL.md) | For a Grok Bot agent inside its own cloud box: list, create, organize, send to, and delete its sibling workers under an advisory, audited agent policy (uses the `grokbot` CLI) |
 | [`claude-desktop`](skills/claude-desktop/SKILL.md) | Your Claude Code operates the Claude Desktop app on your Mac: open Chat, Cowork, or Code tasks with a prompt, send, read replies, follow up, and click approvals, plus projects, skills, custom connectors, local MCP config, and scheduled tasks, for example to dry-run skills in Cowork, hand work off to Desktop, or run a demo. Uses the official `claude://` deep links plus Peekaboo (screenshots and clicks); needs macOS 15+ |
@@ -57,7 +63,7 @@ cloud-browser MCP; `sales-navigator` and the `salesnav-*` purpose skills can als
 
 ```
 .claude-plugin/
-  marketplace.json  # Claude Code marketplace: one plugin per skill, each rooted at skills/<name>
+  marketplace.json  # Claude Code marketplace: one plugin per skill, except sales-navigator (bundles its five skills)
 packages/
   browser-runtime/  # SOURCE OF TRUTH for the shared browser runtime (session.py + one README)
 build/
@@ -79,7 +85,7 @@ tests/              # Python tests for scripts, the runtime, page snippets, mani
 
 Browser-runtime changes are made once, in `packages/browser-runtime/`, then propagated with
 `python3 build/sync_runtime.py`, then run `python3 build/sync_runtime.py --check` before committing.
-The `salesnav-*` purpose skills each work installed alone: their `skill.yaml` lists the files it needs
+The `salesnav-*` purpose skills each work as a standalone skill folder: their `skill.yaml` lists the files it needs
 in `uses_toolkit` (for example `[page/count.js, scripts/run_log.py]`), and the same script copies them from
 `skills/sales-navigator` to the same relative paths (a stale or edited copy fails `--check`). Fix a tool in
 `skills/sales-navigator`, never in a purpose skill.
@@ -111,7 +117,9 @@ ship the CLI; it installs it inside the box by cloning this repo.
   `skills/<name>/scripts/` stay stdlib and no-network. Page snippets under `skills/<name>/page/` run
   inside the user's signed-in browser, return compact JSON, and never return cookies or tokens.
 - **Runtimes manifest.** Every skill has a `skill.yaml` (`name`, `version`, `category`, `runtimes`)
-  that matches its `marketplace.json` entry. `runtimes` is `[]` for skills without a browser, or a
+  whose `category` matches its `marketplace.json` entry (the skill's own plugin entry, or, for the
+  five Sales Navigator skills, the bundled `sales-navigator` plugin whose `skills` list names it).
+  `runtimes` is `[]` for skills without a browser, or a
   list from `local` (the user's own browser) and `agent-browser` (cloud browser); a non-empty list
   gets `packages/browser-runtime` vendored into `runtime/`.
 - **Exception: Node CLI.** A skill may ship a Node CLI under `cli/` (Node >= 20, with its own

@@ -82,6 +82,18 @@ class SkillManifests(unittest.TestCase):
              if sync_runtime.load_manifest(d)["category"] != "sales"]
             + ["sales-navigator"]))
 
+    def test_readme_install_lines_name_marketplace_plugins(self):
+        import re
+        market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text())
+        plugins = {p["name"] for p in market["plugins"]}
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        installs = re.findall(r"^/plugin install (\S+)@ae-external-skills\s*$", readme, re.M)
+        self.assertTrue(installs)
+        for name in installs:
+            with self.subTest(plugin=name):
+                self.assertIn(name, plugins)
+        self.assertEqual(sorted(installs), sorted(plugins), "README must install every plugin once")
+
     def test_marketplace_describes_both_sales_navigator_runtimes(self):
         market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text())
         desc = {p["name"]: p["description"] for p in market["plugins"]}["sales-navigator"].lower()
