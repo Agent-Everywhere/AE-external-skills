@@ -6,4 +6,4 @@ category: sales
 runtimes: [local, agent-browser]
 # Toolkit files bundled from skills/sales-navigator so this skill works installed alone.
 # Never edit the copies: change them in sales-navigator, then run `python3 build/sync_runtime.py`.
-uses_toolkit: [page/csrf_ready.js, page/typeahead.js, page/count.js, page/account_search.js, scripts/run_log.py, scripts/outreach_log.py, scripts/workspace.py, reference.md]
+uses_toolkit: [page/csrf_ready.js, page/typeahead.js, page/count.js, page/account_search.js, page/companies_details.js, scripts/run_log.py, scripts/outreach_log.py, scripts/workspace.py, reference.md]

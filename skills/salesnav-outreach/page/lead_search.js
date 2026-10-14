@@ -5,7 +5,7 @@
 // params: {
 //   query:  Rest.li search query, e.g. "(filters:List((type:CURRENT_TITLE,values:List((text:VP%20Operations,selectionType:INCLUDED)))))"
 //           A query copied from a page URL is cleaned (recentSearchParam stripped, unquoted once).
-//   start?: 0, count?: 25 (1..25; use count 1 to size a search), decorationId?: override,
+//   start?: 0, count?: 25 (1..100, cut at the viewable cap; use count 1 to size a search), decorationId?: override,
 //   raw?:   true to keep every field (images, badges, CRM status) instead of the slim form
 // }
 // returns: { status, ms, total, start, rows, elements: [...] }  or  { status, error|body }
@@ -52,7 +52,7 @@ async (params) => {
   const query = cleanQuery(p.query);
   if (!query) return { status: 0, error: 'query_required' };
   const start = Number.isInteger(p.start) && p.start >= 0 ? p.start : 0;
-  const count = Math.min(25, Math.max(1, Number.isInteger(p.count) ? p.count : 25));
+  const count = Math.min(100, Math.max(1, Number.isInteger(p.count) ? p.count : 25), p.ignoreCap ? 100 : Math.max(1, 2500 - start));
   if (start >= 2500 && !p.ignoreCap) return { status: 0, error: 'beyond_viewable_cap_2500' };
   const deco = p.decorationId || 'com.linkedin.sales.deco.desktop.searchv2.LeadSearchResult-14';
   const path = '/sales-api/salesApiLeadSearch?q=searchQuery&query=' + query +

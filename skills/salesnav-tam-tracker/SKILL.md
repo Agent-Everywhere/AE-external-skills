@@ -28,7 +28,7 @@ that each fit under the cap, and keep a checklist so any later task knows what i
    (`--kind lead` for people). A list is keyed on (master, list id). Exit 5 means over the cap (1,000
    accounts, 2,500 leads): split it further.
 4. Ask `tam_tracker.py next`, pull that list page by page (`page/account_search.js` or
-   `page/lead_search.js`, 25 rows, `start` += 25), save each page under `results/<list_id>/`, then
+   `page/lead_search.js`, 25 rows, `start` += `count`), save each page under `results/<list_id>/`, then
    `tam_tracker.py update --master acme --list-id ID --pulled N --file PATH`. Status turns partial, then
    done; a changed `--count N` re-derives it.
 5. Convert with `scripts/salesnav_rows.py accounts|leads results/<list_id>/*.json -o FILE.csv`, check it
@@ -54,7 +54,7 @@ IIFE for the browser JavaScript tool (one call per snippet). A paged cloud run i
 
 ## Tools and details
 
-`page/csrf_ready.js`, `page/typeahead.js`, `page/count.js`, `page/account_search.js`, `page/lead_search.js`;
+`page/csrf_ready.js`, `page/typeahead.js`, `page/count.js`, `page/account_search.js`, `page/companies_details.js` (batched account details, up to 100 ids per call), `page/lead_search.js`;
 `scripts/tam_tracker.py`, `scripts/shard_plan.py`, `scripts/salesnav_rows.py`, `scripts/dedupe.py`,
 `scripts/validate_csv.py`, `scripts/run_log.py`, `scripts/workspace.py` (plus `scripts/outreach_log.py`,
 read by `run_log.py` for its quota line). Caps, sharding and gotchas: `reference.md`.
