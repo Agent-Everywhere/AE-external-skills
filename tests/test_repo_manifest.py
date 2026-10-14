@@ -19,7 +19,7 @@ import sync_runtime  # noqa: E402
 KNOWN_RUNTIMES = {"local", "agent-browser"}
 SEMVER = r"\d+\.\d+\.\d+"
 # skill dir -> marketplace plugin name, where they differ ("claude-" is a reserved plugin prefix)
-PLUGIN_NAMES = {"claude-desktop": "ae-desktop-operator"}
+PLUGIN_NAMES = {"claude-desktop": "desktop-cowork"}
 
 
 def skill_dirs():

@@ -13,7 +13,7 @@ Four plugins. Install only the ones you need.
 |---|---|---|---|---|---|
 | [`grokbot`](skills/grokbot/SKILL.md) | CLI + skill. The `grokbot` command (bundled single-file Node CLI) plus a skill that drives it: status/doctor, agents, groups, sections, pins, transcripts, `send --wait`, app restart | A person on their Mac who wants Claude Code to drive their Grok Bot desktop app | Claude Code on the Mac that has Grok Bot installed | Node 20+, the signed-in Grok Bot app | `/plugin install grokbot@ae-external-skills` (CLI alone: see Install) |
 | [`grokbot-box`](skills/grokbot-box/SKILL.md) | Skill only. No CLI bundled: it clones this repo inside the box and uses the `grokbot` CLI from there | A Grok Bot agent inside its own cloud box that manages its sibling workers (list, create, organize, send, delete) under a restricted, audited agent policy | Inside a Grok Bot cloud box | Node 20+ in the box, a clone of this repo | `/plugin install grokbot-box@ae-external-skills` |
-| [`ae-desktop-operator`](skills/claude-desktop/SKILL.md) | Skill + helper script (`desktop.py`, using Peekaboo). The skill folder is `claude-desktop`; the plugin name avoids the `claude-` prefix, which the marketplace reserves | Claude Code on a Mac driving the Claude Desktop app: Cowork tasks, replies, approvals, projects, skills, connectors, plugins, scheduled tasks | Claude Code on your Mac, controlling the Desktop app by screenshots and clicks | macOS 15+, Peekaboo, Screen Recording / Accessibility / Automation permission | `/plugin install ae-desktop-operator@ae-external-skills` |
+| [`desktop-cowork`](skills/claude-desktop/SKILL.md) | Skill + helper script (`desktop.py`, using Peekaboo). The skill folder is `claude-desktop`; the plugin name avoids the `claude-` prefix, which the marketplace reserves | Claude Code on a Mac driving the Claude Desktop app: Cowork tasks, replies, approvals, projects, skills, connectors, plugins, scheduled tasks | Claude Code on your Mac, controlling the Desktop app by screenshots and clicks | macOS 15+, Peekaboo, Screen Recording / Accessibility / Automation permission | `/plugin install desktop-cowork@ae-external-skills` |
 | [`sales-navigator`](skills/sales-navigator/SKILL.md) | One plugin bundling 5 skills: the `sales-navigator` toolkit plus `salesnav-tam-accounts`, `salesnav-tam-people`, `salesnav-tam-tracker` and `salesnav-outreach` | Anyone with a LinkedIn Sales Navigator seat who sizes markets, builds lists and runs outreach | Claude Desktop / Cowork's built-in browser, your own Chrome, or Agent Browser | A signed-in Sales Navigator seat; Agent Browser only: the connector `https://browser-mcp-production-6535.up.railway.app/mcp` (Google sign-in) | `/plugin install sales-navigator@ae-external-skills` |
 
 `grokbot` and `grokbot-box` are not the same thing: `grokbot` is for a human on a Mac, `grokbot-box`
@@ -27,7 +27,7 @@ The `sales-navigator` plugin's five skills:
 - [`salesnav-tam-tracker`](skills/salesnav-tam-tracker/SKILL.md): cut a master search over the viewable cap into sub-lists, pull them, dedupe across shards, track coverage in `tam_tracker.csv`.
 - [`salesnav-outreach`](skills/salesnav-outreach/SKILL.md): daily connection requests, InMails, messages and follow-ups with an outreach ledger. Drafts by default; sends only after you type approval of the exact batch.
 
-> **Unofficial.** `ae-desktop-operator` is not affiliated with or endorsed by Anthropic. It drives the app by screenshots and clicks, which may break when the app's layout changes, and it takes over your mouse and keyboard while it runs: read the rules in its [`SKILL.md`](skills/claude-desktop/SKILL.md) first.
+> **Unofficial.** `desktop-cowork` is not affiliated with or endorsed by Anthropic. It drives the app by screenshots and clicks, which may break when the app's layout changes, and it takes over your mouse and keyboard while it runs: read the rules in its [`SKILL.md`](skills/claude-desktop/SKILL.md) first.
 >
 > **Unofficial.** `grokbot` and `grokbot-box` are not affiliated with or endorsed by Cursor or xAI. They use Grok Bot's private, undocumented interfaces, which may change or break at any time. Use at your own risk: some commands can delete agents and sections.
 
@@ -39,7 +39,7 @@ The `sales-navigator` plugin's five skills:
 /plugin marketplace add Agent-Everywhere/AE-external-skills
 /plugin install grokbot@ae-external-skills
 /plugin install grokbot-box@ae-external-skills
-/plugin install ae-desktop-operator@ae-external-skills
+/plugin install desktop-cowork@ae-external-skills
 /plugin install sales-navigator@ae-external-skills
 ```
 
@@ -66,7 +66,10 @@ browser (`local`). The other skills ship their own tooling and do not need that 
 
 If you installed the older `claude-desktop`, `salesnav-tam-accounts`, `salesnav-tam-people`,
 `salesnav-tam-tracker` or `salesnav-outreach` plugins, run `/plugin uninstall <name>@ae-external-skills`
-for each, then install `ae-desktop-operator` and `sales-navigator`.
+for each, then install `desktop-cowork` and `sales-navigator`.
+
+If you installed `ae-desktop-operator` (the earlier name of `desktop-cowork`), run
+`/plugin uninstall ae-desktop-operator@ae-external-skills`, then install `desktop-cowork`.
 
 ## Layout
 
