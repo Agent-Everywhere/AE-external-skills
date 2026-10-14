@@ -52,6 +52,6 @@ Cloud browser plans: `runtime/README.md`.
 
 ## Tools and details
 
-`page/csrf_ready.js`, `page/typeahead.js`, `page/count.js`, `page/account_search.js`; `scripts/run_log.py`,
+`page/csrf_ready.js`, `page/typeahead.js`, `page/count.js`, `page/account_search.js`, `page/companies_details.js` (batched description, specialties and website for up to 100 company ids per call, to qualify accounts); `scripts/run_log.py`,
 `scripts/workspace.py` (plus `scripts/outreach_log.py`, which `run_log.py` reads for its quota line).
 Endpoints, query encoding, filter ids and gotchas: `reference.md`.

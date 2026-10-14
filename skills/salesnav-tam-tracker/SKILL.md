@@ -54,7 +54,7 @@ IIFE for the browser JavaScript tool (one call per snippet). A paged cloud run i
 
 ## Tools and details
 
-`page/csrf_ready.js`, `page/typeahead.js`, `page/count.js`, `page/account_search.js`, `page/lead_search.js`;
+`page/csrf_ready.js`, `page/typeahead.js`, `page/count.js`, `page/account_search.js`, `page/companies_details.js` (batched account details, up to 100 ids per call), `page/lead_search.js`;
 `scripts/tam_tracker.py`, `scripts/shard_plan.py`, `scripts/salesnav_rows.py`, `scripts/dedupe.py`,
 `scripts/validate_csv.py`, `scripts/run_log.py`, `scripts/workspace.py` (plus `scripts/outreach_log.py`,
 read by `run_log.py` for its quota line). Caps, sharding and gotchas: `reference.md`.

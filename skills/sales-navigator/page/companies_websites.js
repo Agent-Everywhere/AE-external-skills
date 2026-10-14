@@ -2,10 +2,10 @@
 // Standalone (browser JS tool): run it as the async IIFE  (<this function>)({...params})  or build that with
 //   python3 runtime/session.py --emit companies_websites.js --params '{...}' --compact   (add --form return if the tool needs `return`).
 // Run on a loaded, signed-in linkedin.com/sales page, after csrf_ready.js reports ready.
-// params: { ids: [company ids or "urn:li:fs_salesCompany:<id>" strings], delayMs?: 3500 }
-// Ids are sent 25 per call (the proven batch size); more than 25 are chunked with a pause.
-// The decoration must be URL-encoded exactly as below: raw parentheses return 400, and richer
-// decorations (industry, location, description) return 400 as well.
+// params: { ids: [company ids or "urn:li:fs_salesCompany:<id>" strings], delayMs?: 3500, batch?: 25 (1..100) }
+// Ids are sent `batch` per call (default 25); more are chunked with a pause. The endpoint accepts up to 100 ids
+// per call (200 and 300 return 400). The decoration must be URL-encoded exactly as below: raw parentheses
+// return 400. Richer decorations work too (description, industry, ...): use companies_details.js for those.
 // returns: { status, companies: [{ id, name, website }], missing: [ids with no website] }
 async (params) => {
   const p = params || {};
@@ -16,12 +16,13 @@ async (params) => {
     .filter(Boolean);
   if (!ids.length) return { status: 0, error: 'ids_required' };
   const delay = Number.isFinite(p.delayMs) ? p.delayMs : 3500;
+  const batch = Math.min(100, Math.max(1, Number.isInteger(p.batch) ? p.batch : 25));
   const DECORATION = '%28entityUrn%2Cname%2Cwebsite%29'; // (entityUrn,name,website)
   const companies = [];
   const t0 = performance.now();
-  for (let i = 0; i < ids.length; i += 25) {
+  for (let i = 0; i < ids.length; i += batch) {
     if (i > 0) await new Promise((resolve) => setTimeout(resolve, delay));
-    const chunk = ids.slice(i, i + 25);
+    const chunk = ids.slice(i, i + batch);
     try {
       const r = await fetch('/sales-api/salesApiCompanies?ids=List(' + chunk.join(',') + ')&decoration=' + DECORATION, {
         credentials: 'include',

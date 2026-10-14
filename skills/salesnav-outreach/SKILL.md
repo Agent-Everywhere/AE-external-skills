@@ -52,7 +52,7 @@ send one at a time through the ledger, and record who accepted or replied.
 
 ## Tools and details
 
-`page/csrf_ready.js`, `page/lead_search.js`, `page/profile.js`, `page/activity.js` (research a lead before
+`page/csrf_ready.js`, `page/lead_search.js`, `page/profile.js`, `page/profiles_batch.js`, `page/activity.js` (research a lead before
 drafting; `requests` are small calls, `profile.js` also a profile opened); `scripts/outreach_log.py`,
 `scripts/run_log.py`, `scripts/workspace.py`, `scripts/validate_csv.py`; `templates/drafts.csv`, `templates/company-profile.md`.
 Run a snippet: `python3 runtime/session.py --emit lead_search.js --params '{...}' --compact`. Caps, pacing,
