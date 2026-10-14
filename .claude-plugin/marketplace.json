@@ -10,29 +10,49 @@
       "name": "grokbot",
       "source": "./skills/grokbot",
       "description": "CLI + skill: operate your Grok Bot desktop app from Claude Code on your Mac: agents, groups, sections, pins, transcripts, send --wait. Unofficial; needs Node 20+.",
-      "skills": ["."],
+      "skills": [
+        "."
+      ],
       "category": "productivity",
-      "tags": ["grok-bot", "cursor", "agents"]
+      "tags": [
+        "grok-bot",
+        "cursor",
+        "agents"
+      ]
     },
     {
       "name": "grokbot-box",
       "source": "./skills/grokbot-box",
       "description": "Skill: for a Grok Bot agent inside its own cloud box: manage sibling Grok Bot workers (list, create, organize, send, delete) under an advisory agent policy. Unofficial.",
-      "skills": ["."],
+      "skills": [
+        "."
+      ],
       "category": "productivity",
-      "tags": ["grok-bot", "cursor", "agents"]
+      "tags": [
+        "grok-bot",
+        "cursor",
+        "agents"
+      ]
     },
     {
       "name": "desktop-cowork",
       "source": "./skills/claude-desktop",
       "description": "Skill + helper: operate the Claude Desktop app on your Mac from Claude Code: tasks, replies, approvals, projects, skills, connectors. Unofficial; needs macOS 15+ and Peekaboo.",
-      "skills": ["."],
+      "skills": [
+        "."
+      ],
       "category": "productivity",
-      "tags": ["claude-desktop", "cowork", "peekaboo", "macos"]
+      "tags": [
+        "claude-desktop",
+        "cowork",
+        "peekaboo",
+        "macos"
+      ]
     },
     {
       "name": "sales-navigator",
-      "source": "./",
+      "source": "./plugins/sales-navigator",
+      "version": "0.6.0",
       "description": "5 skills: LinkedIn Sales Navigator toolkit plus TAM accounts, TAM people, TAM tracker and outreach skills. Runs in your own browser or Agent Browser.",
       "strict": false,
       "skills": [
@@ -43,7 +63,12 @@
         "./skills/salesnav-outreach"
       ],
       "category": "sales",
-      "tags": ["linkedin", "sales-navigator", "tam", "outreach"]
+      "tags": [
+        "linkedin",
+        "sales-navigator",
+        "tam",
+        "outreach"
+      ]
     }
   ]
 }

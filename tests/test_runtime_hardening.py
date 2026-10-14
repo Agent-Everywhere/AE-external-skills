@@ -23,7 +23,7 @@ session = base.session
 ROOT = base.ROOT
 PKG = base.PKG
 NODE = shutil.which("node")
-PAGE = ROOT / "skills" / "sales-navigator" / "page"
+PAGE = ROOT / "plugins" / "sales-navigator" / "skills" / "sales-navigator" / "page"
 
 CLAIM = "claim-secret-123456"
 CDP = "wss://cloud-7f3a.example.net/devtools/browser/0a1b2c3d-feed-beef-cafe-123456789abc"

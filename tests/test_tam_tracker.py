@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
-SCRIPTS = ROOT / "skills" / "sales-navigator" / "scripts"
+SCRIPTS = ROOT / "plugins" / "sales-navigator" / "skills" / "sales-navigator" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import tam_tracker  # noqa: E402

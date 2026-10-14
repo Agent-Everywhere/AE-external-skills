@@ -1,9 +1,0 @@
-# Per-skill manifest. Keep in step with .claude-plugin/marketplace.json (checked by tests).
-name: salesnav-outreach
-version: 0.1.0
-category: sales
-# Browser runtimes this skill can run on (build/sync_runtime.py vendors packages/browser-runtime into runtime/).
-runtimes: [local, agent-browser]
-# Toolkit files bundled from skills/sales-navigator so this skill works installed alone.
-# Never edit the copies: change them in sales-navigator, then run `python3 build/sync_runtime.py`.
-uses_toolkit: [page/csrf_ready.js, page/lead_search.js, page/profile.js, page/profiles_batch.js, page/activity.js, scripts/outreach_log.py, scripts/run_log.py, scripts/workspace.py, scripts/validate_csv.py, templates/drafts.csv, templates/company-profile.md, reference.md]
