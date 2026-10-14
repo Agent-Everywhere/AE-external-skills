@@ -73,7 +73,8 @@ ae-external-skills`), then update `sales-navigator`. The plugin name and the mar
 each release bumps the plugin `version` in `.claude-plugin/marketplace.json` (and the engine's `skill.yaml`)
 so clients see the update. As of 0.5.0 the plugin ships only its five skills, and every `SKILL.md` finds the
 shared engine through `ENGINE` (`${CLAUDE_PLUGIN_ROOT}/skills/sales-navigator`, else the `sales-navigator` folder
-next to the skill's own), so Cowork runs the scripts instead of clicking the Sales Nav UI.
+next to the skill's own), so Cowork runs the scripts instead of clicking the Sales Nav UI. 0.6.0 adds a standard front half to all TAM work: research the seller's site, one short intake
+round (at most 5 questions), calibrate on example customers, then accounts, then people scoped to the qualified accounts.
 
 If you installed the older `claude-desktop`, `salesnav-tam-accounts`, `salesnav-tam-people`,
 `salesnav-tam-tracker` or `salesnav-outreach` plugins, run `/plugin uninstall <name>@ae-external-skills`

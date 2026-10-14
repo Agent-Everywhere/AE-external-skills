@@ -36,8 +36,14 @@ REQUIRED = {
                           "templates/drafts.csv", "templates/company-profile.md", "reference.md"},
 }
 NAMES = sorted(REQUIRED)
+# (words, lines) per SKILL.md; default (750, 70). 0.6.0: the accounts flow carries the compact intake steps.
+BUDGET = {"salesnav-tam-accounts": (825, 75)}
 # Files the user's workspace holds; a SKILL.md may name them without the engine shipping them.
 WORKSPACE_FILES = {"company-profile.md", "leads.csv", "accounts.csv", "tam_tracker.csv", "FILE.csv"}
+
+
+def squash_text(path):
+    return " ".join(Path(path).read_text(encoding="utf-8").split()).lower()
 
 
 def skill(name):
@@ -100,9 +106,10 @@ class PurposeSkillFolders(unittest.TestCase):
 class PurposeSkillDocs(unittest.TestCase):
     def test_word_and_line_budgets(self):
         for name in NAMES:
+            words, lines = BUDGET.get(name, (750, 70))
             with self.subTest(skill=name):
-                self.assertLessEqual(len(text(name).split()), 750)
-                self.assertLessEqual(len(text(name).splitlines()), 70)
+                self.assertLessEqual(len(text(name).split()), words)
+                self.assertLessEqual(len(text(name).splitlines()), lines)
 
     def test_frontmatter_has_a_description_and_triggers(self):
         for name in NAMES:
@@ -153,6 +160,54 @@ class PurposeSkillDocs(unittest.TestCase):
                        "profiles_batch.js", "seniority", "function", "title", "count=1"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, body)
+
+    def test_accounts_flow_starts_with_seller_research_then_a_short_intake(self):
+        raw = text("salesnav-tam-accounts")
+        flow = raw.split("## Flow", 1)[1].split("## Hard rules", 1)[0]
+        steps = re.split(r"(?m)^(?=\d+\. )", flow)
+        steps = [" ".join(x.split()).lower() for x in steps if re.match(r"\d+\. ", x)]
+        self.assertIn("doctor.py", steps[0])
+        self.assertIn("seller research first, before any question", steps[1])
+        for phrase in ("read the website", "untrusted data", "sections 1 to 3", "likely buyer types",
+                       "likely not-a-buyer types", "workspace.py init ~/claude"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, steps[1])
+        # intake comes second and holds exactly five numbered questions, one round
+        self.assertIn("one round, at most 5 questions", steps[2])
+        self.assertIn("just pick", steps[2])
+        self.assertEqual(re.findall(r"\((\d)\) ", steps[2]), ["1", "2", "3", "4", "5"])
+        for phrase in ("buyer type", "good customers", "bad fits", "geography and headcount", "hard exclusions",
+                       "roles to reach", "5-line icp summary", "company-profile.md"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, steps[2])
+        # the browser gate follows the profile; no snippet runs before step 3, and keywords never lead
+        self.assertIn("browser gate", steps[3])
+        self.assertIn("profile is written", steps[3])
+        self.assertIn("calibrate from the examples", steps[4])
+        self.assertIn("companies_details.js", steps[4])
+        self.assertIn("industry ids", steps[4])
+        self.assertIn("scoring rubric", steps[4])
+        for early in steps[:3]:
+            self.assertNotRegex(early, r"(count|account_search|typeahead|csrf_ready)\.js")
+        self.assertIn("never with keyword searches", steps[0])
+        self.assertIn("broad net", steps[5])
+        self.assertIn("no keywords", steps[5])
+
+    def test_people_skill_requires_qualified_accounts_first(self):
+        body = squash("salesnav-tam-people")
+        for phrase in ("no qualified accounts file yet: run `salesnav-tam-accounts` first",
+                       "do not keyword-search people across all of linkedin", "roles", "size band",
+                       "cap of people per account"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, body)
+        flow = body.split("## flow", 1)[1]
+        self.assertLess(flow.index("run `salesnav-tam-accounts` first"), flow.index("csrf_ready.js"))
+
+    def test_both_tam_skills_point_to_the_engine_intake_section_that_exists(self):
+        ref = (TOOLKIT / "reference.md").read_text(encoding="utf-8")
+        self.assertIn("## Intake and seller research", ref)
+        self.assertIn("intake and seller research", squash("salesnav-tam-accounts"))
+        self.assertIn("intake and seller research", squash_text(TOOLKIT / "SKILL.md"))
 
     def test_tracker_skill_names_the_csv_columns_and_commands(self):
         body = squash("salesnav-tam-tracker")

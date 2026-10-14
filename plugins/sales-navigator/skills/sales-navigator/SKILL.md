@@ -11,8 +11,13 @@ description: >-
 # Sales Navigator
 
 The engine: one folder of page snippets and scripts that the other four `salesnav-*` skills also use.
-Compose the user's flow from these tools. Endpoints, filters, caps, gotchas: `$ENGINE/reference.md`.
-Example flows: `$ENGINE/recipes.md`. Runtime: `$ENGINE/runtime/README.md`.
+Endpoints, filters, caps, gotchas: `$ENGINE/reference.md`. Example flows: `$ENGINE/recipes.md`. Runtime:
+`$ENGINE/runtime/README.md`.
+
+**Routing.** Any TAM, count, "how many" or find-people ask: follow `salesnav-tam-accounts`, then
+`salesnav-tam-people`. Seller research and intake come first (`$ENGINE/reference.md`, "Intake and seller
+research"); never start from keyword searches, and never search people across all of LinkedIn. This toolkit is
+for the pieces those skills call and for one-off lookups and drafts.
 
 **Engine path.** Run this at the top of every shell call (it sets `ENGINE`; quote every path, it may contain
 spaces). `ENGINE` is `${CLAUDE_PLUGIN_ROOT}/skills/sales-navigator` when that variable is set, else this
@@ -52,9 +57,9 @@ Scripts in `$ENGINE/scripts/` (stdlib, no network; see `--help`): `doctor.py`, `
 
 **Workspace** `~/Claude/sales-navigator`: `company-profile.md`, `run_log.csv`, `outreach_log.csv`,
 `quota.md`, `results/`, `drafts/`. Anywhere else: pass `--workspace DIR` (or `--profile FILE`) on every
-script call and save it as `workspace:` in the profile. Missing: ask the user once, then
-`python3 "$ENGINE/scripts/workspace.py" init`. No profile: propose a filled
-`$ENGINE/templates/company-profile.md` to correct by number.
+script call and save it as `workspace:` in the profile. Missing: ask the user once to confirm the default
+`~/Claude`, then `python3 "$ENGINE/scripts/workspace.py" init ~/Claude` (not a dead stop). No profile: research the
+seller's site, then propose a filled `$ENGINE/templates/company-profile.md` to correct by number.
 
 ## Hard rules
 

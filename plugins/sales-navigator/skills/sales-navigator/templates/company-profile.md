@@ -15,6 +15,9 @@ cookies or personal data. Drafts use only the facts written here, so put real, u
 Industries and niches / headcount bands / geography (headquarters or person) / company type / growth
 or hiring signals / what must be true on their website:
 
+- **Example good customers** (2-3, names or sites):
+- **Example bad fits** (1-2):
+
 ## 3. Buyer types
 
 Tag, who they are, what we say to them. **Not a buyer** (matches the search, never buys; dropped at

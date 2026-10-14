@@ -29,14 +29,16 @@ scoped by those company ids, an exact count per variant, and rows the user has c
    the user. Never fall back to driving the Sales Navigator UI by hand (clicking filters, scrolling
    results, saving lists).**
 1. Find the workspace with `python3 "$ENGINE/scripts/workspace.py" locate` (elsewhere pass `--workspace DIR`
-   to every script). Read the company profile for buyer types, titles by company size and title words to
-   exclude. Take the qualified account ids (`keep` rows of `accounts.csv`); none yet: run
-   `salesnav-tam-accounts` first, or ask the user for a company list.
+   to every script). Read the company profile for buyer types, roles (section 4) by company size and title
+   words to exclude. Take the qualified account ids (`keep` rows of `accounts.csv`). **No qualified accounts file
+   yet: run `salesnav-tam-accounts` first (seller research, intake, qualify); do not keyword-search people
+   across all of LinkedIn.** The user may instead supply their own company list.
 2. In a signed-in `linkedin.com/sales` tab, run `csrf_ready.js`, then `typeahead.js` for geography
    (`BING_GEO`). Titles go in as free text (`CURRENT_TITLE`).
 3. **Scope by account.** Put the qualified ids in a `CURRENT_COMPANY` filter (ids as
    `urn:li:organization:<id>`, in chunks: prove the largest chunk with `count=1` first), with `SENIORITY_LEVEL`
-   (320 owner, 310 CXO, 300 VP, 220 director), `CURRENT_TITLE` or `FUNCTION`. Seniority alone returns every
+   (320 owner, 310 CXO, 300 VP, 220 director), `CURRENT_TITLE` or `FUNCTION`, using the profile's roles per
+   size band and a cap of people per account. Seniority alone returns every
    director: pair it with a title or function. Encoding and ids: `$ENGINE/reference.md`.
 4. **Count** variants in one `count.js` call (`kind: lead`): each title alone, with and without seniority,
    each company-id chunk. Drop a title that dominates with the wrong people.

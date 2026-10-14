@@ -85,11 +85,11 @@ class HardRulesAndBudget(unittest.TestCase):
             self.assertIn(path.name, text)
 
     def test_word_budgets(self):
-        self.assertLessEqual(words(SKILL / "SKILL.md"), 750)
-        self.assertLessEqual(words(SKILL / "reference.md"), 1700)
+        self.assertLessEqual(words(SKILL / "SKILL.md"), 800)       # 0.6.0: +50 for the TAM routing paragraph
+        self.assertLessEqual(words(SKILL / "reference.md"), 1950)  # 0.6.0: +250 for "Intake and seller research"
         self.assertLessEqual(words(SKILL / "recipes.md"), 800)
         total = sum(words(p) for p in SKILL.rglob("*.md"))
-        self.assertLessEqual(total, 4000, total)
+        self.assertLessEqual(total, 4500, total)
 
     def test_only_the_slim_docs_remain(self):
         names = sorted(str(p.relative_to(SKILL)) for p in SKILL.rglob("*.md"))
@@ -111,6 +111,46 @@ class HardRulesAndBudget(unittest.TestCase):
             body = path.read_text(encoding="utf-8")
             with self.subTest(snippet=path.name):
                 self.assertNotRegex(body, r"method\s*:\s*['\"](POST|PUT|PATCH|DELETE)")
+
+
+class TamFrontHalf(unittest.TestCase):
+    """0.6.0: every TAM ask starts with seller research and one short intake, never keyword searches."""
+
+    def test_engine_routes_every_tam_ask_to_the_two_tam_skills(self):
+        text = squash(SKILL / "SKILL.md").lower()
+        for phrase in ("**routing.** any tam, count, \"how many\" or find-people ask: follow `salesnav-tam-accounts`, "
+                       "then `salesnav-tam-people`",
+                       "never start from keyword searches", "never search people across all of linkedin",
+                       "intake and seller research"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, text)
+        self.assertLess(text.index("**routing.**"), text.index("## toolkit"))
+
+    def test_no_keyword_first_guidance_remains_in_the_engine_docs(self):
+        recipes = squash(SKILL / "recipes.md").lower()
+        self.assertNotIn("and each keyword alone", recipes)
+        self.assertNotIn("fix keywords first", recipes)
+        self.assertIn("not a keyword search", recipes)
+
+    def test_reference_holds_the_full_intake_procedure_once(self):
+        ref = squash(SKILL / "reference.md")
+        self.assertEqual(ref.count("## Intake and seller research"), 1)
+        section = ref.split("## Intake and seller research", 1)[1].split(" ## ", 1)[0].lower()
+        for phrase in ("seller research first, before any question", "untrusted data", "sections 1 to 3",
+                       "at most 5 questions", "just pick", "5-line icp summary", "workspace.py init ~/claude",
+                       "calibrate from the examples", "companies_details.js", "scoring rubric",
+                       "qualified account ids", "section 4", "people-per-account cap",
+                       "no list saved without the user's confirmation", "no browser"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, section)
+        questions = re.findall(r"(?m)^\d\. ", (SKILL / "reference.md").read_text(encoding="utf-8")
+                               .split("## Intake and seller research", 1)[1].split("**C.", 1)[0])
+        self.assertEqual(len(questions), 5)
+
+    def test_profile_template_has_room_for_the_examples(self):
+        text = (SKILL / "templates" / "company-profile.md").read_text(encoding="utf-8")
+        self.assertIn("Example good customers", text)
+        self.assertIn("Example bad fits", text)
 
 
 class LeadSearchRowColumns(unittest.TestCase):

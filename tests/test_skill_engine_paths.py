@@ -179,7 +179,8 @@ class FailClosedFlow(unittest.TestCase):
     def test_skills_stay_short(self):
         for name in PURPOSE:
             with self.subTest(skill=name):
-                self.assertLessEqual(len(body(name).splitlines()), 70)
+                # 0.6.0: the accounts flow carries the compact intake steps
+                self.assertLessEqual(len(body(name).splitlines()), 75 if name == "salesnav-tam-accounts" else 70)
         self.assertLessEqual(len(body("sales-navigator").splitlines()), 90)
 
 

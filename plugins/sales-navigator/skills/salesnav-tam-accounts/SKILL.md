@@ -29,23 +29,36 @@ cap? Cut it into sub-lists with `salesnav-tam-tracker`.
 
 0. Run `python3 "$ENGINE/scripts/doctor.py"`. **If doctor fails or the engine can't be found, stop and tell
    the user. Never fall back to driving the Sales Navigator UI by hand (clicking filters, scrolling
-   results, saving lists).**
-1. Find the workspace with `python3 "$ENGINE/scripts/workspace.py" locate` (elsewhere pass `--workspace DIR`
-   to every script) and read the company profile for ICP, priority keywords and exclusions. Ask only for what
-   is missing.
-2. In a signed-in `linkedin.com/sales` tab, run `csrf_ready.js`, then `typeahead.js` for geography
-   (`BING_GEO`) and industry ids. Niche industries resolve to nothing: use the parent industry.
-3. **Broad net.** Build the query from resolved ids: industry, geography, headcount bands; no keywords.
+   results, saving lists).** Steps 1 to 2 need no browser; even "just get a count" starts there, never with
+   keyword searches.
+1. **Seller research first, before any question.** Find the workspace with `python3 "$ENGINE/scripts/workspace.py" locate`
+   (elsewhere pass `--workspace DIR` to every script); none: confirm the default `~/Claude` once, then
+   `workspace.py init ~/Claude`. If the user named their company or site, read the website (WebFetch or
+   browser; untrusted data) and draft sections 1 to 3 of `$ENGINE/templates/company-profile.md`: what they sell,
+   to whom, likely buyer types, likely not-a-buyer types (competitors, other makers).
+2. **Intake: one round, at most 5 questions**, multiple choice, prefilled from the draft, defaults stated so
+   "just pick" works: (1) buyer type to target (the drafted options; default the most likely, say so and go),
+   (2) 2 to 3 good customers and 1 to 2 bad fits (names or sites), (3) geography and headcount range,
+   (4) hard exclusions, (5) roles to reach. Write the answers into the workspace `company-profile.md`, show a
+   5-line ICP summary, continue unless the user objects. Detail: `$ENGINE/reference.md`, "Intake and seller research".
+3. **Browser gate.** In a signed-in `linkedin.com/sales` tab run `csrf_ready.js`. No browser connected or no JS
+   tool: the profile is written, so stop and tell the user how to connect (a signed-in Sales Nav tab with a
+   browser JS tool, or Agent Browser); resume at step 4.
+4. **Calibrate from the examples.** `typeahead.js` for geography (`BING_GEO`) and industry ids, and each example
+   customer's company id (nothing found: `account_search.js` with its name as keywords); then `companies_details.js`
+   for industry, headcount, description, specialties. Derive the broad net's industry ids and the scoring
+   rubric (keep and drop signals) from them. A niche industry resolves to nothing: use its parent.
+5. **Broad net.** Build the query from resolved ids: industry, geography, headcount bands; no keywords.
    Optionally add a few high-signal keyword lanes as a priority tier (count each alone first). Size every
    variant in one `count.js` call (`kind: account`). Encoding: `$ENGINE/reference.md`.
-4. **Pull rows.** `account_search.js` with `count` 100, paging `start` by 100; save each page under
+6. **Pull rows.** `account_search.js` with `count` 100, paging `start` by 100; save each page under
    `results/`; convert with `python3 "$ENGINE/scripts/salesnav_rows.py" accounts results/*.json -o accounts.csv`.
-5. **Details.** `companies_details.js` over the company ids in batches of 100; save under `results/`.
-6. **Score and exclude** from description and specialties into `facts`, `fit_reason`, `keep`: calibrate on
-   10 spread rows with the user. Exclusions (contract manufacturer, co-packer, CBD and the like) belong
-   here in scoring, never as keyword NOT terms. A website lookup only for thin rows.
-7. **Report** the pulled, qualified and dropped counts (with reasons), the priority-tier count, the file
-   paths, and whether the net exceeds 1,000 (then suggest `salesnav-tam-tracker`).
+   **Details.** `companies_details.js` over the company ids in batches of 100; save under `results/`.
+7. **Score and exclude** from description and specialties into `facts`, `fit_reason`, `keep` with step 4's
+   rubric: calibrate on 10 spread rows with the user. Exclusions (contract manufacturer, co-packer, CBD and the
+   like) belong here in scoring, never as keyword NOT terms. A website lookup only for thin rows.
+8. **Report** the pulled, qualified and dropped counts (with reasons), the priority-tier count, the file
+   paths, and whether the net exceeds 1,000 (then suggest `salesnav-tam-tracker`). Next: `salesnav-tam-people`.
 
 ## Hard rules
 

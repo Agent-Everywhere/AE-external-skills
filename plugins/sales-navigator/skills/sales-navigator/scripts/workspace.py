@@ -127,8 +127,8 @@ def main(argv=None):
     if not ws.persistent:
         print("NOT FOUND: no workspace (no --workspace, no $%s, no profile `workspace:`, no ~/Claude/%s)."
               % (ENV_VAR, FOLDER_NAME))
-        print("Ask the user ONCE where their Cowork folder is (the default is ~/Claude), run "
-              "`workspace.py init <that folder>`, and save the printed path in company-profile.md.")
+        print("Ask the user ONCE to confirm the default (~/Claude) or name their Cowork folder, run "
+              "`workspace.py init ~/Claude` (or that folder), and save the printed path in company-profile.md.")
         return EXIT_NOT_FOUND
     print("workspace: %s" % ws.path)
     print("source: %s%s" % (ws.source, "" if ws.path.is_dir() else " (folder does not exist yet: `workspace.py init`)"))

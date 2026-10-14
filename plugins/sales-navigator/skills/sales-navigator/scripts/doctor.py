@@ -94,7 +94,8 @@ def main(argv=None):
                                                     "" if ws.path.is_dir() else ", folder does not exist yet"))
         else:
             print("workspace: NOTE not set up (no --workspace, no $%s, no ~/Claude/%s). Ask the user once "
-                  "where their Cowork folder is, then run `workspace.py init <folder>`."
+                  "to confirm the default (~/Claude) or name their Cowork folder, then run "
+                  "`workspace.py init ~/Claude` (or that folder). Not a stop: seller research and intake go on."
                   % (workspace.ENV_VAR, workspace.FOLDER_NAME))
 
     if problems:

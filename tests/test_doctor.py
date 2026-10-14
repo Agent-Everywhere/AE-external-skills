@@ -60,6 +60,8 @@ class DoctorRuns(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stdout)
             self.assertIn("workspace: NOTE not set up", r.stdout)
             self.assertIn("workspace.py init", r.stdout)
+            self.assertIn("workspace.py init ~/Claude", r.stdout)   # default after asking once
+            self.assertIn("Not a stop", r.stdout)                    # intake goes on without a workspace
 
     def test_a_missing_file_fails_closed_with_a_clear_message(self):
         with tempfile.TemporaryDirectory() as tmp:
