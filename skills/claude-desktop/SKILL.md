@@ -2,7 +2,7 @@
 name: claude-desktop
 description: >-
   Operate the Claude Desktop app on your Mac from Claude Code: open Chat, Cowork or Code tasks with a
-  prompt, send, read replies, click approvals; manage projects, skills, connectors and scheduled tasks.
+  prompt, send, read replies, click approvals; manage projects, skills, plugins, connectors and scheduled tasks.
   Uses claude:// deep links plus Peekaboo. Needs macOS 15+. Not for the Claude API, claude.ai in a
   browser, or Claude Code's own sessions.
 ---
