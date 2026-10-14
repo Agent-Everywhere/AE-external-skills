@@ -1,6 +1,6 @@
 # Per-skill manifest. Keep in step with .claude-plugin/marketplace.json (checked by tests).
 name: sales-navigator
-version: 0.6.0
+version: 0.6.1
 category: sales
 # Browser runtimes this skill can run on. A non-empty list makes build/sync_runtime.py vendor
 # packages/browser-runtime into runtime/. local = the user's own browser; agent-browser = cloud.

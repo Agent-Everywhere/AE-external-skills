@@ -10,12 +10,17 @@ description: >-
 # Sales Nav TAM: tracker
 
 **Engine path.** Run this at the top of every shell call (it sets `ENGINE`; quote every path, it may contain
-spaces). `ENGINE` is `${CLAUDE_PLUGIN_ROOT}/skills/sales-navigator` when that variable is set, else the
-`sales-navigator` folder next to this skill's folder. Replace the angle-bracket part with the absolute folder
-you read this SKILL.md from. If neither resolves, stop and tell the user.
+spaces). `ENGINE` is `${CLAUDE_PLUGIN_ROOT}/skills/sales-navigator` when that variable is set (Cowork leaves it
+empty), else the Cowork copy `/mnt/skills/plugin-files/sales-navigator/skills/sales-navigator`, else the `sales-navigator` folder next to this skill's folder,
+else the first `sales-navigator/scripts/doctor.py` found under `/mnt/skills` or `~/.claude/plugins`. Each step runs
+only if `$ENGINE/scripts/doctor.py` is still missing. Replace the angle-bracket part with the absolute folder
+you read this SKILL.md from; never guess it. If none resolves, stop and tell the user.
 
 ```sh
-ENGINE="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/sales-navigator}"; [ -f "$ENGINE/scripts/doctor.py" ] || ENGINE="<absolute folder of this SKILL.md>/../sales-navigator"
+ENGINE="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/sales-navigator}"
+[ -f "$ENGINE/scripts/doctor.py" ] || ENGINE="/mnt/skills/plugin-files/sales-navigator/skills/sales-navigator"
+[ -f "$ENGINE/scripts/doctor.py" ] || ENGINE="<absolute folder of this SKILL.md>/../sales-navigator"
+[ -f "$ENGINE/scripts/doctor.py" ] || { ENGINE="$(find -L /mnt/skills "$HOME/.claude/plugins" -maxdepth 8 -path '*sales-navigator/scripts/doctor.py' 2>/dev/null | head -1)"; ENGINE="${ENGINE%/scripts/doctor.py}"; }
 ```
 
 Snippets (`count.js` and the rest) live in `$ENGINE/page/`; run one with `python3 "$ENGINE/runtime/session.py" --emit <snippet>.js --params '{...}' --compact`.
@@ -52,6 +57,7 @@ that each fit under the cap, and keep a checklist so any later task knows what i
 ## Hard rules
 
 - If you cannot run a page snippet (no browser JS tool, no Agent Browser, no CDP), stop and tell the user; never click through the UI.
+- Never substitute another data source (other MCP datasets, web estimates) for the Sales Nav count without asking the user.
 - Read-only by default; never send from here, and never create a Sales Nav list or saved search without
   the user's explicit confirmation. Say what a pull costs in pages first; do not chain big pulls.
 - Respect caps: default 40 result pages a day (a `count=100` call is 4 pages), pace 3 to 5 seconds apart.

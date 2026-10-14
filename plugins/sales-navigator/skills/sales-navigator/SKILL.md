@@ -20,17 +20,23 @@ research"); never start from keyword searches, and never search people across al
 for the pieces those skills call and for one-off lookups and drafts.
 
 **Engine path.** Run this at the top of every shell call (it sets `ENGINE`; quote every path, it may contain
-spaces). `ENGINE` is `${CLAUDE_PLUGIN_ROOT}/skills/sales-navigator` when that variable is set, else this
-SKILL.md's own folder. Replace the angle-bracket part with the absolute folder you read this SKILL.md from. If
-neither resolves, stop and tell the user.
+spaces). `ENGINE` is `${CLAUDE_PLUGIN_ROOT}/skills/sales-navigator` when that variable is set (Cowork leaves it
+empty), else the Cowork copy `/mnt/skills/plugin-files/sales-navigator/skills/sales-navigator`, else this SKILL.md's own folder,
+else the first `sales-navigator/scripts/doctor.py` found under `/mnt/skills` or `~/.claude/plugins`. Each step runs
+only if `$ENGINE/scripts/doctor.py` is still missing. Replace the angle-bracket part with the absolute folder
+you read this SKILL.md from; never guess it. If none resolves, stop and tell the user.
 
 ```sh
-ENGINE="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/sales-navigator}"; [ -f "$ENGINE/scripts/doctor.py" ] || ENGINE="<absolute folder of this SKILL.md>"
+ENGINE="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/sales-navigator}"
+[ -f "$ENGINE/scripts/doctor.py" ] || ENGINE="/mnt/skills/plugin-files/sales-navigator/skills/sales-navigator"
+[ -f "$ENGINE/scripts/doctor.py" ] || ENGINE="<absolute folder of this SKILL.md>"
+[ -f "$ENGINE/scripts/doctor.py" ] || { ENGINE="$(find -L /mnt/skills "$HOME/.claude/plugins" -maxdepth 8 -path '*sales-navigator/scripts/doctor.py' 2>/dev/null | head -1)"; ENGINE="${ENGINE%/scripts/doctor.py}"; }
 ```
 
 **Step 0, every flow.** Run `python3 "$ENGINE/scripts/doctor.py"`. If doctor fails or the engine can't be
 found, stop and tell the user. Never fall back to driving the Sales Navigator UI by hand (clicking
 filters, scrolling results, saving lists).
+Never substitute another data source (other MCP datasets, web estimates) for the Sales Nav count without asking the user. For a TAM ask, seller research and intake come before this step and need no engine.
 
 ## Toolkit
 
