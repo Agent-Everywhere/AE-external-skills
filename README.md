@@ -12,13 +12,14 @@ for any company, asks the user only for what it needs, and runs inside the user'
 /plugin marketplace add Agent-Everywhere/AE-external-skills
 /plugin install grokbot@ae-external-skills
 /plugin install grokbot-box@ae-external-skills
-/plugin install claude-desktop@ae-external-skills
+/plugin install ae-desktop-operator@ae-external-skills
 /plugin install sales-navigator@ae-external-skills
-/plugin install salesnav-tam-accounts@ae-external-skills
-/plugin install salesnav-tam-people@ae-external-skills
-/plugin install salesnav-tam-tracker@ae-external-skills
-/plugin install salesnav-outreach@ae-external-skills
 ```
+
+`sales-navigator` installs all five Sales Navigator skills at once (`sales-navigator`,
+`salesnav-tam-accounts`, `salesnav-tam-people`, `salesnav-tam-tracker`, `salesnav-outreach`).
+The `ae-desktop-operator` plugin ships the `claude-desktop` skill (the plugin name avoids the
+reserved `claude-` prefix).
 
 **Other Claude apps** (Claude Desktop, claude.ai): download the skill folder you want from
 `skills/<skill-name>/` as a zip and add it as a skill. Note that `grokbot` runs a local CLI and
@@ -85,9 +86,11 @@ in `uses_toolkit` (for example `[page/count.js, scripts/run_log.py]`), and the s
 The tests run the same check and fail if a skill's `runtime/` copy has drifted (or a skill with
 `runtimes: []` still has a `runtime/` folder).
 
-Each marketplace entry uses its own skill folder as the plugin source (`"source": "./skills/<name>"`,
-`"skills": ["."]`), so a plugin installs only its own skill. Do not point a plugin at the repo root:
-the `skills` key adds to the default `skills/` scan, so every skill would load. `grokbot-box` does not
+Most marketplace entries use their own skill folder as the plugin source (`"source": "./skills/<name>"`,
+`"skills": ["."]`), so a plugin installs only its own skill. The exception is `sales-navigator`, one
+bundled plugin with `"source": "./"`, `"strict": false` and an explicit `skills` list of its five skill
+folders; with an explicit list only those skills load (checked with `claude plugin details`). Do not
+point any other plugin at the repo root without listing its skills. `grokbot-box` does not
 ship the CLI; it installs it inside the box by cloning this repo.
 
 ## Conventions

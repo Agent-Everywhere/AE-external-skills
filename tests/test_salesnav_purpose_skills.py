@@ -283,13 +283,15 @@ class PurposeSkillDocs(unittest.TestCase):
         market = {p["name"]: p for p in json.loads((ROOT / ".claude-plugin" / "marketplace.json")
                                                    .read_text(encoding="utf-8"))["plugins"]}
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        bundle = market["sales-navigator"]
+        self.assertEqual(bundle["category"], "sales")
+        self.assertEqual(bundle["source"], "./")
+        self.assertEqual(sorted(bundle["skills"]),
+                         sorted("./skills/%s" % n for n in ["sales-navigator"] + NAMES))
         for name in NAMES:
             with self.subTest(skill=name):
-                self.assertEqual(market[name]["category"], "sales")
-                self.assertEqual(market[name]["skills"], ["."])
+                self.assertNotIn(name, market)
                 self.assertIn("skills/%s/SKILL.md" % name, readme)
-                self.assertIn("/plugin install %s@ae-external-skills" % name, readme)
-                self.assertIn("local", market[name]["description"].lower())
 
 
 if __name__ == "__main__":

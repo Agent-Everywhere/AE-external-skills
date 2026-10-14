@@ -18,6 +18,8 @@ import sync_runtime  # noqa: E402
 
 KNOWN_RUNTIMES = {"local", "agent-browser"}
 SEMVER = r"\d+\.\d+\.\d+"
+# skill dir -> marketplace plugin name, where they differ ("claude-" is a reserved plugin prefix)
+PLUGIN_NAMES = {"claude-desktop": "ae-desktop-operator"}
 
 
 def skill_dirs():
@@ -52,19 +54,38 @@ class SkillManifests(unittest.TestCase):
     def test_every_skill_has_a_matching_marketplace_entry(self):
         market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text())
         entries = {p["name"]: p for p in market["plugins"]}
-        self.assertEqual(sorted(entries), [d.name for d in skill_dirs()])
+        bundle = entries["sales-navigator"]
+        self.assertEqual(bundle["source"], "./")
+        self.assertEqual(bundle["category"], "sales")
+        self.assertTrue(bundle.get("description"))
+        bundled = set()
+        for ref in bundle["skills"]:
+            self.assertTrue(ref.startswith("./skills/"), ref)
+            bundled.add(ref[len("./skills/"):])
         for d in skill_dirs():
             with self.subTest(skill=d.name):
                 m = sync_runtime.load_manifest(d)
-                e = entries[d.name]
-                self.assertEqual(e["source"], "./skills/%s" % d.name)
-                self.assertEqual(e["category"], m["category"])
-                self.assertTrue(e.get("description"))
+                if m["category"] == "sales":
+                    self.assertIn(d.name, bundled)
+                    self.assertEqual(sum(1 for e in entries.values() if e["name"] == d.name),
+                                     1 if d.name == "sales-navigator" else 0)
+                else:
+                    plugin_name = PLUGIN_NAMES.get(d.name, d.name)
+                    e = entries[plugin_name]
+                    self.assertEqual(e["source"], "./skills/%s" % d.name)
+                    self.assertEqual(e["category"], m["category"])
+                    self.assertTrue(e.get("description"))
+        for name in bundled:
+            self.assertTrue((ROOT / "skills" / name / "SKILL.md").is_file(), name)
+        self.assertEqual(sorted(entries), sorted(
+            [PLUGIN_NAMES.get(d.name, d.name) for d in skill_dirs()
+             if sync_runtime.load_manifest(d)["category"] != "sales"]
+            + ["sales-navigator"]))
 
     def test_marketplace_describes_both_sales_navigator_runtimes(self):
         market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text())
         desc = {p["name"]: p["description"] for p in market["plugins"]}["sales-navigator"].lower()
-        self.assertIn("local", desc)
+        self.assertIn("your own browser", desc)
         self.assertIn("agent browser", desc)
 
     def test_parser_rejects_malformed_yaml(self):
