@@ -17,7 +17,7 @@ from pathlib import Path
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
-SKILL = ROOT / "skills" / "sales-navigator"
+SKILL = ROOT / "plugins" / "sales-navigator" / "skills" / "sales-navigator"
 SCRIPTS = SKILL / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
@@ -527,7 +527,7 @@ class DocsAgreeWithTheScripts(unittest.TestCase):
         for needle in ("~/Claude/sales-navigator", "run_log.csv", "outreach_log.csv", "quota.md",
                        "run_log.py", "workspace.py", "ask the user once"):
             self.assertIn(needle, skill, needle)
-        for name in re.findall(r"`scripts/([a-z_]+\.py)`", skill):
+        for name in re.findall(r"scripts/([a-z_]+\.py)", skill):
             self.assertTrue((SCRIPTS / name).is_file(), name)
 
 

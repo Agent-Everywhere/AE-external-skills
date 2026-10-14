@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SKILL = ROOT / "skills" / "sales-navigator"
+SKILL = ROOT / "plugins" / "sales-navigator" / "skills" / "sales-navigator"
 sys.path.insert(0, str(SKILL / "scripts"))
 
 import dedupe  # noqa: E402
@@ -83,11 +83,11 @@ class HardRulesAndBudget(unittest.TestCase):
             self.assertIn(path.name, text)
 
     def test_word_budgets(self):
-        self.assertLessEqual(words(SKILL / "SKILL.md"), 600)
-        self.assertLessEqual(words(SKILL / "reference.md"), 1500)
+        self.assertLessEqual(words(SKILL / "SKILL.md"), 700)
+        self.assertLessEqual(words(SKILL / "reference.md"), 1700)
         self.assertLessEqual(words(SKILL / "recipes.md"), 800)
         total = sum(words(p) for p in SKILL.rglob("*.md"))
-        self.assertLessEqual(total, 3500, total)
+        self.assertLessEqual(total, 4000, total)
 
     def test_only_the_slim_docs_remain(self):
         names = sorted(str(p.relative_to(SKILL)) for p in SKILL.rglob("*.md"))

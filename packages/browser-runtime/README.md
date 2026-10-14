@@ -2,21 +2,21 @@
 
 Runs a skill's page snippets (`page/*.js`: one `async (params) => {...}` doing a same-origin `fetch` in
 the signed-in page, returning compact JSON). This folder is the source of truth; `python3
-build/sync_runtime.py` vendors it into each skill's `runtime/` (`--check` fails on drift). Code runtimes
+build/sync_runtime.py` vendors it into the engine skill's `runtime/` (`--check` fails on drift; `$ENGINE` is the engine folder the skills resolve, see their "Engine path" line). Code runtimes
 need `pip install playwright` (it attaches to an existing browser). `session.py --help` lists every flag.
 
 ## Run a snippet
 
 1. **Browser JavaScript tool** (Cowork built-in browser, Claude in Chrome), the user's own tab:
-   `python3 runtime/session.py --emit lead_search.js --params '{"query":"...","count":25}' --compact`
+   `python3 "$ENGINE/runtime/session.py" --emit lead_search.js --params '{"query":"...","count":25}' --compact`
    prints a paste-ready async IIFE (add `--form return` if the tool shows nothing). One snippet per tool
    call; save each result before the next. Without code execution, wrap the file as `( <file> )({...})`.
 2. **Agent Browser** (cloud, for schedules and laptop-off runs): check `browser action=status` and
    `workspace action=list`, `open_session` (the claim lives 60 seconds, so write the plan first), run
    everything in ONE process, then `close_session`:
-   `AB_CLAIM="<claim>" python3 runtime/session.py --runtime agent-browser --base "<base>" --plan plan.json --out results.jsonl`
+   `AB_CLAIM="<claim>" python3 "$ENGINE/runtime/session.py" --runtime agent-browser --base "<base>" --plan plan.json --out results.jsonl`
 3. **Local Chrome over CDP** (`--remote-debugging-port=9222 --user-data-dir=<dedicated dir>`):
-   `python3 runtime/session.py --runtime cdp --cdp-url http://127.0.0.1:9222 --plan plan.json --out results.jsonl`
+   `python3 "$ENGINE/runtime/session.py" --runtime cdp --cdp-url http://127.0.0.1:9222 --plan plan.json --out results.jsonl`
 
 ## Plan
 

@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-PAGE = ROOT / "skills" / "sales-navigator" / "page"
+PAGE = ROOT / "plugins" / "sales-navigator" / "skills" / "sales-navigator" / "page"
 HARNESS = Path(__file__).resolve().parent / "node_snippet_runner.js"
 NODE = shutil.which("node")
 COOKIE = 'lang=v=2; JSESSIONID="ajax:0123456789"; other=1'

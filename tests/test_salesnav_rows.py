@@ -12,7 +12,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SCRIPTS = ROOT / "skills" / "sales-navigator" / "scripts"
+SCRIPTS = ROOT / "plugins" / "sales-navigator" / "skills" / "sales-navigator" / "scripts"
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "salesnav_results.jsonl"
 sys.path.insert(0, str(SCRIPTS))
 

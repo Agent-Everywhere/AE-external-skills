@@ -13,7 +13,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SKILL = ROOT / "skills" / "sales-navigator"
+SKILL = ROOT / "plugins" / "sales-navigator" / "skills" / "sales-navigator"
 SCRIPT = SKILL / "scripts" / "outreach_log.py"
 sys.path.insert(0, str(SKILL / "scripts"))
 

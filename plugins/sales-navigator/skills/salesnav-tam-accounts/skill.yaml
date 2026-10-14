@@ -1,0 +1,8 @@
+# Per-skill manifest. Keep in step with .claude-plugin/marketplace.json (checked by tests).
+name: salesnav-tam-accounts
+version: 0.2.0
+category: sales
+# No files of its own: tools, runtime and docs come from the single engine skill next to this folder
+# ($CLAUDE_PLUGIN_ROOT/skills/sales-navigator, or ../sales-navigator). The browser runtime is the engine's.
+engine: sales-navigator
+runtimes: []
