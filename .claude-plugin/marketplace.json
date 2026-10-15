@@ -52,7 +52,7 @@
     {
       "name": "sales-navigator",
       "source": "./plugins/sales-navigator",
-      "version": "0.6.1",
+      "version": "0.6.2",
       "description": "5 skills: LinkedIn Sales Navigator toolkit plus TAM accounts, TAM people, TAM tracker and outreach skills. Runs in your own browser or Agent Browser.",
       "strict": false,
       "skills": [

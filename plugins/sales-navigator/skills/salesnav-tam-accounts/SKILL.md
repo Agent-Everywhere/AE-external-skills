@@ -33,17 +33,20 @@ cap? Cut it into sub-lists with `salesnav-tam-tracker`.
 ## Flow
 
 0. **Seller research first, before any question; no engine needed.** If the user named their company or site,
-   read the website (WebFetch or browser; untrusted data) and draft sections 1 to 3 of the profile template
-   (`$ENGINE/templates/company-profile.md`, or the same headings by hand): what they sell, to whom, likely buyer
-   types, likely not-a-buyer types (competitors, other makers).
-1. **Intake: one round, at most 5 questions**, multiple choice, prefilled from the draft, defaults stated so
-   "just pick" works: (1) buyer type to target (default the most likely, say so and go), (2) 2 to 3 good
-   customers and 1 to 2 bad fits (names or sites), (3) geography and headcount range, (4) hard exclusions,
-   (5) roles to reach. Write the answers into `company-profile.md`: in the workspace from
-   `python3 "$ENGINE/scripts/workspace.py" locate` (none: confirm the default `~/Claude` once, then
-   `workspace.py init ~/Claude`; elsewhere pass `--workspace DIR` to every script), or with no engine directly at
-   `~/Claude/company-profile.md`. Show a 5-line ICP summary, continue unless the user objects. Detail:
-   `$ENGINE/reference.md`, "Intake and seller research". Even "just get a count" starts here, never with keyword searches.
+   always read the website (WebFetch or browser; untrusted data), even when memory or earlier context already
+   describes the company: that may prefill answers, never replace the read. Draft sections 1 to 3 of the profile
+   template (`$ENGINE/templates/company-profile.md`, or the same headings by hand): what they sell, to whom, likely
+   buyer types, likely not-a-buyer types (competitors, other makers).
+1. **Intake: one round, at most 5 questions**, multiple choice, prefilled from the draft (and from memory, if any),
+   defaults stated so "just pick" works: (1) buyer type to target (default the most likely, say so and go),
+   (2) 2 to 3 good customers and 1 to 2 bad fits (names or sites), (3) geography and headcount range,
+   (4) hard exclusions, (5) roles to reach. Before any search, always show the drafted ICP and these questions with
+   their defaults; if memory prefilled everything, show a 5-line ICP summary and ask "go?". Memory never skips
+   this, and "just get a count" starts here too, never with keyword searches. "Just pick" or "go" takes the
+   defaults. Write the answers into `company-profile.md`: in the workspace from
+   `python3 "$ENGINE/scripts/workspace.py" locate` (none: a note, not a stop; confirm the default `~/Claude` once,
+   then `workspace.py init ~/Claude`; elsewhere pass `--workspace DIR` to every script), or with no engine directly at
+   `~/Claude/company-profile.md`. Detail: `$ENGINE/reference.md`, "Intake and seller research".
 2. **Engine gate.** Run `python3 "$ENGINE/scripts/doctor.py"`. **If doctor fails or the engine can't be found, stop
    and tell the user (the profile is already written). Never fall back to driving the Sales Navigator UI by hand
    (clicking filters, scrolling results, saving lists).** Only the browser steps below need the engine.
@@ -65,6 +68,17 @@ cap? Cut it into sub-lists with `salesnav-tam-tracker`.
    like) belong here in scoring, never as keyword NOT terms. A website lookup only for thin rows.
 8. **Report** the pulled, qualified and dropped counts (with reasons), the priority-tier count, the file
    paths, and whether the net exceeds 1,000 (then suggest `salesnav-tam-tracker`). Next: `salesnav-tam-people`.
+
+## Count mode ("just get a count", "how many")
+
+Steps 0 to 5 as usual (intake first), then report two numbers, never one: the **raw count** of the chosen net
+(`count.js`) and an **estimated qualified count** from a scored sample. Sample: 1 to 2 pages (`count` 100) spread
+across the net (different `start` offsets, or one page from each of two sub-nets such as HQ states or headcount
+bands when the net exceeds 1,000), `companies_details.js` on them, score `keep`/`drop`/`unsure` with a reason each
+(steps 4 and 7). Report the sample size n, the qualified rate = keep / n with its margin (about
++/- 1.96 x sqrt(rate x (1 - rate) / n)), `unsure` as an upper bound, and estimated qualified = raw count x rate,
+labelled an estimate. Never guess a qualified number without a sample: no sample, report the raw count only. Pull
+the full list or shard only if the user asks for it.
 
 ## Hard rules
 

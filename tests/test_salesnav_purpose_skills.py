@@ -36,8 +36,9 @@ REQUIRED = {
                           "templates/drafts.csv", "templates/company-profile.md", "reference.md"},
 }
 NAMES = sorted(REQUIRED)
-# (words, lines) per SKILL.md; default (800, 76). 0.6.0: the accounts flow carries the intake steps; 0.6.1: 4-step ENGINE block.
-BUDGET = {"salesnav-tam-accounts": (930, 84)}
+# (words, lines) per SKILL.md; default (800, 76). 0.6.0: the accounts flow carries the intake steps; 0.6.1: 4-step ENGINE block;
+# 0.6.2: count mode (scored sample) and memory-never-skips-intake in the accounts flow.
+BUDGET = {"salesnav-tam-accounts": (1150, 100)}
 # Files the user's workspace holds; a SKILL.md may name them without the engine shipping them.
 WORKSPACE_FILES = {"company-profile.md", "leads.csv", "accounts.csv", "tam_tracker.csv", "FILE.csv",
                    "/Claude/company-profile.md"}
@@ -198,6 +199,42 @@ class PurposeSkillDocs(unittest.TestCase):
         self.assertIn("never with keyword searches", steps[1])
         self.assertIn("broad net", steps[5])
         self.assertIn("no keywords", steps[5])
+
+    def test_count_mode_needs_a_scored_sample_and_never_guesses_a_qualified_number(self):
+        """0.6.2: a live count ask returned raw counts plus a GUESSED qualified 4-6K. A count ask is the raw count
+        of the net AND an estimate from a scored sample, never a guess."""
+        body = squash("salesnav-tam-accounts")
+        mode = body.split("## count mode", 1)[1].split("## hard rules", 1)[0]
+        for phrase in ("raw count", "estimated qualified count", "scored sample", "1 to 2 pages", "`count` 100",
+                       "spread across the net", "companies_details.js", "`keep`/`drop`/`unsure`", "reason",
+                       "sample size n", "qualified rate", "margin", "estimated qualified = raw count x rate",
+                       "labelled an estimate",
+                       "never guess a qualified number without a sample",
+                       "pull the full list or shard only if the user asks"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, mode)
+        for doc in ("reference.md", "recipes.md"):
+            with self.subTest(doc=doc):
+                self.assertIn("never guess a qualified number without a sample", squash_text(TOOLKIT / doc))
+
+    def test_memory_never_skips_the_site_read_or_the_intake(self):
+        """0.6.2: a live run used memory about the company, skipped the site read and the intake."""
+        raw = text("salesnav-tam-accounts")
+        flow = raw.split("## Flow", 1)[1].split("## Count mode", 1)[0]
+        steps = [" ".join(x.split()).lower() for x in re.split(r"(?m)^(?=\d+\. )", flow) if re.match(r"\d+\. ", x)]
+        self.assertIn("always read the website", steps[0])
+        self.assertIn("even when memory or earlier context already describes the company", steps[0])
+        self.assertIn("never replace the read", steps[0])
+        for phrase in ("memory never skips this", "before any search, always show the drafted icp",
+                       "these questions with their defaults", "prefilled everything", "5-line icp summary",
+                       'ask "go?"', "just get a count", '"just pick"'):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, steps[1])
+        ref = squash_text(TOOLKIT / "reference.md")
+        for phrase in ("even when memory or earlier context already describes the company",
+                       "memory never skips intake", 'ask "go?"'):
+            with self.subTest(ref=phrase):
+                self.assertIn(phrase, ref)
 
     def test_people_skill_requires_qualified_accounts_first(self):
         body = squash("salesnav-tam-people")

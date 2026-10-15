@@ -86,10 +86,10 @@ class HardRulesAndBudget(unittest.TestCase):
 
     def test_word_budgets(self):
         self.assertLessEqual(words(SKILL / "SKILL.md"), 900)       # 0.6.1: +100 for the 4-step ENGINE block
-        self.assertLessEqual(words(SKILL / "reference.md"), 2100)  # 0.6.1: +150 for the 4-step ENGINE block
-        self.assertLessEqual(words(SKILL / "recipes.md"), 800)
+        self.assertLessEqual(words(SKILL / "reference.md"), 2250)  # 0.6.1: +150 for the 4-step ENGINE block; 0.6.2: +150 count mode, intake
+        self.assertLessEqual(words(SKILL / "recipes.md"), 850)   # 0.6.2: count mode
         total = sum(words(p) for p in SKILL.rglob("*.md"))
-        self.assertLessEqual(total, 4750, total)  # 0.6.1: +250 for the 4-step ENGINE block (x2 docs) and the reorder
+        self.assertLessEqual(total, 4900, total)  # 0.6.2: +150 count mode; 0.6.1: +250 for the 4-step ENGINE block (x2 docs) and the reorder
 
     def test_only_the_slim_docs_remain(self):
         names = sorted(str(p.relative_to(SKILL)) for p in SKILL.rglob("*.md"))

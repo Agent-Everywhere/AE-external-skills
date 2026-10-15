@@ -124,9 +124,13 @@ class WorkspaceResolution(TmpCase):
 
     def test_init_and_locate_cli(self):
         code, out, _ = run_main(workspace, ["locate"])
+        self.assertEqual(code, 0)   # not found is a NOTE: research and intake go on (root cause of a live "exit 4")
+        self.assertIn("NOTE", out)
+        self.assertNotIn("NOT FOUND", out)
+        self.assertIn("Ask the user ONCE", out)
+        code, out, _ = run_main(workspace, ["locate", "--strict"])
         self.assertEqual(code, workspace.EXIT_NOT_FOUND)
         self.assertIn("NOT FOUND", out)
-        self.assertIn("Ask the user ONCE", out)
         code, out, _ = run_main(workspace, ["init", str(self.root / "Cowork")])
         self.assertEqual(code, 0)
         ws = self.root / "Cowork" / "sales-navigator"
