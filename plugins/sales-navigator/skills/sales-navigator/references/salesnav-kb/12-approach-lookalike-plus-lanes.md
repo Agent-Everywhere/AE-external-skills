@@ -13,7 +13,7 @@ Use when the user has real customers to calibrate from.
 ## Keyword lanes
 
 Count a keyword alone, and inside versus outside the segment industries. Promote a lane to its own segment when its
-outside-segment remainder is large and clean. PureFlow lanes (total / inside the segment industries):
+outside-segment remainder is large and clean. Acme lanes (total / inside the segment industries):
 
 | Lane | Total | Inside segments |
 |---|---|---|
@@ -25,4 +25,4 @@ outside-segment remainder is large and clean. PureFlow lanes (total / inside the
 | Amazon / DTC supplement | 124 | 57 |
 
 Small lanes stay a priority tier inside their segments; the outside remainder of tincture (234) and Amazon/DTC (67) is
-what a lane segment would add (not measured in the PureFlow run).
+what a lane segment would add (not measured in the Acme run).

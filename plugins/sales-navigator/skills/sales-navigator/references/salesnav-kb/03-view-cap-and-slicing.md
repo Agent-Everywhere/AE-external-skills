@@ -21,5 +21,5 @@ stratify when the raw count is over the cap: estimate = sum of count_i x rate_i 
 ## Overlap
 
 Shards and segments overlap unless their filters are disjoint. Dedupe by company id and report "sum X, unique Y", never
-the sum alone. PureFlow: 300 sampled rows over industry-disjoint segments gave 290 unique, so even disjoint-industry
+the sum alone. Acme: 300 sampled rows over industry-disjoint segments gave 290 unique, so even disjoint-industry
 segments overlap through keyword lanes and mislabelled industries. `segments.py merge` prints both numbers.

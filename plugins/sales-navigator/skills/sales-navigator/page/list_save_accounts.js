@@ -11,8 +11,10 @@
 // quota-capped (run_log.py --saved-accounts).
 // Stops at the first non-200 batch. A 200 batch counts only entries whose status is SUCCESS: with one entry per id
 // the failures are mapped by position, otherwise a batch with any non-SUCCESS entry is reported failed whole.
-// returns: { status, ms, saved, failed: [ids not saved, incl. batches not attempted], batches, invalid }
-//   or { status, error|body, saved, failed, batches, invalid }
+// An entry with status EXCEED_LIMIT (the list is at its 1,000 cap; HTTP is still 200) is never counted as saved: it is
+// listed in `exceeded`, not in `failed`. Use list_save_sharded.js to rotate to numbered lists automatically.
+// returns: { status, ms, saved, failed: [ids not saved, incl. batches not attempted], exceeded: [ids refused for the cap],
+//   batches, invalid }  or  { status, error|body, saved, failed, exceeded, batches, invalid }
 async (params) => {
   const p = params || {};
   const listId = String(p.listId === undefined || p.listId === null ? '' : p.listId).trim().replace(/^.*:/, '');
@@ -30,7 +32,7 @@ async (params) => {
   const delay = Number.isFinite(p.delayMs) ? p.delayMs : 3500;
   const batch = Math.min(50, Math.max(1, Number.isInteger(p.batch) ? p.batch : 50));
   let saved = 0, batches = 0;
-  const failed = [];
+  const failed = [], exceeded = [];
   const t0 = performance.now();
   for (let i = 0; i < ids.length; i += batch) {
     if (i > 0) await new Promise((resolve) => setTimeout(resolve, delay));
@@ -46,7 +48,7 @@ async (params) => {
       batches++;
       if (r.status !== 200) {
         return { status: r.status, ms: Math.round(performance.now() - t0), body: (await r.text()).slice(0, 200),
-          saved, failed: failed.concat(ids.slice(i)), batches, invalid };
+          saved, failed: failed.concat(ids.slice(i)), exceeded, batches, invalid };
       }
       const j = await r.json();
       const resp = ((j || {}).value || {}).listEntityActionResponses;
@@ -54,11 +56,16 @@ async (params) => {
       const ok = (e) => e && e.status === 'SUCCESS';
       if (entries.length && entries.every(ok)) saved += chunk.length;
       else if (entries.length === chunk.length) {
-        chunk.forEach((id, k) => { if (ok(entries[k])) saved++; else failed.push(id); });
-      } else failed.push(...chunk);
+        chunk.forEach((id, k) => {
+          if (ok(entries[k])) saved++;
+          else if (entries[k] && entries[k].status === 'EXCEED_LIMIT') exceeded.push(id);
+          else failed.push(id);
+        });
+      } else if (entries.some((e) => e && e.status === 'EXCEED_LIMIT')) exceeded.push(...chunk);
+      else failed.push(...chunk);
     } catch (e) {
-      return { status: 0, error: String(e).slice(0, 200), saved, failed: failed.concat(ids.slice(i)), batches, invalid };
+      return { status: 0, error: String(e).slice(0, 200), saved, failed: failed.concat(ids.slice(i)), exceeded, batches, invalid };
     }
   }
-  return { status: 200, ms: Math.round(performance.now() - t0), saved, failed, batches, invalid };
+  return { status: 200, ms: Math.round(performance.now() - t0), saved, failed, exceeded, batches, invalid };
 }

@@ -23,7 +23,7 @@ viewable per search: if a list yields more, split by seniority or title first.
 Cap 2 to 3 people per account. Exclude after collecting (`dedupe.py --exclude`), never at search time. Rows carry a Sales
 Nav lead URL: leave `linkedin_url` blank.
 
-## PureFlow result
+## Acme result
 
 537 keeps saved to one account list. Lead search on `ACCOUNT_LIST` alone: 3,540; with `SENIORITY_LEVEL` Owner+CXO
 1,183, VP+Director 658, and the rest (those four EXCLUDED) pulled to the 2,500 view cap. Picked locally 2 to 3 per account

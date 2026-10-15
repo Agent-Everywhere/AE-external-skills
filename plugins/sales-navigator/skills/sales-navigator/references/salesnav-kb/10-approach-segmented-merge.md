@@ -1,6 +1,6 @@
 # 10 Approach A: segmented merge
 
-Use when the ICP is niche and its companies are spread over many LinkedIn industries (PureFlow: own-label supplement and
+Use when the ICP is niche and its companies are spread over many LinkedIn industries (Acme: own-label supplement and
 wellness brands labelled retail, wellness, food, cosmetics, alternative medicine, pharma).
 
 ## Steps
@@ -15,7 +15,7 @@ wellness brands labelled retail, wellness, food, cosmetics, alternative medicine
 6. `segments.py merge --pulls r1.jsonl r2.jsonl --out merged.csv`: unique by company id, `segment` pipe-joined. Report
    "sum X, unique Y". Optional: save the keeps to one account list (page 14).
 
-## PureFlow segments (US, 2-200 employees)
+## Acme segments (US, 2-200 employees)
 
 | Segment | Raw count | Notes |
 |---|---|---|
@@ -34,7 +34,7 @@ companies.
 ## Run 1
 
 Pulled S1 + S3 + S2 CD + the first 600 of S2 B: 1,430 unique accounts. Regex pre-score kept 574; the judgment pass over
-the keeps left 362 (saved to the list "PureFlow TAM 500 - 2026-10-14"). The first 600 of S2 B is a relevance-ranked
+the keeps left 362 (saved to the list "Acme TAM 500 - 2026-10-14"). The first 600 of S2 B is a relevance-ranked
 sample, so its keep rate is biased upward (page 03).
 
 ## Run 2

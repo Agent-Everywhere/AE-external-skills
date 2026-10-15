@@ -5,7 +5,7 @@ One shared rubric for every segment, calibrated on 10 spread rows with the user.
 (`keep` / `unsure` / `drop`). Exclusions are scoring rules, never keyword NOT terms: a NOT drops real fits whose copy
 mentions the word.
 
-## PureFlow rubric
+## Acme rubric
 
 | Verdict | Signals |
 |---|---|
@@ -26,7 +26,7 @@ brands and wellness topicals.
   Graymatter, Bonafide Health).
 - A calibration stand-in can be wrong (Yellow Emperor is a contract manufacturer: drop).
 - Thin or empty description: `unsure`, never `keep`.
-- A regex pre-score is a first pass only. Follow it with a model or human judgment pass over the keeps: PureFlow regex
+- A regex pre-score is a first pass only. Follow it with a model or human judgment pass over the keeps: Acme regex
   574 keeps, judged 362.
 
 ## Procedure

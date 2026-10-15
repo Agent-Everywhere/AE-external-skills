@@ -71,8 +71,8 @@ Niche ICP spread over several LinkedIn industries. Write `segments.json` (name t
 segment over 1,000 (headcount band, then state); `plan --kind pull --counts <counts file>` pulls 25 rows a page
 (`pages.step` is at most 25, 200 pages a plan). Details and one shared rubric score each segment, then `segments.py merge
 --pulls r1.jsonl r2.jsonl --out merged.csv` (unique by company id, `segment` pipe-joined): report "sum X, unique Y".
-Optional: confirm the list name with the user, `lists.js`, `list_create.js`, `list_save_accounts.js` (50 a call, paced; shard
-as `<name>`, `<name> #2`... at 900 accounts), `lists.js` to verify `entityCount`. Then people through `ACCOUNT_LIST`, all shards OR'd (recipe 3, step 4).
+Optional: confirm the list name with the user, `lists.js`, `list_create.js`, `list_save_sharded.js` (50 a call, paced; auto-shards
+as `<name>`, `<name> #2`... at 1,000 accounts), `lists.js` to verify `entityCount`. Then people through `ACCOUNT_LIST`, all shards OR'd (recipe 3, step 4).
 
 ## Make it yours
 

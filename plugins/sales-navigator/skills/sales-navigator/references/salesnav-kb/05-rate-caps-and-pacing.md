@@ -34,7 +34,7 @@ Batch tools (own assumption): 1,000 company records (`companies_details.js`) and
 Stop for the day on a 403/429 after the page was ready, a captcha, sign-out, a limit banner, or empty or repeating pages.
 No retry loops. Pace 3 to 5 seconds between calls, none in parallel, one session per seat.
 
-## Budget per approach (PureFlow)
+## Budget per approach (Acme)
 
 | Step | Cost |
 |---|---|

@@ -12,6 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SKILL = ROOT / "plugins" / "sales-navigator" / "skills" / "sales-navigator"
+KB = SKILL / "references" / "salesnav-kb"
 sys.path.insert(0, str(SKILL / "scripts"))
 
 import dedupe  # noqa: E402
@@ -88,13 +89,21 @@ class HardRulesAndBudget(unittest.TestCase):
         self.assertLessEqual(words(SKILL / "SKILL.md"), 1000)      # 0.6.1: +100 for the 4-step ENGINE block; 0.7.0: +100 lists, segments
         self.assertLessEqual(words(SKILL / "reference.md"), 2950)  # 0.6.1: +150 for the 4-step ENGINE block; 0.6.2: +150 count mode, intake; 0.7.0: +700 lists, ACCOUNT_LIST, segments, rubric
         self.assertLessEqual(words(SKILL / "recipes.md"), 950)   # 0.6.2: count mode; 0.7.0: multi-segment recipe
-        total = sum(words(p) for p in SKILL.rglob("*.md"))
+        total = sum(words(p) for p in SKILL.rglob("*.md") if KB not in p.parents)   # the KB is a separate shipped reference
         self.assertLessEqual(total, 5850, total)  # 0.7.0: +50 loosened caps, saved-accounts guard, list sharding; +960 lists, segments, rubric, ACCOUNT_LIST; 0.6.2: +150 count mode; 0.6.1: +250 for the 4-step ENGINE block (x2 docs) and the reorder
 
     def test_only_the_slim_docs_remain(self):
-        names = sorted(str(p.relative_to(SKILL)) for p in SKILL.rglob("*.md"))
+        names = sorted(str(p.relative_to(SKILL)) for p in SKILL.rglob("*.md") if KB not in p.parents)
         self.assertEqual(names, ["SKILL.md", "recipes.md", "reference.md", "runtime/README.md",
                                  "templates/company-profile.example.md", "templates/company-profile.md"])
+
+    KB_PAGES = ["00-index.md", "01-navigation-basics.md", "02-filters-and-ids.md", "03-view-cap-and-slicing.md",
+                "04-industry-quirks.md", "05-rate-caps-and-pacing.md", "10-approach-segmented-merge.md",
+                "11-approach-broad-net-slicing.md", "12-approach-lookalike-plus-lanes.md",
+                "13-approach-account-first-people.md", "14-lists.md", "20-rubric-template.md"]
+
+    def test_the_kb_holds_exactly_the_expected_pages(self):
+        self.assertEqual(sorted(p.name for p in KB.iterdir()), self.KB_PAGES)
 
     def test_profile_template_keeps_the_fields_the_scripts_read(self):
         text = (SKILL / "templates" / "company-profile.md").read_text(encoding="utf-8")
@@ -106,9 +115,9 @@ class HardRulesAndBudget(unittest.TestCase):
         header = (SKILL / "templates" / "drafts.csv").read_text(encoding="utf-8").strip()
         self.assertEqual(header.split(","), validate_csv.DRAFT_COLUMNS)
 
-    LIST_WRITERS = {"list_create.js", "list_save_accounts.js"}   # 0.7.0: the only seat writes besides sends (POST only)
+    LIST_WRITERS = {"list_create.js", "list_save_accounts.js", "list_save_sharded.js"}   # 0.7.0: the only seat writes besides sends (POST only)
 
-    def test_page_snippets_never_write_except_the_two_list_snippets(self):
+    def test_page_snippets_never_write_except_the_list_snippets(self):
         for path in (SKILL / "page").glob("*.js"):
             body = path.read_text(encoding="utf-8")
             with self.subTest(snippet=path.name):

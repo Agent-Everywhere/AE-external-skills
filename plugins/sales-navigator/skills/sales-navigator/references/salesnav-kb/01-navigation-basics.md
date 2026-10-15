@@ -8,7 +8,7 @@
 | Agent Browser (cloud) | schedules, laptop-off runs | one JSON plan, one process per session; the claim lasts 60 seconds (write the plan first); 40-minute ceiling (exit 4, resume with `--skip-done`) |
 | Local CDP | a dedicated Chrome profile | `session.py --runtime cdp --cdp-url http://127.0.0.1:<port> --plan plan.json --out results.jsonl` |
 
-On the local machine the PureFlow run used a pwkit pool profile in legacy-cdp mode. The CDP URL is a local endpoint to the
+On the local machine the Acme run used a pwkit pool profile in legacy-cdp mode. The CDP URL is a local endpoint to the
 user's own browser: keep it out of user-facing output, notes and files.
 
 ## Ready gate and read-only API

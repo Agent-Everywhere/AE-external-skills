@@ -98,6 +98,22 @@ class DoctorRuns(unittest.TestCase):
             self.assertIn("Do not drive the Sales Navigator UI by hand", r.stdout)
             self.assertNotIn("OK: engine complete", r.stdout)
 
+    def test_the_kb_pages_are_required_files(self):
+        self.assertEqual(len(doctor.KB_PAGES), 12)
+        for name in doctor.KB_PAGES:
+            self.assertTrue((ENGINE / "references" / "salesnav-kb" / name).is_file(), name)
+            self.assertIn("references/salesnav-kb/" + name, doctor.required_paths())
+        with tempfile.TemporaryDirectory() as tmp:
+            broken = Path(tmp) / "sales-navigator"
+            shutil.copytree(ENGINE, broken, ignore=shutil.ignore_patterns("__pycache__"))
+            r = run("--engine", str(broken), cwd=tmp)
+            self.assertEqual(r.returncode, 0, r.stdout)
+            (broken / "references" / "salesnav-kb" / "14-lists.md").unlink()
+            r = run("--engine", str(broken), cwd=tmp)
+            self.assertEqual(r.returncode, 1, r.stdout)
+            self.assertIn("MISSING: references/salesnav-kb/14-lists.md", r.stdout)
+            self.assertNotIn("OK: engine complete", r.stdout)
+
     def test_an_engine_folder_that_does_not_exist_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             r = run("--engine", str(Path(tmp) / "nope"), cwd=tmp)

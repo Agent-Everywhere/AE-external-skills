@@ -1,6 +1,6 @@
 # 04 Industry quirks
 
-LinkedIn industry is a company's self-label, not the buyer type. For PureFlow:
+LinkedIn industry is a company's self-label, not the buyer type. For Acme:
 
 | Where the right companies sit | Where the wrong ones sit |
 |---|---|
@@ -23,5 +23,5 @@ reading each company's own description (page 20).
 - Headcount is LinkedIn's estimate: known brands can show 1-10, holding companies inflate. Never drop on headcount band
   alone.
 - A stand-in used to calibrate can be wrong. Check its `companies_details.js` record before building a rubric on it
-  (the PureFlow stand-in "Yellow Emperor" turned out to be a contract manufacturer: a drop signal, not a keep).
+  (the Acme stand-in "Yellow Emperor" turned out to be a contract manufacturer: a drop signal, not a keep).
 - Lead `REGION` is the person's location; account `REGION` is the headquarters.

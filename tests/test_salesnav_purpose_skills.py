@@ -39,7 +39,16 @@ NAMES = sorted(REQUIRED)
 # (words, lines) per SKILL.md; default (800, 76). 0.6.0: the accounts flow carries the intake steps; 0.6.1: 4-step ENGINE block;
 # 0.6.2: count mode (scored sample) and memory-never-skips-intake in the accounts flow.
 # 0.7.0: accounts +multi-segment step, list save step and rubric (1400, 120); people +ACCOUNT_LIST scoping (900).
-BUDGET = {"salesnav-tam-accounts": (1400, 120), "salesnav-tam-people": (900, 76)}
+# 0.7.x: KB read-before lines: accounts (1500, 124), tracker (870, 80), people stays (900, 76).
+BUDGET = {"salesnav-tam-accounts": (1500, 124), "salesnav-tam-people": (900, 76), "salesnav-tam-tracker": (870, 80)}
+# Who reads what: references/salesnav-kb/00-index.md. Each SKILL.md names its pages as references/salesnav-kb/<file>.
+KB = TOOLKIT / "references" / "salesnav-kb"
+KB_READERS = {
+    "sales-navigator": ("01", "02", "05", "14"),
+    "salesnav-tam-accounts": ("03", "04", "10", "11", "12", "20"),
+    "salesnav-tam-people": ("13", "14", "02"),
+    "salesnav-tam-tracker": ("03", "05", "14"),
+}
 # Files the user's workspace holds; a SKILL.md may name them without the engine shipping them.
 WORKSPACE_FILES = {"company-profile.md", "leads.csv", "accounts.csv", "tam_tracker.csv", "FILE.csv", "merged.csv",
                    "/Claude/company-profile.md"}
@@ -107,6 +116,44 @@ class PurposeSkillFolders(unittest.TestCase):
                     else:
                         homes = [TOOLKIT / d / token for d in ("", "page", "scripts", "templates", "runtime")]
                         self.assertTrue(any(h.is_file() for h in homes), token)
+
+
+class KnowledgeBaseReferences(unittest.TestCase):
+    def kb_page(self, prefix):
+        pages = sorted(KB.glob(prefix + "-*.md"))
+        self.assertEqual(len(pages), 1, prefix)
+        return pages[0].name
+
+    def test_the_index_who_reads_what_table_matches_the_expected_readers(self):
+        index = (KB / "00-index.md").read_text(encoding="utf-8")
+        table = index.split("## Who reads what", 1)[1].split("##", 1)[0]
+        for skill_name, prefixes in KB_READERS.items():
+            row = next(l for l in table.splitlines() if ("`%s`" % skill_name) in l)
+            self.assertEqual(re.findall(r"\b(\d\d)\b", row.split("|")[2]), list(prefixes), skill_name)
+
+    def test_each_skill_md_references_its_kb_pages_and_every_referenced_file_exists(self):
+        for skill_name, prefixes in KB_READERS.items():
+            body = (skill(skill_name) / "SKILL.md").read_text(encoding="utf-8")
+            for prefix in prefixes:
+                with self.subTest(skill=skill_name, page=prefix):
+                    self.assertIn("references/salesnav-kb/" + self.kb_page(prefix), body)
+            for name in set(re.findall(r"references/salesnav-kb/([\w.-]+\.md)", body)):
+                with self.subTest(skill=skill_name, file=name):
+                    self.assertTrue((KB / name).is_file(), name)
+
+    def test_no_repo_file_still_mentions_the_old_docs_location(self):
+        old = "docs/" + "salesnav-kb"
+        hits = []
+        for path in ROOT.rglob("*"):
+            parts = path.relative_to(ROOT).parts
+            if not path.is_file() or ".git" in parts or "__pycache__" in parts or "dist" in parts[:1] or "node_modules" in parts:
+                continue
+            try:
+                if old in path.read_text(encoding="utf-8"):
+                    hits.append(str(path.relative_to(ROOT)))
+            except (UnicodeDecodeError, OSError):
+                continue
+        self.assertEqual(hits, [])
 
 
 class PurposeSkillDocs(unittest.TestCase):

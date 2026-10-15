@@ -25,6 +25,8 @@ ENGINE="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/sales-navigator}"
 
 Snippets (`count.js` and the rest) live in `$ENGINE/page/`; run one with `python3 "$ENGINE/runtime/session.py" --emit <snippet>.js --params '{...}' --compact`.
 
+Field-notes KB: `$ENGINE/references/salesnav-kb/` (from this skill's folder: `../sales-navigator/references/salesnav-kb/`; inside the engine: `references/salesnav-kb/`). Read the named page before the step that names it.
+
 **Job.** Find the right people at the accounts `salesnav-tam-accounts` qualified: one lead search
 scoped by those company ids, an exact count per variant, and rows the user has checked.
 
@@ -38,9 +40,9 @@ scoped by those company ids, an exact count per variant, and rows the user has c
    words to exclude. Take the qualified account ids (`keep` rows of `accounts.csv`). **No qualified accounts file
    yet: run `salesnav-tam-accounts` first (seller research, intake, qualify); do not keyword-search people
    across all of LinkedIn.** The user may instead supply their own company list.
-2. In a signed-in `linkedin.com/sales` tab, run `csrf_ready.js`, then `typeahead.js` for geography
+2. Before this step, read `$ENGINE/references/salesnav-kb/02-filters-and-ids.md`. In a signed-in `linkedin.com/sales` tab, run `csrf_ready.js`, then `typeahead.js` for geography
    (`BING_GEO`). Titles go in as free text (`CURRENT_TITLE`).
-3. **Scope by account, account-first.** Preferred: the qualified accounts saved to an account list
+3. **Scope by account, account-first.** Before this step, read `$ENGINE/references/salesnav-kb/13-approach-account-first-people.md` and `$ENGINE/references/salesnav-kb/14-lists.md`. Preferred: the qualified accounts saved to an account list
    (`salesnav-tam-accounts`, step 9), then one lead search with an `ACCOUNT_LIST` filter (all shard lists, `<name>`, `<name> #2`...,
    OR'd in one `values`; no URL-length limit). Otherwise a `CURRENT_COMPANY` filter (ids as `urn:li:organization:<id>`)
    in chunks of at most 400 ids (verified: 420 ok, 540 and more fail with HTTP 414; prove a new size with `count=1`). Add `SENIORITY_LEVEL`
@@ -50,7 +52,7 @@ scoped by those company ids, an exact count per variant, and rows the user has c
    `$ENGINE/reference.md`.
 4. **Count** variants in one `count.js` call (`kind: lead`): each title alone, with and without seniority,
    each list or company-id chunk. Drop a title that dominates with the wrong people.
-5. **Sample, then pull.** One page with `lead_search.js` (`count` 100); read titles and companies with the
+5. **Sample, then pull.** On a large `ACCOUNT_LIST` search page with the returned `count`; on `fetch_timeout` lower `count` or raise `evaluate_timeout_ms`. One page with `lead_search.js` (`count` 100); read titles and companies with the
    user and fix filters; then page `start` by 100 up to the 2,500 viewable cap and save under `results/`.
    Convert with `python3 "$ENGINE/scripts/salesnav_rows.py" leads results/*.json -o leads.csv`.
 6. **Deeper detail** only when asked: `profiles_batch.js` over the rows' `entityUrn`s (`batch` up to 100).

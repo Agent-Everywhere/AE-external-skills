@@ -22,10 +22,10 @@
 | `REGION` | United States `103644278`; resolve a state with typeahead `BING_GEO` and take the entry whose display value is the state itself. Lead region is the person's location, account region the headquarters |
 | `COMPANY_HEADCOUNT` | letters: A self-employed, B 1-10, C 11-50, D 51-200, E 201-500 (verified); F 501-1,000, G 1,001-5,000, H 5,001-10,000, I 10,001+ (confirm with a count) |
 
-PureFlow ICP 2-200 employees = B + C + D. B includes one-person companies. Bands do not sum to the total (A and F and up
+Acme ICP 2-200 employees = B + C + D. B includes one-person companies. Bands do not sum to the total (A and F and up
 are outside); include them when you shard.
 
-## INDUSTRY ids resolved for PureFlow
+## INDUSTRY ids resolved for Acme
 
 | Id | Industry |
 |---|---|

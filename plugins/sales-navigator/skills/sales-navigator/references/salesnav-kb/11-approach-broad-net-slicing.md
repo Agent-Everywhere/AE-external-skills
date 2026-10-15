@@ -12,7 +12,7 @@ Use when the ICP aligns with 1 to 3 well-labelled LinkedIn industries.
 4. Optional keyword lanes as a priority tier: count each alone first; a noisy keyword swamps an OR list.
 5. Pull and qualify only what the user asks for; a full pull is a list ask, not a count ask.
 
-## When it does not fit: PureFlow
+## When it does not fit: Acme
 
 The own-label brands were not concentrated in one industry. Health, Wellness and Fitness alone is 141,512 raw accounts
 (gyms and studios dominate); qualifying 1,000 of them costs about 20 calls (10 search calls at 100 rows plus 10 details

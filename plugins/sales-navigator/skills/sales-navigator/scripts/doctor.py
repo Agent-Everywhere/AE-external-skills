@@ -30,12 +30,19 @@ EXIT_OK, EXIT_MISSING = 0, 1
 
 REQUIRED_PAGE = (
     "account.js", "account_search.js", "activity.js", "companies_details.js", "companies_websites.js",
-    "count.js", "csrf_ready.js", "lead_search.js", "list_create.js", "list_save_accounts.js", "lists.js",
+    "count.js", "csrf_ready.js", "lead_search.js", "list_create.js", "list_save_accounts.js", "list_save_sharded.js",
+    "lists.js",
     "profile.js", "profiles_batch.js", "typeahead.js",
 )
 REQUIRED_SCRIPTS = (
     "dedupe.py", "doctor.py", "outreach_log.py", "run_log.py", "salesnav_rows.py", "segments.py", "shard_plan.py",
     "tam_tracker.py", "validate_csv.py", "workspace.py",
+)
+KB_PAGES = (
+    "00-index.md", "01-navigation-basics.md", "02-filters-and-ids.md", "03-view-cap-and-slicing.md",
+    "04-industry-quirks.md", "05-rate-caps-and-pacing.md", "10-approach-segmented-merge.md",
+    "11-approach-broad-net-slicing.md", "12-approach-lookalike-plus-lanes.md",
+    "13-approach-account-first-people.md", "14-lists.md", "20-rubric-template.md",
 )
 REQUIRED_OTHER = ("reference.md", "runtime/session.py", "templates/company-profile.md", "templates/drafts.csv")
 
@@ -43,7 +50,7 @@ REQUIRED_OTHER = ("reference.md", "runtime/session.py", "templates/company-profi
 def required_paths():
     """Every file the engine must hold, as relative POSIX paths."""
     return (["page/" + n for n in REQUIRED_PAGE] + ["scripts/" + n for n in REQUIRED_SCRIPTS]
-            + list(REQUIRED_OTHER))
+            + list(REQUIRED_OTHER) + ["references/salesnav-kb/" + n for n in KB_PAGES])
 
 
 def check_engine(engine):

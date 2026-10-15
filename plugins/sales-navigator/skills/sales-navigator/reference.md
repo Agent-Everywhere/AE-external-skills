@@ -141,7 +141,7 @@ is unverified: do not save leads.
 | `ACCOUNT_LIST` filter | bypasses the id limit; one short query covers the whole list |
 | Max account list size | 1,000 (observed): further saves return 200 but per-entity `EXCEED_LIMIT`; check entry status |
 
-Shard lists before the max: `<name>`, `<name> #2`, `<name> #3`, rotate at 900 accounts. Account-first people flow:
+`list_save_sharded.js` shards automatically: `<name>`, `<name> #2`, `<name> #3`, rotating at 1,000 (checks `entityCount` and per-entity `EXCEED_LIMIT`). Account-first people flow:
 score the accounts, save the qualified ones to the list(s), then one lead search with `ACCOUNT_LIST` (all shard ids OR'd
 in one `values:List(...)`) plus seniority and title filters. A segment merge keeps one master list.
 
