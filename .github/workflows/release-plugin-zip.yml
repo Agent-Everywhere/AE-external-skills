@@ -1,0 +1,126 @@
+# Build the Claude Desktop "Upload plugin" zip for sales-navigator and attach it to the tag's GitHub Release.
+# All build logic lives in scripts/build-plugin-zip.sh (run it locally to get the same files).
+# Release: git tag sales-navigator-v<version> && git push origin sales-navigator-v<version>
+# <version> must equal the plugin version in .claude-plugin/marketplace.json (the build fails otherwise).
+name: release-plugin-zip
+on:
+  push:
+    tags:
+      - "sales-navigator-v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and release, e.g. sales-navigator-v0.6.1"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-plugin-zip-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      PLUGIN: sales-navigator
+      ROLLING: sales-navigator-latest
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Check tag shape
+        run: |
+          case "$TAG" in
+            "$PLUGIN"-v[0-9]*) ;;
+            *) echo "::error::tag '$TAG' must look like ${PLUGIN}-v<version>"; exit 1 ;;
+          esac
+          echo "VERSION=${TAG#"$PLUGIN"-v}" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4.2.2
+        with:
+          ref: refs/tags/${{ env.TAG }}
+
+      - name: Build zip (fails unless plugin.json is at the zip root, version matches the tag, size < 200 MB)
+        run: bash scripts/build-plugin-zip.sh "$PLUGIN" "$VERSION"
+
+      - name: Show contents
+        run: |
+          unzip -l "dist/$PLUGIN.zip" | head -20
+          cmp "dist/$PLUGIN.zip" "dist/$PLUGIN.plugin"
+
+      # Versioned release, kept for pinning. Never Latest: the Latest release belongs to grokbot (curl install).
+      - name: Create or update the versioned GitHub Release
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "dist/$PLUGIN.zip" "dist/$PLUGIN.plugin" --clobber
+          else
+            gh release create "$TAG" "dist/$PLUGIN.zip" "dist/$PLUGIN.plugin" \
+              --title "$PLUGIN v$VERSION" --generate-notes --verify-tag --latest=false
+          fi
+
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: plugin-dist
+          path: dist/
+          if-no-files-found: error
+
+  # Rolling release at a stable URL:
+  # https://github.com/${{ github.repository }}/releases/download/sales-navigator-latest/sales-navigator.zip
+  # Serialized across runs, and only moved for the highest stable version, so an old or pre-release tag never wins.
+  rolling:
+    needs: build-and-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency:
+      group: sales-navigator-rolling
+      cancel-in-progress: false
+    env:
+      PLUGIN: sales-navigator
+      ROLLING: sales-navigator-latest
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          ref: refs/tags/${{ env.TAG }}
+
+      - name: Is this the highest stable version?
+        id: decide
+        run: |
+          this="${TAG#"$PLUGIN"-v}"
+          if [[ "$this" == *-* ]]; then
+            echo "Skipping rolling update: $TAG is a pre-release (has a '-' suffix)."
+            echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          top="$(git ls-remote --tags origin "refs/tags/${PLUGIN}-v*" \
+            | awk '{print $2}' | sed -e 's/\^{}$//' -e "s#^refs/tags/${PLUGIN}-v##" \
+            | grep -E '^[0-9]+(\.[0-9]+)*$' | sort -uV | tail -1)"
+          if [ "$this" = "$top" ]; then
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Skipping rolling update: $this is not the highest stable version (highest: ${top:-none})."
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/download-artifact@v4.3.0
+        if: steps.decide.outputs.go == 'true'
+        with:
+          name: plugin-dist
+          path: dist/
+
+      # Assets go up before the tag moves, so the stable URL never points at a tag with missing assets.
+      - name: Update the rolling release
+        if: steps.decide.outputs.go == 'true'
+        run: |
+          SHA="$(git rev-parse HEAD)"
+          if gh release view "$ROLLING" >/dev/null 2>&1; then
+            gh release upload "$ROLLING" "dist/$PLUGIN.zip" "dist/$PLUGIN.plugin" --clobber
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$ROLLING" -f sha="$SHA" -F force=true
+          else
+            gh release create "$ROLLING" "dist/$PLUGIN.zip" "dist/$PLUGIN.plugin" --target "$SHA" --latest=false \
+              --title "$PLUGIN (latest)" \
+              --notes "Rolling copy of the newest $PLUGIN release, at a stable URL. Pin a version from the ${PLUGIN}-v* releases."
+          fi

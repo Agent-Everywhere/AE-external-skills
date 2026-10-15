@@ -43,6 +43,24 @@ The `sales-navigator` plugin's five skills:
 /plugin install sales-navigator@ae-external-skills
 ```
 
+### Install in Claude Desktop (no GitHub)
+
+For the `sales-navigator` plugin, with no GitHub account, marketplace or Claude GitHub App:
+
+1. Download [`sales-navigator.zip`](https://github.com/Agent-Everywhere/AE-external-skills/releases/download/sales-navigator-latest/sales-navigator.zip)
+   from the `sales-navigator-latest` release. (The same file is also published as `sales-navigator.plugin`. Versioned
+   `sales-navigator-v<version>` releases also exist if you want to pin one.)
+2. In Claude Desktop, open Customize > Plugins > Upload plugin and pick the zip.
+
+Needs a Claude Pro, Max, Team or Enterprise plan. The skills work in chat, and in Cowork the plugin
+runs in full (scripts included).
+
+**Updating:** download the new `sales-navigator.zip` from the `sales-navigator-latest` release and upload it again.
+Nothing updates on its own on this path. To build the same zip yourself:
+`bash scripts/build-plugin-zip.sh sales-navigator` (writes `dist/sales-navigator.zip`).
+
+### Auto-update option (marketplace)
+
 **Claude Desktop**: Customize > Plugins > Add > Add marketplace > Add from a repository >
 `Agent-Everywhere/AE-external-skills` > Sync, then Add the plugin you want. Auto-sync needs the
 Claude GitHub App to have access to this repository; without that the plugin installs but does not
@@ -168,6 +186,14 @@ ship the CLI; it installs it inside the box by cloning this repo.
   skills share one engine, so zip them together, as the plugin ships them (a purpose skill alone has no tools):
   `cd plugins/sales-navigator && zip -r ../../dist/sales-navigator.zip skills -x '*/__pycache__/*'`.
   `grokbot-box` needs nothing else (it clones this repo inside the box).
+- **Upload-ready plugin zip.** `scripts/build-plugin-zip.sh <plugin-name>` builds `dist/<name>.zip` (plus an
+  identical `.plugin`) with `.claude-plugin/plugin.json` at the zip root, for Claude Desktop's Upload plugin. The
+  repo's plugin folder has no `plugin.json` (the marketplace entry is the source of truth), so the script generates one in
+  a staging copy from the `.claude-plugin/marketplace.json` entry. Pushing a tag `sales-navigator-v<version>` runs
+  `.github/workflows/release-plugin-zip.yml`, which builds with the script, fails unless `<version>` equals the
+  plugin version in `.claude-plugin/marketplace.json` (the tag must match it), and attaches both files to that tag's
+  GitHub Release, which is never marked Latest (the Latest release belongs to grokbot; see the rule below). The
+  same run also moves a rolling `sales-navigator-latest` release to the new build, which gives the stable download URL.
 - **Releasing the grokbot CLI.** The curl install downloads `grokbot.mjs` from the latest GitHub
   Release. After a change to `skills/grokbot/cli/` merges, rebuild `dist/` (`npm run build`), bump
   `version` in `package.json`, and publish:
