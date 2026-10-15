@@ -686,7 +686,7 @@ class PageBudget(unittest.TestCase):
     def pages_run(self, page):
         return len([c for c in page.calls if c[1] and "start" in c[1]])
 
-    def test_default_cap_is_the_guardrails_daily_default_not_cap_over_step(self):
+    def test_default_cap_is_the_kb05_daily_default_not_cap_over_step(self):
         page = base.FakePage(base.pager(10000))
         the_plan = base.plan()
         the_plan["calls"][0]["pages"]["cap"] = 5000  # cap 5000 / step 25 would be 200 pages
