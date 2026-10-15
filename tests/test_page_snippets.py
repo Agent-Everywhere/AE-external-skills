@@ -276,6 +276,7 @@ class PageSnippets(unittest.TestCase):
                 "revenueRange": {"estimatedMinRevenue": {"amount": 1, "unit": "MILLION", "currencyCode": "USD"},
                                  "estimatedMaxRevenue": {"amount": 5, "unit": "MILLION", "currencyCode": "USD"}},
                 "headquarters": {"city": "Austin", "geographicArea": "Texas", "country": "US"},
+                "employeeDisplayCount": 12, "decisionMakersDisplayCount": 4, "location": "Austin, Texas, United States",
                 "employeeGrowthPercentages": [{"timePeriod": {"unit": "YEAR"}, "growthPercentage": 12}]}
         out = run_snippet("companies_details.js", {"ids": ids}, [{"status": 200, "body": {"results": {"1": full}, "errors": {}}}])
         call = out["calls"][0]["url"]
@@ -284,7 +285,8 @@ class PageSnippets(unittest.TestCase):
         deco = call.split("&decoration=")[1]
         self.assertEqual(deco, "%28entityUrn%2Cname%2Cwebsite%2Cdescription%2Cspecialties%2Ctype%2CyearFounded%2Cindustry"
                                "%2Cheadquarters%2CrevenueRange%2CemployeeCount%2CemployeeCountRange"
-                               "%2CemployeeGrowthPercentages%2CflagshipCompanyUrl%29")
+                               "%2CemployeeGrowthPercentages%2CflagshipCompanyUrl%2CemployeeDisplayCount"
+                               "%2CdecisionMakersDisplayCount%2Clocation%29")
         self.assertNotIn("(", deco)
         self.assertNotIn(",", deco)
         res = out["result"]
@@ -301,6 +303,19 @@ class PageSnippets(unittest.TestCase):
         self.assertEqual(row["yearFounded"], 1999)
         self.assertEqual(row["id"], "1")
         self.assertEqual(row["employeeGrowthPercentages"], "timePeriod=unit=YEAR growthPercentage=12")
+        self.assertEqual((row["employeeDisplayCount"], row["decisionMakersDisplayCount"]), (12, 4))
+        self.assertEqual(row["location"], "Austin, Texas, United States")
+
+    def test_companies_details_growth_sentinel_is_new_and_missing_counts_are_blank(self):
+        body = {"results": {"1": {"name": "N", "employeeGrowthPercentages": [
+            {"timePeriod": {"unit": "MONTH", "count": 6}, "growthPercentage": 2147483647},
+            {"timePeriod": {"unit": "YEAR", "count": 1}, "growthPercentage": 7}]}}}
+        out = run_snippet("companies_details.js", {"ids": ["1"]}, [{"status": 200, "body": body}])
+        row = out["result"]["companies"][0]
+        self.assertIn("growthPercentage=new", row["employeeGrowthPercentages"])
+        self.assertIn("growthPercentage=7", row["employeeGrowthPercentages"])
+        self.assertNotIn("2147483647", json.dumps(out["result"]))
+        self.assertEqual((row["employeeDisplayCount"], row["decisionMakersDisplayCount"], row["location"]), ("", "", ""))
 
     def test_companies_details_chunks_at_most_100_and_fields_override(self):
         ids = [str(n) for n in range(1, 251)]
@@ -356,6 +371,42 @@ class PageSnippets(unittest.TestCase):
         self.assertEqual(prof["entityUrn"], LEAD_URN)
         self.assertNotIn("contactInfo", json.dumps(res))
         self.assertNotIn("x@example.invalid", json.dumps(res))
+
+    def test_profiles_batch_extras_adds_one_decoration_and_never_contact_info(self):
+        body = {"results": {"FIXTUREID123": {
+            "entityUrn": LEAD_URN, "fullName": "A B", "degree": 2, "positions": [
+                {"companyName": "Now", "companyUrn": "urn:li:fs_salesCompany:9", "title": "CEO", "current": True,
+                 "startedOn": {"year": 2020, "month": 5}, "endedOn": {"year": 2024, "month": 1}}],
+            "educations": [{"schoolName": "U", "degree": "BA", "fieldsOfStudy": ["Art"], "startedOn": {"year": 2000, "month": 9},
+                            "endedOn": {"year": 2004, "month": 6}}],
+            "skills": [{"name": "Ops", "numOfEndorsement": 3}], "languages": [{"name": "English", "proficiency": "NATIVE"}],
+            "numOfConnections": 500, "memberBadges": {"premium": True, "openLink": False}, "inmailRestriction": "NO_RESTRICTION",
+            "contactInfo": {"primaryEmail": "x@example.invalid"}}}}
+        out = run_snippet("profiles_batch.js", {"leads": [LEAD], "extras": True}, [{"status": 200, "body": body}])
+        self.assertEqual(len(out["calls"]), 1)  # same single batch call
+        deco = out["calls"][0]["url"].split("&decoration=")[1]
+        self.assertEqual(deco, "%28entityUrn%2CfullName%2Cheadline%2Csummary%2Clocation%2CdefaultPosition%2Cdegree%2C"
+                               "positions*%28companyName%2CcompanyUrn%2Ccurrent%2Ctitle%2Cdescription%2CstartedOn%2CendedOn%29%2C"
+                               "educations*%28degree%2CendedOn%2CschoolName%2CstartedOn%2CfieldsOfStudy*%29%2Cskills*%2Clanguages*%2C"
+                               "numOfConnections%2CmemberBadges%2CinmailRestriction%29")
+        self.assertIn("educations*", deco)
+        self.assertIn("skills*", deco)
+        self.assertNotIn("contactInfo", deco)
+        prof = out["result"]["profiles"][0]
+        self.assertEqual(prof["educations"], [{"schoolName": "U", "degree": "BA", "fieldsOfStudy": ["Art"],
+                                               "startedOn": {"year": 2000, "month": 9}, "endedOn": {"year": 2004, "month": 6}}])
+        self.assertEqual(prof["skills"], [{"name": "Ops", "endorsements": 3}])
+        self.assertEqual(prof["languages"], [{"name": "English", "proficiency": "NATIVE"}])
+        self.assertEqual((prof["degree"], prof["numOfConnections"], prof["inmailRestriction"]), (2, 500, "NO_RESTRICTION"))
+        self.assertEqual(prof["memberBadges"], {"openLink": False, "premium": True})
+        self.assertEqual(prof["positions"][0]["companyUrn"], "urn:li:fs_salesCompany:9")
+        self.assertEqual(prof["positions"][0]["endedOn"], {"year": 2024, "month": 1})
+        self.assertNotIn("x@example.invalid", json.dumps(out["result"]))
+        # default behaviour unchanged: no extras keys, no extras decoration
+        out = run_snippet("profiles_batch.js", {"leads": [LEAD]}, [{"status": 200, "body": body}])
+        self.assertNotIn("educations", out["calls"][0]["url"])
+        self.assertNotIn("educations", out["result"]["profiles"][0])
+        self.assertNotIn("endedOn", out["result"]["profiles"][0]["positions"][0])
 
     def test_profiles_batch_surfaces_response_errors(self):
         body = {"results": {}, "errors": {"urn:li:fs_salesProfile:(FIXTUREID123,NAME_SEARCH,tok9)": {"status": 404}}}
@@ -689,6 +740,9 @@ class PageSnippets(unittest.TestCase):
             ({"leads": [LEAD_URN, "bad"], "delayMs": 0},
              [{"status": 200, "body": {"results": {"FIXTUREID123": {"fullName": "A", "positions": [{"title": "T", "current": True}]}}}}]),
             ({"leads": [LEAD], "batch": 1}, [{"status": 403, "body": {}}]),
+            ({"leads": [LEAD_URN], "extras": True, "delayMs": 0},
+             [{"status": 200, "body": {"results": {"FIXTUREID123": {"fullName": "A", "skills": [{"name": "x"}],
+                                                                    "educations": [{"schoolName": "U"}]}}}}]),
         ],
     }
 

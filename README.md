@@ -96,6 +96,8 @@ round (at most 5 questions), calibrate on example customers, then accounts, then
 0.6.1 finds the engine in Cowork (`/mnt/skills/plugin-files/sales-navigator`, where `CLAUDE_PLUGIN_ROOT` is empty) with a search fallback, does seller research and intake before the engine check, and never substitutes another data source for the Sales Nav count.
 0.7.0 adds saving accounts to a Sales Nav list (`lists.js`, `list_create.js`, `list_save_accounts.js`; exact list name confirmed once per run, 50 accounts per call, paced, auto-sharded at the 1,000-account list cap (`list_save_sharded.js`, checks per-entry `EXCEED_LIMIT` and `entityCount`), not quota-capped), `segments.py` for multi-segment plans and merges, account-first people search through the `ACCOUNT_LIST` filter, and a field-notes KB in `plugins/sales-navigator/skills/sales-navigator/references/salesnav-kb/` (ships in the plugin zip).
 
+0.7.1 adds a batch-scrape KB page (`15-batch-scrape.md`: the 100-id decoration batch-get tier, field lists with fill rates, what is not available, profile-view evidence, tier comparison), more default company fields in `companies_details.js` (employee and decision-maker display counts, location; the 2147483647 growth sentinel returns `new`), and an opt-in `extras: true` on `profiles_batch.js` (education, skills, languages, connections, badges, InMail restriction in the same single call).
+
 If you installed the older `claude-desktop`, `salesnav-tam-accounts`, `salesnav-tam-people`,
 `salesnav-tam-tracker` or `salesnav-outreach` plugins, run `/plugin uninstall <name>@ae-external-skills`
 for each, then install `desktop-cowork` and `sales-navigator`.

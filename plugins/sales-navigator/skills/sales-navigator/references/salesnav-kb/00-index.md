@@ -12,9 +12,9 @@ Acme final: 537 accounts (T1 95 / T2 442) in one list, 517 contacts across 323 a
 
 | Skill | Pages |
 |---|---|
-| Engine (`sales-navigator`) | 01, 02, 05, 14 |
-| `salesnav-tam-accounts` | 03, 04, 10, 11, 12, 20 |
-| `salesnav-tam-people` | 13, 14, 02 |
+| Engine (`sales-navigator`) | 01, 02, 05, 14, 15 |
+| `salesnav-tam-accounts` | 03, 04, 10, 11, 12, 15, 20 |
+| `salesnav-tam-people` | 13, 14, 02, 15 |
 | `salesnav-tam-tracker` | 03, 05, 14 |
 | `salesnav-outreach` | 01, 05 |
 
@@ -32,6 +32,7 @@ Acme final: 537 accounts (T1 95 / T2 442) in one list, 517 contacts across 323 a
 | [12-approach-lookalike-plus-lanes.md](12-approach-lookalike-plus-lanes.md) | C: calibrate from real customers, keyword lanes |
 | [13-approach-account-first-people.md](13-approach-account-first-people.md) | People scoped by qualified accounts |
 | [14-lists.md](14-lists.md) | Create, save, filter by account lists; verified limits |
+| [15-batch-scrape.md](15-batch-scrape.md) | Batch-get tier: 100 ids per call, field lists and fill rates, profile-view evidence, tier comparison |
 | [20-rubric-template.md](20-rubric-template.md) | Keep / unsure / drop rubric and its fixes |
 
 ## Which approach
