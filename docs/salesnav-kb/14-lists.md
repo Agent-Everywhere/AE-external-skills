@@ -29,17 +29,26 @@ create returns the existing id so the user can decide.
 | Why | the limit is URL length: about 26.6K characters fine at 420 ids, about 34K fails. Chunk `CURRENT_COMPANY` at 400 ids or fewer |
 | `ACCOUNT_LIST` filter | bypasses the limit: one 96-character query covers a whole list |
 | Several lists in one filter | OR'd: list A 2,805 leads + list B 312 gave 3,071 for both (overlap removed) |
-| Max account list size | per LinkedIn docs only, not observed live (largest seen: about 500): 1,000 per list since the Q3 2020 release (was 250); Evaboot says 999. See "List max size and sharding" |
+| Max account list size | **1,000, observed live** (2026-10-14): 20 batches of 50 took a fresh list 0 to 1,000; every save after that returns HTTP 200 with per-entity `status: EXCEED_LIMIT` and the count stays 1,000. See "List max size and sharding" |
 | Lead-list saving | endpoint unverified: not offered |
 
 ## List max size and sharding
 
-Per LinkedIn docs, not observed live: a list holds up to 1,000 accounts (the Q3 2020 release notes raised it from 250,
-https://business.linkedin.com/sales-solutions/product-update/archival/20/q3-release; Evaboot says 999). Our largest list
-is about 500.
+Observed live 2026-10-14 (test list "PureFlow cap test"): an account list holds exactly **1,000** accounts, matching the
+Q3 2020 release notes (https://business.linkedin.com/sales-solutions/product-update/archival/20/q3-release; Evaboot's 999
+is wrong). Method: `POST /sales-api/salesApiCompanies?action=save`, 50 ids a call, ~4 s pacing, `entityCount` re-read
+after every batch. Batches 1-20 each added exactly 50 (950 -> 1,000 on batch 20); batch 21 and 10 single-id probes
+after it left the count at 1,000. No 429, no banner.
+
+The limit is silent. The save still returns **HTTP 200** and top-level `"status":"SUCCESS"`, even lists the id under
+`successful`, but each entry in `value.listEntityActionResponses[]` carries `"status":"EXCEED_LIMIT"`. Check the
+per-entity status (`list_save_accounts.js` counts a non-SUCCESS entry as failed) or re-read `entityCount`; never trust
+the top-level status. Not tested: whether a batch that straddles the cap saves partially.
 
 Default pattern: shard into numbered lists before the max. Name them `<name>`, `<name> #2`, `<name> #3`, and so on, and
-rotate to the next shard at 900 accounts. Confirm the base name with the user once; the numbered names are the same
+rotate to the next shard at 900 accounts (headroom under the hard 1,000). Demonstrated live: 200 overflow ids saved to
+"PureFlow cap test #2" (count 200); lead search with `ACCOUNT_LIST` on list 1 = 6,155, list 2 = 1,103, both OR'd = 7,156
+(102 leads de-duplicated), all HTTP 200. Confirm the base name with the user once; the numbered names are the same
 confirmed list family. Record every shard id (tracker `--filters-delta "list=<id1>,<id2>"`).
 
 People search then filters on all shards at once, OR'd in one `values:List(...)`: this is the default people-search filter

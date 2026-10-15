@@ -77,7 +77,7 @@ cap? Cut it into sub-lists with `salesnav-tam-tracker`.
    (`listType: ACCOUNT`; refuses an existing name unless `reuse`), `list_save_accounts.js` over the `keep` ids (50 a
    call), then `lists.js` to verify `entityCount`. Saves are paced, not quota-capped
    (`run_log.py add --saved-accounts N`). Shard before the max: `<name>`, `<name> #2`, `<name> #3`, rotate at 900 accounts
-   (LinkedIn docs say 1,000 a list; not observed live). A saved list feeds `salesnav-tam-people`.
+   (hard max 1,000 a list, observed live; past it saves return 200 with per-entity `EXCEED_LIMIT`). A saved list feeds `salesnav-tam-people`.
 10. **Report** the pulled, qualified and dropped counts (with reasons), the priority-tier count, the file
    paths, and whether the net exceeds 1,000 (then suggest `salesnav-tam-tracker`). Next: `salesnav-tam-people`.
 

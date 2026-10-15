@@ -139,7 +139,7 @@ is unverified: do not save leads.
 | Create body | `role: "OWNER"` required (422 without) |
 | `CURRENT_COMPANY` ids per lead query | 420 ok, 480 unreliable, 540 and more HTTP 414: chunk at 400 or fewer |
 | `ACCOUNT_LIST` filter | bypasses the id limit; one short query covers the whole list |
-| Max account list size | per LinkedIn docs, not observed live (largest seen about 500): 1,000 since Q3 2020 (was 250); Evaboot says 999 |
+| Max account list size | 1,000 (observed): further saves return 200 but per-entity `EXCEED_LIMIT`; check entry status |
 
 Shard lists before the max: `<name>`, `<name> #2`, `<name> #3`, rotate at 900 accounts. Account-first people flow:
 score the accounts, save the qualified ones to the list(s), then one lead search with `ACCOUNT_LIST` (all shard ids OR'd
