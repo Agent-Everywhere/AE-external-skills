@@ -634,7 +634,7 @@ class PlanValidation(unittest.TestCase):
             "inverted delay": {"delay_ms": [5000, 3000]},
             "http start_url": {"start_url": "http://www.linkedin.com/sales/home"},
             "tiny evaluate timeout": {"evaluate_timeout_ms": 10},
-            "total pages over the hard ceiling": {"max_pages_total": 81},
+            "total pages over the hard ceiling": {"max_pages_total": 201},
             "no calls": {"calls": []},
             "non-boolean sample": {"sample": "yes"},
         }
@@ -653,10 +653,10 @@ class PlanValidation(unittest.TestCase):
         self.assertTrue(with_call(snippet="count.js"))  # both snippet and js
         self.assertTrue(with_call(js=None))  # neither
         self.assertTrue(with_call(params={"delayMs": 0}))
-        self.assertTrue(with_call(pages={"max_pages": 81}))
+        self.assertTrue(with_call(pages={"max_pages": 201}))
         self.assertTrue(with_call(pages={"step": 26}))
         self.assertTrue(with_call(pages={"step": 0}))
-        self.assertEqual(with_call(pages={"max_pages": 80, "step": 25}), [])
+        self.assertEqual(with_call(pages={"max_pages": 200, "step": 25}), [])
         dup = simple_plan()
         dup["calls"] = [{"id": "c", "js": "async () => 1"}, {"id": "c", "js": "async () => 2"}]
         self.assertTrue([p for p in session.validate_plan(dup) if "duplicate" in p])
@@ -687,8 +687,10 @@ class PageBudget(unittest.TestCase):
         return len([c for c in page.calls if c[1] and "start" in c[1]])
 
     def test_default_cap_is_the_guardrails_daily_default_not_cap_over_step(self):
-        page = base.FakePage(base.pager(5000))
-        runner, code = base.run(page, base.plan(), self.out)  # cap 2500 / step 25 would be 100 pages
+        page = base.FakePage(base.pager(10000))
+        the_plan = base.plan()
+        the_plan["calls"][0]["pages"]["cap"] = 5000  # cap 5000 / step 25 would be 200 pages
+        runner, code = base.run(page, the_plan, self.out)
         self.assertEqual(self.pages_run(page), session.DEFAULT_MAX_PAGES)
         self.assertEqual(code, session.EXIT_INCOMPLETE)  # rows were left unread
 
@@ -702,7 +704,8 @@ class PageBudget(unittest.TestCase):
     def test_the_hard_ceiling_cannot_be_exceeded_even_if_validation_is_skipped(self):
         the_plan = base.plan()
         the_plan["calls"][0]["pages"]["max_pages"] = 500
-        page = base.FakePage(base.pager(5000))
+        the_plan["calls"][0]["pages"]["cap"] = 100000
+        page = base.FakePage(base.pager(10000))
         base.run(page, the_plan, self.out)
         self.assertEqual(self.pages_run(page), session.HARD_MAX_PAGES)
 

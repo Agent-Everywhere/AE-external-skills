@@ -30,10 +30,11 @@ EXIT_OK, EXIT_MISSING = 0, 1
 
 REQUIRED_PAGE = (
     "account.js", "account_search.js", "activity.js", "companies_details.js", "companies_websites.js",
-    "count.js", "csrf_ready.js", "lead_search.js", "profile.js", "profiles_batch.js", "typeahead.js",
+    "count.js", "csrf_ready.js", "lead_search.js", "list_create.js", "list_save_accounts.js", "lists.js",
+    "profile.js", "profiles_batch.js", "typeahead.js",
 )
 REQUIRED_SCRIPTS = (
-    "dedupe.py", "doctor.py", "outreach_log.py", "run_log.py", "salesnav_rows.py", "shard_plan.py",
+    "dedupe.py", "doctor.py", "outreach_log.py", "run_log.py", "salesnav_rows.py", "segments.py", "shard_plan.py",
     "tam_tracker.py", "validate_csv.py", "workspace.py",
 )
 REQUIRED_OTHER = ("reference.md", "runtime/session.py", "templates/company-profile.md", "templates/drafts.csv")

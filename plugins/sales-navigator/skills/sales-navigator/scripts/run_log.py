@@ -3,6 +3,7 @@
 
   run_log.py add --pages 12 --profiles 3        append what you just did
   run_log.py add --small-calls 20               counts, typeahead and website batches count too
+  run_log.py add --saved-accounts 250 --small-calls 5   accounts saved to a list (not account pages opened)
   run_log.py today                              today's totals vs the daily limits
   run_log.py quota                              rewrite <workspace>/quota.md (pulls AND outreach, today
                                                 and the last 7 days vs the caps) and print one summary
@@ -18,7 +19,12 @@ could be located (the current folder is only a fallback that cannot persist) or 
 exist (a typo, an unmounted drive: `workspace.py init` creates a new one). An existing folder without a
 run_log.csv is a new workspace: it starts from zero and says so.
 
-CSV columns: date,time,pages,profiles,accounts,saved_searches,small_calls,note  (local date and time).
+CSV columns: date,time,pages,profiles,accounts,saved_searches,small_calls,saved_accounts,note  (local date and
+time). A log with the older header (no saved_accounts) is still read and gets the new header on its next write.
+
+Strict daily quotas are for EXECUTION actions (profile views, InMail, connection requests, messages, likes, posts;
+see outreach_log.py). Search reads (pages, small_calls) and saving accounts to a list are generous but still paced
+3 to 5 seconds between calls. Saved accounts are NOT account pages opened: they have their own high pacing guard.
 A legacy salesnav_run_log.jsonl beside the log is read until the CSV exists, then migrated into the CSV
 on the first write (the old file is kept).
 
@@ -30,7 +36,7 @@ Each action is reported as:
 
 "Today" is the local calendar date; "week" is the last 7 days, today included.
 Override the limits with --limits-file, e.g.
-  {"pages": {"default": 30, "ceiling": 60}}   (keys: pages, small_calls, profiles, accounts, saved_searches)
+  {"pages": {"default": 30, "ceiling": 60}}   (keys: pages, small_calls, saved_accounts, profiles, accounts, saved_searches)
 
 Exit codes: 0 fine (incl. NEAR / OVER DEFAULT), 2 if any action is OVER CEILING (add, today),
 1 on bad input, 4 workspace not located or missing (ask the user).
@@ -50,8 +56,9 @@ import outreach_log  # noqa: E402  (its file lock; quota also reads its ledger)
 # Daily per-seat limits from references/guardrails.md ("Daily volume defaults").
 # Keep in sync with that table (a test checks it).
 LIMITS = {
-    "pages": {"default": 40, "ceiling": 80},            # search result pages read
-    "small_calls": {"default": 150, "ceiling": 200},    # counts, typeahead, website batches
+    "pages": {"default": 100, "ceiling": 200},          # search result pages read (paced 3 to 5 s)
+    "small_calls": {"default": 300, "ceiling": 500},    # counts, typeahead, website batches, list reads and saves
+    "saved_accounts": {"default": 2500, "ceiling": 5000},  # accounts saved to a list: pacing guard, not a quota
     "profiles": {"default": 80, "ceiling": 150},        # individual profiles opened
     "accounts": {"default": 60, "ceiling": 120},        # account pages opened
     "saved_searches": {"default": 10, "ceiling": 25},   # saved searches created
@@ -63,7 +70,8 @@ LEGACY_LOG = "salesnav_run_log.jsonl"
 QUOTA_FILE = "quota.md"
 OUTREACH_LOG = "outreach_log.csv"
 EXIT_NO_WORKSPACE = 4
-COLUMNS = ["date", "time", "pages", "profiles", "accounts", "saved_searches", "small_calls", "note"]
+COLUMNS = ["date", "time", "pages", "profiles", "accounts", "saved_searches", "small_calls", "saved_accounts", "note"]
+OLD_COLUMNS = [c for c in COLUMNS if c != "saved_accounts"]  # logs written before saved_accounts existed
 
 
 def load_limits(path=None):
@@ -98,6 +106,11 @@ def legacy_path(path):
 def _csv_ready(path):
     p = Path(path)
     return p.is_file() and p.stat().st_size > 0
+
+
+def _header(path):
+    with open(path, newline="", encoding="utf-8-sig") as fh:
+        return next(csv.reader(fh), [])
 
 
 def legacy_entries(path):
@@ -143,13 +156,14 @@ def append_entry(path, counts, note="", now=None):
     p.parent.mkdir(parents=True, exist_ok=True)
     entry = dict(date=now.date().isoformat(), time=now.strftime("%H:%M:%S"), note=note or "", **counts)
     with outreach_log.locked(p):
-        if _csv_ready(p):
+        if _csv_ready(p) and _header(p) == COLUMNS:
             with open(p, "a", newline="", encoding="utf-8") as fh:
                 _write_rows(fh, [entry], header=False)
-        else:
+        else:  # first write (migrates a legacy jsonl) or an older header (rewritten with the new column)
+            before = read_entries(p) if _csv_ready(p) else legacy_entries(legacy_path(p))
             tmp = p.with_name("." + p.name + ".tmp")
             with open(tmp, "w", newline="", encoding="utf-8") as fh:
-                _write_rows(fh, legacy_entries(legacy_path(p)) + [entry], header=True)
+                _write_rows(fh, before + [entry], header=True)
                 os.fsync(fh.fileno())
             os.replace(tmp, p)
     return entry
@@ -166,13 +180,13 @@ def read_entries(path):
     entries = []
     with open(p, newline="", encoding="utf-8-sig") as fh:  # utf-8-sig: Excel re-saves add a BOM
         reader = csv.DictReader(fh)
-        if reader.fieldnames != COLUMNS:
+        if reader.fieldnames not in (COLUMNS, OLD_COLUMNS):
             raise ValueError("%s: header must be %s" % (path, ",".join(COLUMNS)))
         for n, row in enumerate(reader, 2):
             try:
                 date.fromisoformat(row["date"])
                 for action in LIMITS:
-                    row[action] = int(row[action] or 0)
+                    row[action] = int(row.get(action) or 0)
                 entries.append(row)
             except (ValueError, TypeError, KeyError):
                 print("warning: %s line %d skipped (not a valid log entry)" % (path, n), file=sys.stderr)
@@ -247,7 +261,8 @@ def summary_line(q):
     lim, day = q["limits"], q["day"]
     parts = ["%d/%d calls" % (day["small_calls"], lim["small_calls"]["default"]),
              "%d/%d pages" % (day["pages"], lim["pages"]["default"])]
-    for action, label in (("profiles", "profiles"), ("accounts", "accounts"), ("saved_searches", "saved searches")):
+    for action, label in (("saved_accounts", "saved accounts"), ("profiles", "profiles"),
+                          ("accounts", "accounts"), ("saved_searches", "saved searches")):
         if day[action]:
             parts.append("%d/%d %s" % (day[action], lim[action]["default"], label))
     parts.append("%d/%d invites" % (q["used"]["day_n"], q["caps"]["daily"]))
@@ -361,6 +376,7 @@ def main(argv=None):
                            ("small-calls", "small API calls (counts, typeahead, website batches)"),
                            ("profiles", "individual profiles opened"),
                            ("accounts", "account pages opened"),
+                           ("saved-accounts", "accounts saved to a list (separate from account pages opened)"),
                            ("saved-searches", "saved searches created")):
         add.add_argument("--" + flag, type=int, default=0, metavar="N", help=helptext)
     add.add_argument("--note", default="", help="short free text, no personal details")
@@ -393,7 +409,7 @@ def main(argv=None):
                 raise ValueError("counts must not be negative")
             if not any(counts.values()):
                 raise ValueError("nothing to add: give at least one of --pages, --small-calls, "
-                                 "--profiles, --accounts, --saved-searches")
+                                 "--profiles, --accounts, --saved-accounts, --saved-searches")
             append_entry(log_path, counts, args.note)
             day = date.today()
         else:

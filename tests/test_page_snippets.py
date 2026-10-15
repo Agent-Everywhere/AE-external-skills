@@ -29,6 +29,9 @@ def run_snippet(name, params, responses=None, cookie=COOKIE):
     return json.loads(proc.stdout)
 
 
+LIST_ROW = {"id": 7, "name": "A", "entityCount": 3, "listType": "ACCOUNT", "listSource": "MANUAL", "role": "OWNER",
+            "extra": 1}
+
 PROFILE_MAIN_CASE = {"fullName": "P", "positions": [{"title": "T", "companyUrn": "urn:li:fs_salesCompany:9"}],
                      "contactInfo": {"primaryEmail": "x@example.invalid"}}
 
@@ -641,6 +644,23 @@ class PageSnippets(unittest.TestCase):
                                                           "headquarters": {"city": "C", "country": "US"}}}}}]),
             ({"ids": ["1"], "fields": ["name"]}, [{"status": 403, "body": {}}]),
         ],
+        "lists.js": [
+            ({"listType": "ACCOUNT", "all": True, "delayMs": 0},
+             [{"status": 200, "body": {"paging": {"total": 2}, "elements": [LIST_ROW]}},
+              {"status": 200, "body": {"paging": {"total": 2}, "elements": [dict(LIST_ROW, id=8, name="B")]}}]),
+            ({"listType": "LEAD"}, [{"status": 403, "body": {}}]),
+        ],
+        "list_create.js": [
+            ({"name": "New", "listType": "ACCOUNT", "description": "d", "delayMs": 0},
+             [{"status": 200, "body": {"paging": {"total": 1}, "elements": [LIST_ROW]}},
+              {"status": 201, "body": None, "headers": {"x-restli-id": "99"}}]),
+            ({"name": "A", "listType": "ACCOUNT"}, [{"status": 200, "body": {"paging": {"total": 1}, "elements": [LIST_ROW]}}]),
+        ],
+        "list_save_accounts.js": [
+            ({"listId": "7", "ids": ["urn:li:fs_salesCompany:1", "2", "x"], "delayMs": 0},
+             [{"status": 200, "body": {"value": {"listEntityActionResponses": [{"status": "SUCCESS"}, {"status": "SUCCESS"}]}}}]),
+            ({"listId": "7", "ids": ["1"]}, [{"status": 400, "body": {}}]),
+        ],
         "profiles_batch.js": [
             ({"leads": [LEAD_URN, "bad"], "delayMs": 0},
              [{"status": 200, "body": {"results": {"FIXTUREID123": {"fullName": "A", "positions": [{"title": "T", "current": True}]}}}}]),
@@ -699,6 +719,133 @@ class PageSnippets(unittest.TestCase):
             results.append(json.loads(proc.stdout))
         self.assertEqual(results[0], results[1])
         self.assertEqual(results[0]["rows"], 1)
+
+    # --- lists: read, create, save accounts
+    def test_lists_url_slim_rows_and_paging(self):
+        out = run_snippet("lists.js", {"listType": "ACCOUNT"},
+                          [{"status": 200, "body": {"paging": {"total": 40}, "elements": [LIST_ROW]}}])
+        call = out["calls"][0]
+        self.assertEqual(call["url"], "/sales-api/salesApiLists?q=listType&listType=ACCOUNT&start=0&count=25")
+        self.assertNotIn("method", {k: v for k, v in call.items() if v})   # a GET
+        res = out["result"]
+        self.assertEqual((res["status"], res["total"], res["rows"]), (200, 40, 1))
+        self.assertEqual(res["lists"], [{"id": 7, "name": "A", "entityCount": 3, "listType": "ACCOUNT", "listSource": "MANUAL"}])
+        out = run_snippet("lists.js", {"listType": "lead", "start": 25, "count": 500}, [{"status": 200, "body": {}}])
+        self.assertIn("listType=LEAD&start=25&count=25", out["calls"][0]["url"])   # count is clamped to 25
+        out = run_snippet("lists.js", {"listType": "ACCOUNT", "all": True, "delayMs": 0}, [
+            {"status": 200, "body": {"paging": {"total": 30}, "elements": [dict(LIST_ROW, id=i) for i in range(25)]}},
+            {"status": 200, "body": {"paging": {"total": 30}, "elements": [dict(LIST_ROW, id=100 + i) for i in range(5)]}}])
+        self.assertEqual([c["url"].split("&start=")[1].split("&")[0] for c in out["calls"]], ["0", "25"])
+        self.assertEqual(len(out["result"]["lists"]), 30)
+        named = run_snippet("lists.js", {"listType": "ACCOUNT", "name": " a "},
+                            [{"status": 200, "body": {"paging": {"total": 2}, "elements": [LIST_ROW, dict(LIST_ROW, id=8, name="B")]}}])
+        self.assertEqual([x["id"] for x in named["result"]["lists"]], [7])
+        self.assertEqual(run_snippet("lists.js", {"listType": "PEOPLE"}, [])["result"]["error"], "list_type_invalid")
+
+    def test_list_create_posts_body_with_role_and_reads_id_from_header(self):
+        out = run_snippet("list_create.js", {"name": " PureFlow TAM ", "listType": "account", "description": "d"},
+                          [{"status": 200, "body": {"paging": {"total": 1}, "elements": [LIST_ROW]}},
+                           {"status": 201, "body": None, "headers": {"x-restli-id": "99"}}])
+        read, post = out["calls"]
+        self.assertIn("/sales-api/salesApiLists?q=listType&listType=ACCOUNT", read["url"])   # reads first
+        self.assertEqual((post["url"], post["method"]), ("/sales-api/salesApiLists", "POST"))
+        self.assertEqual(json.loads(post["body"]),
+                         {"name": "PureFlow TAM", "listType": "ACCOUNT", "role": "OWNER", "description": "d"})
+        self.assertEqual(post["headers"]["content-type"], "application/json")
+        self.assertEqual(post["headers"]["csrf-token"], TOKEN)
+        self.assertEqual(out["result"], {"status": 201, "id": "99", "name": "PureFlow TAM", "reused": False})
+
+    def test_list_create_id_from_body_or_by_rereading_the_lists(self):
+        empty = {"status": 200, "body": {"paging": {"total": 0}, "elements": []}}
+        out = run_snippet("list_create.js", {"name": "N", "listType": "LEAD"}, [empty, {"status": 200, "body": {"id": 55}}])
+        self.assertEqual((out["result"]["id"], len(out["calls"])), ("55", 2))
+        again = {"status": 200, "body": {"paging": {"total": 1}, "elements": [dict(LIST_ROW, id=123, name="n")]}}
+        out = run_snippet("list_create.js", {"name": "N", "listType": "LEAD", "delayMs": 0},
+                          [empty, {"status": 201, "body": None}, again])
+        self.assertEqual((out["result"]["id"], out["result"]["reused"], len(out["calls"])), ("123", False, 3))
+        out = run_snippet("list_create.js", {"name": "N", "listType": "LEAD", "delayMs": 0},
+                          [empty, {"status": 201, "body": None}, empty])
+        self.assertEqual(out["result"]["error"], "created_but_id_unread")
+
+    def test_list_create_refuses_an_existing_name_unless_reuse(self):
+        existing = [{"status": 200, "body": {"paging": {"total": 1}, "elements": [LIST_ROW]}}]
+        out = run_snippet("list_create.js", {"name": " a ", "listType": "ACCOUNT"}, existing)
+        self.assertEqual((out["result"]["error"], out["result"]["id"]), ("list_name_exists", 7))
+        self.assertEqual([c.get("method") for c in out["calls"]], [None])   # no write was made
+        out = run_snippet("list_create.js", {"name": "A", "listType": "ACCOUNT", "reuse": True}, existing)
+        self.assertEqual(out["result"], {"status": 200, "id": 7, "name": "A", "reused": True})
+        self.assertEqual(len(out["calls"]), 1)
+
+    def test_list_create_refusals_and_errors_make_no_write(self):
+        for params, err in (({"listType": "ACCOUNT"}, "name_required"), ({"name": "  ", "listType": "ACCOUNT"}, "name_required"),
+                            ({"name": "N"}, "list_type_invalid"), ({"name": "N", "listType": "COMPANY"}, "list_type_invalid")):
+            with self.subTest(params=params):
+                out = run_snippet("list_create.js", params, [])
+                self.assertEqual((out["result"]["error"], out["calls"]), (err, []))
+        out = run_snippet("list_create.js", {"name": "N", "listType": "ACCOUNT"}, [], cookie="x=1")
+        self.assertEqual((out["result"]["error"], out["calls"]), ("csrf_missing", []))
+        out = run_snippet("list_create.js", {"name": "N", "listType": "ACCOUNT"}, [{"status": 403, "body": {"m": "no"}}])
+        self.assertEqual((out["result"]["status"], len(out["calls"])), (403, 1))
+        empty = {"status": 200, "body": {"paging": {"total": 0}, "elements": []}}
+        out = run_snippet("list_create.js", {"name": "N", "listType": "ACCOUNT"}, [empty, {"status": 422, "body": {"m": "x"}}])
+        self.assertEqual(out["result"]["status"], 422)
+        self.assertIn("x", out["result"]["body"])
+
+    def test_list_save_accounts_url_body_and_result(self):
+        ok = {"status": 200, "body": {"value": {"listEntityActionResponses": [{"status": "SUCCESS"}]}}}
+        out = run_snippet("list_save_accounts.js", {"listId": "7", "ids": ["urn:li:fs_salesCompany:11", "22", "22", "x"]}, [ok])
+        call = out["calls"][0]
+        self.assertEqual((call["url"], call["method"]), ("/sales-api/salesApiCompanies?action=save", "POST"))
+        self.assertEqual(json.loads(call["body"]), {"companyIds": [11, 22], "lists": ["7"]})   # int ids, deduped
+        self.assertEqual(call["headers"]["content-type"], "application/json")
+        self.assertEqual(call["headers"]["csrf-token"], TOKEN)
+        self.assertEqual(call["credentials"], "include")
+        res = out["result"]
+        self.assertEqual((res["status"], res["saved"], res["failed"], res["batches"], res["invalid"]), (200, 2, [], 1, 1))
+
+    def test_list_save_accounts_chunks_at_50_and_clamps_batch(self):
+        ids = [str(i) for i in range(1, 126)]
+        for params in ({}, {"batch": 500}, {"batch": 75}):
+            with self.subTest(params=params):
+                ok = {"status": 200, "body": {"value": {"listEntityActionResponses": [{"status": "SUCCESS"}]}}}
+                out = run_snippet("list_save_accounts.js", dict({"listId": 7, "ids": ids, "delayMs": 0}, **params), [ok] * 3)
+                sizes = [len(json.loads(c["body"])["companyIds"]) for c in out["calls"]]
+                self.assertEqual(sizes, [50, 50, 25])
+                self.assertTrue(all(json.loads(c["body"])["lists"] == ["7"] for c in out["calls"]))
+                self.assertEqual((out["result"]["saved"], out["result"]["failed"], out["result"]["batches"]), (125, [], 3))
+        out = run_snippet("list_save_accounts.js", {"listId": 7, "ids": ids[:10], "delayMs": 0, "batch": 4}, [])
+        self.assertEqual([len(json.loads(c["body"])["companyIds"]) for c in out["calls"]], [4, 4, 2])
+
+    def test_list_save_accounts_reports_partial_failures_and_stops_on_http_errors(self):
+        mixed = {"status": 200, "body": {"value": {"listEntityActionResponses": [{"status": "SUCCESS"}, {"status": "FAILED"}, {"status": "SUCCESS"}]}}}
+        out = run_snippet("list_save_accounts.js", {"listId": "7", "ids": ["1", "2", "3"]}, [mixed])
+        self.assertEqual((out["result"]["saved"], out["result"]["failed"]), (2, ["2"]))   # one entry per id: by position
+        odd = {"status": 200, "body": {"value": {"listEntityActionResponses": [{"status": "SUCCESS"}, {"status": "FAILED"}]}}}
+        out = run_snippet("list_save_accounts.js", {"listId": "7", "ids": ["1", "2", "3"]}, [odd])
+        self.assertEqual((out["result"]["saved"], out["result"]["failed"]), (0, ["1", "2", "3"]))
+        out = run_snippet("list_save_accounts.js", {"listId": "7", "ids": ["1", "2", "3"]}, [{"status": 200, "body": {}}])
+        self.assertEqual((out["result"]["saved"], out["result"]["failed"]), (0, ["1", "2", "3"]))   # no SUCCESS seen: not saved
+        ids = [str(i) for i in range(1, 121)]
+        ok = {"status": 200, "body": {"value": {"listEntityActionResponses": [{"status": "SUCCESS"}]}}}
+        out = run_snippet("list_save_accounts.js", {"listId": "7", "ids": ids, "delayMs": 0},
+                          [ok, {"status": 429, "body": {"m": "slow"}}])
+        res = out["result"]
+        self.assertEqual((res["status"], res["saved"], res["batches"], len(out["calls"])), (429, 50, 2, 2))
+        self.assertEqual(res["failed"], ids[50:])   # the failed batch and the one never attempted
+
+    def test_list_save_accounts_refusals_make_no_request(self):
+        for params, err in (({"ids": ["1"]}, "list_id_required"), ({"listId": "  ", "ids": ["1"]}, "list_id_required"),
+                            ({"listId": "7", "ids": []}, "ids_required"), ({"listId": "7", "ids": ["x", "y"]}, "ids_required"),
+                            ({"listId": "7"}, "ids_required")):
+            with self.subTest(params=params):
+                out = run_snippet("list_save_accounts.js", params, [])
+                self.assertEqual((out["result"]["error"], out["calls"]), (err, []))
+        out = run_snippet("list_save_accounts.js", {"listId": "7", "ids": ["1"]}, [], cookie="x=1")
+        self.assertEqual((out["result"]["error"], out["calls"]), ("csrf_missing", []))
+
+    def test_only_the_two_list_write_snippets_use_a_write_method(self):
+        writers = sorted(p.name for p in PAGE.glob("*.js") if "method:" in p.read_text())
+        self.assertEqual(writers, ["list_create.js", "list_save_accounts.js"])
 
     def test_csrf_ready(self):
         self.assertTrue(run_snippet("csrf_ready.js", {})["result"]["ready"])

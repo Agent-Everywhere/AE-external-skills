@@ -21,9 +21,9 @@ is for an agent inside a box. Each skill points to the other.
 
 The `sales-navigator` plugin's five skills:
 
-- [`sales-navigator`](plugins/sales-navigator/skills/sales-navigator/SKILL.md): the slim toolkit for your own seat: exact counts, account and lead searches through the in-page API, website lookups, CSV and cap-tracking scripts, example flows. Read-only unless you explicitly ask it to send, and then only for batches you approve.
-- [`salesnav-tam-accounts`](plugins/sales-navigator/skills/salesnav-tam-accounts/SKILL.md): build a company-side TAM: a broad industry/geo/headcount net (plus optional priority keyword lanes), rows at 100 per call, company details scored for fit, a qualified-account count. Read-only.
-- [`salesnav-tam-people`](plugins/sales-navigator/skills/salesnav-tam-people/SKILL.md): build the people side: a lead search scoped to the qualified account ids, exact counts per variant, rows at 100 per call. Never creates a Sales Nav list without your confirmation.
+- [`sales-navigator`](plugins/sales-navigator/skills/sales-navigator/SKILL.md): the slim toolkit for your own seat: exact counts, account and lead searches through the in-page API, website lookups, CSV and cap-tracking scripts, example flows. Read-only except account lists you name and confirm, and sends you explicitly approve per batch.
+- [`salesnav-tam-accounts`](plugins/sales-navigator/skills/salesnav-tam-accounts/SKILL.md): build a company-side TAM: a broad industry/geo/headcount net (plus optional priority keyword lanes), rows at 100 per call, company details scored for fit, a qualified-account count, multi-segment merge, optional save to an account list you name. Read-only otherwise.
+- [`salesnav-tam-people`](plugins/sales-navigator/skills/salesnav-tam-people/SKILL.md): build the people side: a lead search scoped to the qualified account ids, exact counts per variant, rows at 100 per call. Uses an account list (`ACCOUNT_LIST` filter) when one exists; saves no leads.
 - [`salesnav-tam-tracker`](plugins/sales-navigator/skills/salesnav-tam-tracker/SKILL.md): cut a master search over the viewable cap into sub-lists, pull them, dedupe across shards, track coverage in `tam_tracker.csv`.
 - [`salesnav-outreach`](plugins/sales-navigator/skills/salesnav-outreach/SKILL.md): daily connection requests, InMails, messages and follow-ups with an outreach ledger. Drafts by default; sends only after you type approval of the exact batch.
 
@@ -94,6 +94,7 @@ shared engine through `ENGINE` (`${CLAUDE_PLUGIN_ROOT}/skills/sales-navigator`, 
 next to the skill's own), so Cowork runs the scripts instead of clicking the Sales Nav UI. 0.6.0 adds a standard front half to all TAM work: research the seller's site, one short intake
 round (at most 5 questions), calibrate on example customers, then accounts, then people scoped to the qualified accounts.
 0.6.1 finds the engine in Cowork (`/mnt/skills/plugin-files/sales-navigator`, where `CLAUDE_PLUGIN_ROOT` is empty) with a search fallback, does seller research and intake before the engine check, and never substitutes another data source for the Sales Nav count.
+0.7.0 adds saving accounts to a Sales Nav list (`lists.js`, `list_create.js`, `list_save_accounts.js`; exact list name confirmed once per run, 50 accounts per call, paced and sharded at 900 accounts per list, not quota-capped), `segments.py` for multi-segment plans and merges, account-first people search through the `ACCOUNT_LIST` filter, and a field-notes KB in `docs/salesnav-kb/`.
 
 If you installed the older `claude-desktop`, `salesnav-tam-accounts`, `salesnav-tam-people`,
 `salesnav-tam-tracker` or `salesnav-outreach` plugins, run `/plugin uninstall <name>@ae-external-skills`

@@ -158,7 +158,7 @@ class RunLogCsvAndWorkspace(TmpCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual((rows[0]["pages"], rows[0]["small_calls"], rows[0]["note"], rows[0]["date"]), ("4", "9", "t", TODAY))
         self.assertRegex(rows[0]["time"], r"^\d\d:\d\d:\d\d$")
-        self.assertEqual(list(rows[0]), ["date", "time", "pages", "profiles", "accounts", "saved_searches", "small_calls", "note"])
+        self.assertEqual(list(rows[0]), ["date", "time", "pages", "profiles", "accounts", "saved_searches", "small_calls", "saved_accounts", "note"])
         # a second task, same folder: the totals carry over
         code, out, _ = run_main(run_log, ["today", "--workspace", str(ws)])
         self.assertIn("4", [l for l in out.splitlines() if l.startswith("pages")][0].split())
@@ -352,12 +352,12 @@ class QuotaFile(TmpCase):
         code, out, err = run_main(run_log, ["quota", "--workspace", str(ws)])
         self.assertEqual((code, err), (0, ""))
         first = out.splitlines()[0]
-        self.assertEqual(first, "Today: 87/150 calls · 12/40 pages · 12/20 invites · week 41/100")
+        self.assertEqual(first, "Today: 87/300 calls · 12/100 pages · 12/20 invites · week 41/100")
         md = (ws / "quota.md").read_text(encoding="utf-8")
         self.assertRegex(md, r"Last updated: \d{4}-\d\d-\d\d \d\d:\d\d")
         self.assertIn("**%s**" % first, md)
-        self.assertIn("| small calls | 87 | 150 | 200 | OK | 87 |", md)
-        self.assertIn("| pages | 12 | 40 | 80 | OK | 12 |", md)
+        self.assertIn("| small calls | 87 | 300 | 500 | OK | 87 |", md)
+        self.assertIn("| pages | 12 | 100 | 200 | OK | 12 |", md)
         self.assertIn("| Connection requests today | 12 | 20 | OK |", md)
         self.assertIn("| Connection requests, last 7 days | 41 | 100 | OK |", md)
         self.assertIn("local CSV files stay the source of truth", md)
@@ -369,23 +369,23 @@ class QuotaFile(TmpCase):
         ws = self.new_ws("empty")
         code, out, _ = run_main(run_log, ["quota", "--workspace", str(ws)])
         self.assertEqual(code, 0)
-        self.assertTrue(out.startswith("Today: 0/150 calls · 0/40 pages · 0/20 invites · week 0/100"))
+        self.assertTrue(out.startswith("Today: 0/300 calls · 0/100 pages · 0/20 invites · week 0/100"))
         self.assertIn("no outreach ledger yet", out)
         self.assertIn("No `outreach_log.csv` in the workspace yet", (ws / "quota.md").read_text(encoding="utf-8"))
 
     def test_quota_flags_limits_that_are_reached(self):
         ws = self.new_ws()
-        run_main(run_log, ["add", "--pages", "41", "--workspace", str(ws)])
+        run_main(run_log, ["add", "--pages", "101", "--workspace", str(ws)])
         _, out, _ = run_main(run_log, ["quota", "--workspace", str(ws)])
         self.assertIn("!! pages OVER DEFAULT", out)
-        self.assertIn("| pages | 41 | 40 | 80 | OVER DEFAULT | 41 |", (ws / "quota.md").read_text(encoding="utf-8"))
+        self.assertIn("| pages | 101 | 100 | 200 | OVER DEFAULT | 101 |", (ws / "quota.md").read_text(encoding="utf-8"))
 
     def test_quota_shows_the_users_lowered_invite_caps(self):
         ws = self.root / "ws"
         self.seed(ws)  # 12 invites today, 41 this week
         code, out, err = run_main(run_log, ["quota", "--workspace", str(ws), "--daily", "10", "--weekly", "50"])
         self.assertEqual((code, err), (0, ""))
-        self.assertTrue(out.splitlines()[0].startswith("Today: 87/150 calls · 12/40 pages · 12/10 invites · week 41/50"))
+        self.assertTrue(out.splitlines()[0].startswith("Today: 87/300 calls · 12/100 pages · 12/10 invites · week 41/50"))
         self.assertIn("daily invite cap reached", out)
         md = (ws / "quota.md").read_text(encoding="utf-8")
         self.assertIn("| Connection requests today | 12 | 10 | CAP REACHED |", md)

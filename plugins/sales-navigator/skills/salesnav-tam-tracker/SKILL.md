@@ -52,15 +52,19 @@ that each fit under the cap, and keep a checklist so any later task knows what i
    FILE.csv`, check it with `python3 "$ENGINE/scripts/validate_csv.py" FILE.csv`, and merge shards with
    `python3 "$ENGINE/scripts/dedupe.py"`. Shards overlap: report "sum X, unique Y", never the sum alone.
    Qualifying accounts: `salesnav-tam-accounts`.
-6. Report `tam_tracker.py status`, the unique total, what is left, and the next list.
+6. Report `tam_tracker.py status`, the unique total, what is left, and the next list. Across several segments the
+   saved Sales Nav list is the master of record: note its list id (from `lists.js`) in `--filters-delta`
+   (for example `list=<listId>`) so a later task finds it; `list_id` here is the tracker's own sub-list id.
 
 ## Hard rules
 
 - If you cannot run a page snippet (no browser JS tool, no Agent Browser, no CDP), stop and tell the user; never click through the UI.
 - Never substitute another data source (other MCP datasets, web estimates) for the Sales Nav count without asking the user.
-- Read-only by default; never send from here, and never create a Sales Nav list or saved search without
-  the user's explicit confirmation. Say what a pull costs in pages first; do not chain big pulls.
-- Respect caps: default 40 result pages a day (a `count=100` call is 4 pages), pace 3 to 5 seconds apart.
+- Read-only by default; never send from here. A Sales Nav list is the master of record across segments: save to it
+  only through `salesnav-tam-accounts` (exact list name confirmed once per run, never modify a list the user did not
+  name; saves are paced, shard lists `<name>`, `<name> #2`... at 900 accounts); never create a saved search without the user's explicit confirmation. Say
+  what a pull costs in pages first; do not chain big pulls.
+- Respect caps: default 100 result pages a day (a `count=100` call is 4 pages), pace 3 to 5 seconds apart.
   Log with `python3 "$ENGINE/scripts/run_log.py" add --pages N` and check
   `python3 "$ENGINE/scripts/run_log.py" quota`; never raise a cap without the user's explicit go. A big TAM is
   several days: the tracker is how the next day resumes.

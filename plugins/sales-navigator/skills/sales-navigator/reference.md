@@ -15,6 +15,9 @@ seconds before the first call (`csrf_ready.js`); a 403 within ~100 ms means the 
 | Account search | `/sales-api/salesApiAccountSearch?q=searchQuery&query=<restli>&start=N&count=25&decorationId=com.linkedin.sales.deco.desktop.searchv2.AccountSearchResult-4` | 1,000 viewable; `count` up to 100 verified (default 25); no website in the row |
 | Websites, company details | `/sales-api/salesApiCompanies?ids=List(id1,...,idN)&decoration=%28entityUrn%2Cname%2Cwebsite%29` | decoration URL-encoded, parentheses too (`companies_details.js` lists the richer one); max 100 ids per call (200 returns 400) |
 | Profile details | `/sales-api/salesApiProfiles?ids=List((profileId:X,authType:Y,authToken:Z),...)&decoration=...` | `profiles_batch.js`; triple from a lead row's `entityUrn`; 100 per call works (about 890 KB), default 25 |
+| Lists (read) | `/sales-api/salesApiLists?q=listType&listType=ACCOUNT&start=0&count=25` (or `LEAD`) | `lists.js`; elements carry id, name, entityCount, listType, listSource, role |
+| List create (write) | POST `/sales-api/salesApiLists` | `list_create.js`; JSON `{"name","listType","role":"OWNER"}`; a body without `role` returns 422 |
+| Save accounts (write) | POST `/sales-api/salesApiCompanies?action=save` | `list_save_accounts.js`; JSON `{"companyIds":[<int ids>],"lists":["<listId>"]}`; 50 ids per call at most (75 and 100 return 400) |
 | Typeahead | `/sales-api/salesApiFacetTypeahead?q=query&start=0&count=10&type=<TYPE>&query=<term>` | geography is `BING_GEO`; a wrong shape returns 200 with empty `elements` |
 
 ## Profile & account detail
@@ -42,7 +45,7 @@ Degrees are numbers (1, 2, 3). Alert `headline` can be text or an object with `t
 `filters:List(...)` comes first; `keywords:` is a top-level key after it, URL-encoded, with uppercase
 `OR`/`AND`/`NOT` and `%22` quotes. Use `id:` for typeahead-resolved values and `text:` (URL-encoded) for
 free text such as titles. Encode `%`, spaces, quotes, parentheses and commas inside values. Types seen: `CURRENT_TITLE`, `REGION`, `INDUSTRY`, `COMPANY_HEADCOUNT`,
-`CURRENT_COMPANY`, `SENIORITY_LEVEL`, `FUNCTION`. Build queries from resolved ids; one copied
+`CURRENT_COMPANY`, `ACCOUNT_LIST`, `SENIORITY_LEVEL`, `FUNCTION`. Build queries from resolved ids; one copied
 from a page URL carries `recentSearchParam` and double encoding and returns 400.
 
 Decision-makers at one company (seniority alone returns every director; add a title or
@@ -51,6 +54,19 @@ function, and the HQ country when single-country):
 ```
 (filters:List((type:CURRENT_COMPANY,values:List((id:urn%3Ali%3Aorganization%3A<company id>,selectionType:INCLUDED))),(type:SENIORITY_LEVEL,values:List((id:320,selectionType:INCLUDED),(id:310,selectionType:INCLUDED),(id:300,selectionType:INCLUDED))),(type:CURRENT_TITLE,values:List((text:operations,selectionType:INCLUDED))),(type:REGION,values:List((id:103644278,selectionType:INCLUDED)))))
 ```
+
+Scope by many accounts. `CURRENT_COMPANY` takes ids in the URL, so the limit is URL length. Verified on lead
+queries: 10, 25, 50, 100, 150, 200, 300, 362 and 420 ids all return 200 with sane totals (362 ids: total 2,805, exactly
+the `ACCOUNT_LIST` count of the same 362 accounts); 480 ids return 200 but no paging total (unreliable); 540, 600, 1,000
+and 1,430 return HTTP 414 URI Too Long (about 26.6K characters work, about 34K fail). Chunk `CURRENT_COMPANY` at 400 ids
+at most. The `ACCOUNT_LIST` filter has no such limit: one short query (96 characters) covers a whole list:
+
+```
+(filters:List((type:ACCOUNT_LIST,values:List((id:<listId>,selectionType:INCLUDED)))))
+```
+
+Several list ids in one `values:List(...)` are OR'd (verified: list A 2,805 leads plus list B 312 gave 3,071 for both,
+overlap removed). Add `SENIORITY_LEVEL` and a title or function as usual.
 
 ## Filter ids
 
@@ -66,19 +82,24 @@ function, and the HQ country when single-country):
 
 ## Numbers
 
-Conservative operating defaults, not LinkedIn's; lower freely, raise only on the user's explicit go, never
-past the ceiling. The scripts and `session.py` use these exact values. Viewable results per search: 2,500
+Operating defaults, not LinkedIn's; lower freely, raise only on the user's explicit go, never
+past the ceiling. The scripts and `session.py` use these exact values. Strict quotas are for execution actions only
+(profile views, InMail, connects, messages, likes, posts); reads and list saves are generous but paced. Viewable results per search: 2,500
 leads, 1,000 accounts.
 
 ### Daily volume defaults
 
 | Action | Default | Hard ceiling |
 |---|---|---|
-| Search result pages read | 40 | 80 |
-| Small API calls (counts, typeahead, website batches) | 150 | 200 |
+| Search result pages read | 100 | 200 |
+| Small API calls (counts, typeahead, website batches) | 300 | 500 |
+| Saved accounts (list saves, pacing guard) | 2500 | 5000 |
 | Individual profiles opened | 80 | 150 |
 | Account pages opened | 60 | 120 |
 | Saved searches created | 10 | 25 |
+
+Saved accounts (`list_save_accounts.js`) are not account pages opened: `run_log.py add --saved-accounts N --small-calls B`
+(B batches). Lead saving has no verified endpoint and no cap.
 
 Batch tools (own assumption, not LinkedIn's): 1,000 company records (`companies_details.js`) and 500 profile
 records (`profiles_batch.js`) a day, apart from page views. Log a `count=100` search call as 4 pages. `run_log.py` has no records column: log
@@ -100,6 +121,29 @@ between two sends. Send nothing more that day on a warning, captcha,
 "unusual activity", limit banner, reached cap (`outreach_log.py caps` exits 2), or a missing ledger (exit 4:
 ask the user, never start a fresh one). For a send, the ledger flow is `check`, then
 `add --pending` before the click, verify, then `status --status sent`.
+
+## Lists
+
+Policy (2026-10-14): creating an account list and saving accounts to it is allowed as part of TAM work. Confirm the exact
+list name with the user once per run, never modify, rename or delete a list the user did not name, and pace saves
+(3 to 5 s between batches). Every other seat write (messages, InMails, connects, follows, profile edits, saved searches, lead
+saves) stays forbidden except the outreach skill's approval flow. Never drive the UI to save.
+
+Flow: `lists.js` (read, what exists) then `list_create.js` (refuses an existing name unless `reuse` is true) then
+`list_save_accounts.js` (50 per call, paced) then `lists.js` again to verify `entityCount`. The lead-list saving endpoint
+is unverified: do not save leads.
+
+| Finding | Value |
+|---|---|
+| Account save batch | 50 ids per call at most (25 and 50 return 200 with SUCCESS entries; 75 and 100 return 400) |
+| Create body | `role: "OWNER"` required (422 without) |
+| `CURRENT_COMPANY` ids per lead query | 420 ok, 480 unreliable, 540 and more HTTP 414: chunk at 400 or fewer |
+| `ACCOUNT_LIST` filter | bypasses the id limit; one short query covers the whole list |
+| Max account list size | per LinkedIn docs, not observed live (largest seen about 500): 1,000 since Q3 2020 (was 250); Evaboot says 999 |
+
+Shard lists before the max: `<name>`, `<name> #2`, `<name> #3`, rotate at 900 accounts. Account-first people flow:
+score the accounts, save the qualified ones to the list(s), then one lead search with `ACCOUNT_LIST` (all shard ids OR'd
+in one `values:List(...)`) plus seniority and title filters. A segment merge keeps one master list.
 
 ## Gotchas that bite
 
@@ -159,7 +203,7 @@ and the scoring rubric (keep and drop signals) from them, and say which example 
 
 **D. Then** accounts (broad net, rows, details, score, qualified count), then people scoped to the qualified
 account ids with the profile's section 4 roles per size band, a people-per-account cap, and no list saved
-without the user's confirmation. Never search people across all of LinkedIn by keyword.
+without the user's confirmation of its exact name. Never search people across all of LinkedIn by keyword.
 
 ## Count mode
 
@@ -185,12 +229,26 @@ step C; calibrate on 10 spread rows with the user; website only for thin `unsure
 manufacturer, co-packer, CBD and the like) are scoring rules on the text, never keyword NOT terms: a NOT drops real
 fits whose copy mentions the word. Report pulled, `keep`, `drop`, `unsure`.
 
+**Segments.** A niche ICP spread over many LinkedIn industries: several industry-disjoint segments (one resolved
+industry id set plus tight keywords each), counted, any segment over 1,000 split by headcount band then state, each
+pulled, scored with one shared rubric, merged by company id with a `segment` column (`segments.py plan` and `merge`;
+`plan.json` runs through `$ENGINE/runtime/session.py`, whose paged calls take 25 rows a page: `pages.step` is 1 to 25). Report
+"sum X, unique Y". Rubric fixes learned live:
+- Drop contract manufacturers including indirect phrasing ("we partner with you" plus formulation, "for brands",
+  "delivery systems"); drop ingredient and packaging suppliers.
+- CBD or hemp: match whole-word `thc` only. `distributor` or `ingredients for` alone must not drop a brand that shows
+  own-brand signals.
+- A stand-in used for calibration can be wrong (check its details): thin or empty description is `unsure`, never `keep`.
+- Tier the keeps (tier 1 liquid, shot, tincture, syrup, functional beverage, Amazon or DTC ranked first; tier 2 other
+  supplement brands and wellness topicals). A regex pre-score is a first pass: a model or human judgment pass over the
+  keeps follows (one run: regex 574 keeps, judged 362).
+
 **People.** Only after a qualified accounts file exists (none: run the accounts flow first). Scope the lead search
-to the `keep` ids with a `CURRENT_COMPANY` filter (`id:urn%3Ali%3Aorganization%3A<id>`), chunked; prove the largest
-chunk with `count=1`. Add seniority plus a title or function from the profile's section 4 for each size band. Use
+to the `keep` accounts with an `ACCOUNT_LIST` filter (save them to a list first, see Lists), or `CURRENT_COMPANY`
+chunks of at most 400 ids (`id:urn%3Ali%3Aorganization%3A<id>`). Add seniority plus a title or function from the profile's section 4 for each size band. Use
 `lead_search.js` at `count` 100 (up to the 2,500 cap), a cap of people per account, and `profiles_batch.js`
-(rows' `entityUrn`s, `batch` up to 100) only when summary or positions are needed. Never create or save a Sales Nav
-list, saved search or lead, or make any seat mutation, without the user's explicit confirmation of that exact action.
+(rows' `entityUrn`s, `batch` up to 100) only when summary or positions are needed. Never create a saved search, save a
+lead or make any other seat mutation without the user's explicit confirmation of that exact action; lists: see Lists.
 
 ## Engine path and doctor
 

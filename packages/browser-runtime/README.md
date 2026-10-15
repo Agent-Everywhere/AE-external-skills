@@ -34,8 +34,8 @@ need `pip install playwright` (it attaches to an existing browser). `session.py 
 }
 ```
 
-Validated before anything is claimed; `--skip-done` resumes from the JSONL. Paged calls default to 40
-pages (80 maximum); `"sample": true` with `pages.max_pages` marks a deliberate partial pull. A cloud plan
+Validated before anything is claimed; `--skip-done` resumes from the JSONL. Paged calls default to 100
+pages (200 maximum); `"sample": true` with `pages.max_pages` marks a deliberate partial pull. A cloud plan
 is fixed up front, so dependent steps are one session each. Exit codes: 0 done; 2 bad plan; 3 not signed
 in (the user signs in); 4 checkpoint (40-minute ceiling: reopen with `--skip-done`); 5 stopped on 403/429;
 6 browser error; 7 page never ready; 8 finished but incomplete.

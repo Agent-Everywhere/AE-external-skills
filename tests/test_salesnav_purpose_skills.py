@@ -38,9 +38,10 @@ REQUIRED = {
 NAMES = sorted(REQUIRED)
 # (words, lines) per SKILL.md; default (800, 76). 0.6.0: the accounts flow carries the intake steps; 0.6.1: 4-step ENGINE block;
 # 0.6.2: count mode (scored sample) and memory-never-skips-intake in the accounts flow.
-BUDGET = {"salesnav-tam-accounts": (1000, 90)}
+# 0.7.0: accounts +multi-segment step, list save step and rubric (1400, 120); people +ACCOUNT_LIST scoping (900).
+BUDGET = {"salesnav-tam-accounts": (1400, 120), "salesnav-tam-people": (900, 76)}
 # Files the user's workspace holds; a SKILL.md may name them without the engine shipping them.
-WORKSPACE_FILES = {"company-profile.md", "leads.csv", "accounts.csv", "tam_tracker.csv", "FILE.csv",
+WORKSPACE_FILES = {"company-profile.md", "leads.csv", "accounts.csv", "tam_tracker.csv", "FILE.csv", "merged.csv",
                    "/Claude/company-profile.md"}
 
 
@@ -143,11 +144,42 @@ class PurposeSkillDocs(unittest.TestCase):
             with self.subTest(skill=name):
                 body = squash(name)
                 self.assertIn("read-only", body)
-                self.assertRegex(body, r"never (create|send)")
+                self.assertRegex(body, r"never (create|save|send)")
                 self.assertIn("sales nav list", body)
         people = squash("salesnav-tam-people")
         self.assertIn("explicit confirmation", people)
-        self.assertIn("never create or save a sales nav list", people)
+        self.assertIn("never save a lead, create a saved search", people)
+        self.assertNotIn("never create or save a sales nav list", " ".join(squash(n) for n in NAMES))
+
+    def test_list_saving_policy_is_stated_in_every_place_that_used_to_forbid_it(self):
+        """0.7.0 (operator decision 2026-10-14): saving account lists is allowed with the exact name confirmed once per
+        run, never touching a list the user did not name, paced, not quota-capped. Other writes stay forbidden."""
+        accounts = squash("salesnav-tam-accounts")
+        for phrase in ("read-only except list saves", "exact list name once per run", "never modify, rename or delete",
+                       "paced, not quota-capped", "#2", "no saved searches, no lead saves, never send",
+                       "list_create.js", "list_save_accounts.js", "lists.js", "50 a call"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, accounts)
+        head = text("salesnav-tam-accounts").split("---")[1].lower()
+        self.assertIn("read-only except an account list the user confirmed by name", " ".join(head.split()))
+        self.assertNotIn("creates no sales nav list", head)
+        tracker = squash("salesnav-tam-tracker")
+        for phrase in ("master of record", "exact list name confirmed once per run", "never modify a list the user did not name", "<name> #2"):
+            with self.subTest(skill="tracker", phrase=phrase):
+                self.assertIn(phrase, tracker)
+        engine = " ".join((TOOLKIT / "SKILL.md").read_text(encoding="utf-8").split()).lower()
+        ref = " ".join((TOOLKIT / "reference.md").read_text(encoding="utf-8").split()).lower()
+        recipes = " ".join((TOOLKIT / "recipes.md").read_text(encoding="utf-8").split()).lower()
+        for name, doc in (("engine", engine), ("reference", ref), ("recipes", recipes)):
+            for old in ("never create or save a sales nav list", "never click through to save a list"):
+                self.assertNotIn(old, doc, name)
+        for phrase in ("confirms its exact name once per run", "never modify, rename or delete a list the user did not name"):
+            with self.subTest(doc="engine", phrase=phrase):
+                self.assertIn(phrase, engine)
+        for phrase in ("never modify, rename or delete a list the user did not name", "pace saves",
+                       "<name> #2", "lead-list saving endpoint is unverified", "50 ids per call at most"):
+            with self.subTest(doc="reference", phrase=phrase):
+                self.assertIn(phrase, ref)
 
     def test_accounts_flow_is_the_broad_net_then_qualify_strategy(self):
         body = squash("salesnav-tam-accounts")
