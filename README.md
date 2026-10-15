@@ -50,7 +50,15 @@ For the `sales-navigator` plugin, with no GitHub account, marketplace or Claude 
 1. Download [`sales-navigator.zip`](https://github.com/Agent-Everywhere/AE-external-skills/releases/download/sales-navigator-latest/sales-navigator.zip)
    from the `sales-navigator-latest` release. (The same file is also published as `sales-navigator.plugin`. Versioned
    `sales-navigator-v<version>` releases also exist if you want to pin one.)
-2. In Claude Desktop, open Customize > Plugins > Upload plugin and pick the zip.
+2. In Claude Desktop, open Customize > Plugins > Add > Upload plugin, pick the zip, then click Upload.
+
+Or, in a Cowork task, ask: "Download
+https://github.com/Agent-Everywhere/AE-external-skills/releases/download/sales-navigator-latest/sales-navigator.plugin
+and present the .plugin file to me so I can install it." Claude shows a plugin card; click **Save plugin**.
+
+Use one install path only. An uploaded or saved copy shows up as "Sales navigator (Local uploads)" next to any
+marketplace copy, "Sales navigator (AE-external-skills)", and Desktop gives no warning. If you see both, remove
+one from its row's "..." menu.
 
 Needs a Claude Pro, Max, Team or Enterprise plan. The skills work in chat, and in Cowork the plugin
 runs in full (scripts included).
@@ -64,7 +72,9 @@ Nothing updates on its own on this path. To build the same zip yourself:
 **Claude Desktop**: Customize > Plugins > Add > Add marketplace > Add from a repository >
 `Agent-Everywhere/AE-external-skills` > Sync, then Add the plugin you want. Auto-sync needs the
 Claude GitHub App to have access to this repository; without that the plugin installs but does not
-update itself.
+update itself. To update by hand: Add > Manage marketplaces > AE-external-skills "..." > Check for updates,
+then the plugin's "..." > Check for updates, and click Update on the plugin page. The full URL
+`https://github.com/Agent-Everywhere/AE-external-skills` also works in the repository field.
 
 **Without plugins** (claude.ai, or a one-off skill): download the folder you want from
 `skills/<skill-name>/` as a zip and add it as a skill. The Sales Navigator skills are the exception:
