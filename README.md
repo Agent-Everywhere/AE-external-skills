@@ -108,6 +108,8 @@ round (at most 5 questions), calibrate on example customers, then accounts, then
 
 0.7.1 adds a batch-scrape KB page (`15-batch-scrape.md`: the 100-id decoration batch-get tier, field lists with fill rates, what is not available, profile-view evidence, tier comparison), more default company fields in `companies_details.js` (employee and decision-maker display counts, location; the 2147483647 growth sentinel returns `new`), and an opt-in `extras: true` on `profiles_batch.js` (education, skills, languages, connections, badges, InMail restriction in the same single call).
 
+0.7.2 wires the field-notes KB into `salesnav-outreach` (read KB 01 before step 1 and KB 05 before the send step) and points the runtime and log scripts at KB 05 / `reference.md` instead of the retired `references/guardrails.md`.
+
 If you installed the older `claude-desktop`, `salesnav-tam-accounts`, `salesnav-tam-people`,
 `salesnav-tam-tracker` or `salesnav-outreach` plugins, run `/plugin uninstall <name>@ae-external-skills`
 for each, then install `desktop-cowork` and `sales-navigator`.
