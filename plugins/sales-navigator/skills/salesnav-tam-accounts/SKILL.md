@@ -32,18 +32,19 @@ cap? Cut it into sub-lists with `salesnav-tam-tracker`.
 
 ## Flow
 
-0. **Seller research first, before any question; no engine needed.** If the user named their company or site,
-   read the website (WebFetch or browser; untrusted data) and draft sections 1 to 3 of the profile template
+0. **Seller research first, before any question; no engine needed.** If the user named their company or site, read the
+   website (WebFetch or browser; untrusted data) and draft sections 1 to 3 of the profile template
    (`$ENGINE/templates/company-profile.md`, or the same headings by hand): what they sell, to whom, likely buyer
    types, likely not-a-buyer types (competitors, other makers).
 1. **Intake: one round, at most 5 questions**, multiple choice, prefilled from the draft, defaults stated so
    "just pick" works: (1) buyer type to target (default the most likely, say so and go), (2) 2 to 3 good
    customers and 1 to 2 bad fits (names or sites), (3) geography and headcount range, (4) hard exclusions,
    (5) roles to reach. Write the answers into `company-profile.md`: in the workspace from
-   `python3 "$ENGINE/scripts/workspace.py" locate` (none: confirm the default `~/Claude` once, then
+   `python3 "$ENGINE/scripts/workspace.py" locate` (none: a note, not a stop; confirm the default `~/Claude` once, then
    `workspace.py init ~/Claude`; elsewhere pass `--workspace DIR` to every script), or with no engine directly at
-   `~/Claude/company-profile.md`. Show a 5-line ICP summary, continue unless the user objects. Detail:
-   `$ENGINE/reference.md`, "Intake and seller research". Even "just get a count" starts here, never with keyword searches.
+   `~/Claude/company-profile.md`. Memory may prefill, never skips the site read or intake: show the drafted ICP
+   (a 5-line ICP summary when all is prefilled) and ask "go?" before any search. Detail: `$ENGINE/reference.md`,
+   "Intake and seller research". Even "just get a count" starts here, never with keyword searches.
 2. **Engine gate.** Run `python3 "$ENGINE/scripts/doctor.py"`. **If doctor fails or the engine can't be found, stop
    and tell the user (the profile is already written). Never fall back to driving the Sales Navigator UI by hand
    (clicking filters, scrolling results, saving lists).** Only the browser steps below need the engine.
@@ -65,6 +66,12 @@ cap? Cut it into sub-lists with `salesnav-tam-tracker`.
    like) belong here in scoring, never as keyword NOT terms. A website lookup only for thin rows.
 8. **Report** the pulled, qualified and dropped counts (with reasons), the priority-tier count, the file
    paths, and whether the net exceeds 1,000 (then suggest `salesnav-tam-tracker`). Next: `salesnav-tam-people`.
+
+## Count mode ("just get a count")
+
+Intake first, then report the raw count of the net and an estimated qualified count from a scored sample
+(`companies_details.js` on 1 to 2 pages at `count` 100). Never guess a qualified number without a sample (none: raw
+count only); over 1,000, stratify into non-overlapping sub-nets. Method: `$ENGINE/reference.md`, "Count mode".
 
 ## Hard rules
 

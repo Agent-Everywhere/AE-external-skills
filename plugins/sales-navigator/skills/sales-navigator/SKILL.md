@@ -16,7 +16,7 @@ Endpoints, filters, caps, gotchas: `$ENGINE/reference.md`. Example flows: `$ENGI
 
 **Routing.** Any TAM, count, "how many" or find-people ask: follow `salesnav-tam-accounts`, then
 `salesnav-tam-people`. Seller research and intake come first (`$ENGINE/reference.md`, "Intake and seller
-research"); never start from keyword searches, and never search people across all of LinkedIn. This toolkit is
+research" and "Count mode"); never start from keyword searches, and never search people across all of LinkedIn. This toolkit is
 for the pieces those skills call and for one-off lookups and drafts.
 
 **Engine path.** Run this at the top of every shell call (it sets `ENGINE`; quote every path, it may contain

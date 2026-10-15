@@ -15,11 +15,11 @@ says yes. Save it in the workspace (`workspace.py init`).
 ## 2. Size a market ("just get a count")
 
 Not a keyword search. Run recipe 1's research and intake, calibrate on the example customers, then count the
-broad net (`typeahead.js` for geography and industry ids, `count.js` with `queries`: no keywords). A count is
-a net, not a TAM: pull and qualify before calling it the market. Over the cap? Count states in priority order
-until about 90 percent of the national count is covered, then split big states by headcount band
-(`shard_plan.py`). Report the counts, the sum as an estimate and the calls used (`run_log.py add
---small-calls N`, then `quota`).
+broad net (`typeahead.js` for geography and industry ids, `count.js` with `queries`: no keywords). A count is a net,
+not a TAM: add the sampled qualified estimate (`$ENGINE/reference.md`, "Count mode"). Over the cap? Count states in
+priority order until about 90 percent of the national count is covered, then split big states by headcount band
+(`shard_plan.py`). Report the counts, "sum X, unique Y" (overlapping shards are not additive: dedupe) and the calls
+used (`run_log.py add --small-calls N`, then `quota`).
 
 ## 3. Account-first list, qualify, decision-makers
 

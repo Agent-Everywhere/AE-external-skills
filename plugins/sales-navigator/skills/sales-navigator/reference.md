@@ -161,6 +161,19 @@ and the scoring rubric (keep and drop signals) from them, and say which example 
 account ids with the profile's section 4 roles per size band, a people-per-account cap, and no list saved
 without the user's confirmation. Never search people across all of LinkedIn by keyword.
 
+## Count mode
+
+A count ask returns the deduped raw count of the net and an estimated qualified count from a scored sample; never
+guess a qualified number without a sample (none: raw count only). Score `companies_details.js` over 1 to 2 pages
+(`count` 100) as `keep`/`drop`/`unsure` with reasons. Results are relevance-ranked and only the first 1,000 are
+viewable, so one rate x raw is biased past that:
+- Raw at most 1,000: sample across `start` offsets; estimate = raw x rate.
+- Raw over 1,000: stratify into non-overlapping sub-nets (headcount bands or HQ states, gotcha 4), each at most
+  1,000; sample each; estimate = sum of count_i x rate_i. Unstratified: say the rate covers only the top 1,000.
+
+Report n, the range keep/n to (keep + unsure)/n and the estimate, labelled an estimate. Tiny n or a rate under 5
+percent or over 95 percent: "under X" or "over X", not a margin. A full pull is only for a list ask.
+
 ## TAM recipe: accounts, then people
 
 **Accounts.** Broad net from resolved `INDUSTRY`, `REGION` and `COMPANY_HEADCOUNT` ids, no keywords, counted with

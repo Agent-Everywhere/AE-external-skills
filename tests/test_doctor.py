@@ -63,6 +63,27 @@ class DoctorRuns(unittest.TestCase):
             self.assertIn("workspace.py init ~/Claude", r.stdout)   # default after asking once
             self.assertIn("Not a stop", r.stdout)                    # intake goes on without a workspace
 
+    def test_no_workspace_anywhere_exits_0_for_doctor_and_locate(self):
+        """Live Cowork run: "exit 4, workspace NOT FOUND" came from `workspace.py locate`, which the intake step runs
+        next to doctor. No workspace (no flag, env, profile field or ~/Claude), HOME without ~/Claude, cwd elsewhere:
+        both are a NOTE with exit 0; only `locate --strict` is the exit-4 gate."""
+        with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory() as elsewhere:
+            profile = Path(elsewhere) / "company-profile.md"
+            profile.write_text("# Profile\n- **workspace:** (not set yet)\n", encoding="utf-8")
+            for extra in ((), ("--profile", str(profile))):
+                r = run(*extra, cwd=elsewhere, env_extra={"HOME": home})
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                self.assertIn("workspace: NOTE not set up", r.stdout)
+                self.assertNotIn("NOT FOUND", r.stdout)
+            env = {k: v for k, v in os.environ.items() if k != "SALESNAV_WORKSPACE"}
+            env["HOME"] = home
+            locate = ENGINE / "scripts" / "workspace.py"
+            for args, code in (((), 0), (("--strict",), 4)):
+                r = subprocess.run([sys.executable, str(locate), "locate", *args], capture_output=True, text=True,
+                                   cwd=elsewhere, env=env)
+                self.assertEqual(r.returncode, code, r.stdout + r.stderr)
+                self.assertIn("no workspace", r.stdout)
+
     def test_a_missing_file_fails_closed_with_a_clear_message(self):
         with tempfile.TemporaryDirectory() as tmp:
             broken = Path(tmp) / "sales-navigator"
