@@ -99,7 +99,7 @@ class DoctorRuns(unittest.TestCase):
             self.assertNotIn("OK: engine complete", r.stdout)
 
     def test_the_kb_pages_are_required_files(self):
-        self.assertEqual(len(doctor.KB_PAGES), 12)
+        self.assertEqual(len(doctor.KB_PAGES), 13)
         for name in doctor.KB_PAGES:
             self.assertTrue((ENGINE / "references" / "salesnav-kb" / name).is_file(), name)
             self.assertIn("references/salesnav-kb/" + name, doctor.required_paths())

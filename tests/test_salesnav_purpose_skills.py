@@ -44,9 +44,9 @@ BUDGET = {"salesnav-tam-accounts": (1500, 124), "salesnav-tam-people": (900, 76)
 # Who reads what: references/salesnav-kb/00-index.md. Each SKILL.md names its pages as references/salesnav-kb/<file>.
 KB = TOOLKIT / "references" / "salesnav-kb"
 KB_READERS = {
-    "sales-navigator": ("01", "02", "05", "14"),
-    "salesnav-tam-accounts": ("03", "04", "10", "11", "12", "20"),
-    "salesnav-tam-people": ("13", "14", "02"),
+    "sales-navigator": ("01", "02", "05", "14", "15"),
+    "salesnav-tam-accounts": ("03", "04", "10", "11", "12", "15", "20"),
+    "salesnav-tam-people": ("13", "14", "02", "15"),
     "salesnav-tam-tracker": ("03", "05", "14"),
 }
 # Files the user's workspace holds; a SKILL.md may name them without the engine shipping them.

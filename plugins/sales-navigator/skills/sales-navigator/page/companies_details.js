@@ -15,7 +15,7 @@
 // a field named in `fields` that is not one of the standard keys is copied onto the row as returned (never over `id`).
 // returns: { status, ms, rows, companies: [{ id, name, website, industry, description, specialties ("a; b"), type,
 //   yearFounded, employeeCount, employeeCountRange, revenueRange, headquarters, employeeGrowthPercentages,
-//   flagshipCompanyUrl }], missing: [ids absent from the response], invalid: count of rejected ids, errors?: [keys] }
+//   flagshipCompanyUrl, employeeDisplayCount, decisionMakersDisplayCount, location }], missing: [ids absent from the response], invalid: count of rejected ids, errors?: [keys] }
 //   or { status, error|body, companies }
 async (params) => {
   const p = params || {};
@@ -32,7 +32,8 @@ async (params) => {
   const delay = Number.isFinite(p.delayMs) ? p.delayMs : 3500;
   const batch = Math.min(100, Math.max(1, Number.isInteger(p.batch) ? p.batch : 100));
   const DEFAULT_FIELDS = ['entityUrn', 'name', 'website', 'description', 'specialties', 'type', 'yearFounded', 'industry',
-    'headquarters', 'revenueRange', 'employeeCount', 'employeeCountRange', 'employeeGrowthPercentages', 'flagshipCompanyUrl'];
+    'headquarters', 'revenueRange', 'employeeCount', 'employeeCountRange', 'employeeGrowthPercentages', 'flagshipCompanyUrl',
+    'employeeDisplayCount', 'decisionMakersDisplayCount', 'location'];
   const wanted = Array.isArray(p.fields) && p.fields.length
     ? ['entityUrn'].concat(p.fields.map((f) => String(f).replace(/[^A-Za-z0-9]/g, '')).filter(Boolean))
     : DEFAULT_FIELDS;
@@ -40,7 +41,8 @@ async (params) => {
   const fields = wanted.filter((f, i) => wanted.indexOf(f) === i);
   const DECORATION = encodeURIComponent('(' + fields.join(',') + ')').replace(/\(/g, '%28').replace(/\)/g, '%29');
   const STANDARD = new Set(['entityUrn', 'name', 'website', 'industry', 'description', 'specialties', 'type', 'yearFounded',
-    'employeeCount', 'employeeCountRange', 'revenueRange', 'headquarters', 'flagshipCompanyUrl', 'employeeGrowthPercentages']);
+    'employeeCount', 'employeeCountRange', 'revenueRange', 'headquarters', 'flagshipCompanyUrl', 'employeeGrowthPercentages',
+    'employeeDisplayCount', 'decisionMakersDisplayCount', 'location']);
   const compact = (v) => {
     if (v === null || v === undefined) return '';
     if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return String(v);
@@ -59,6 +61,12 @@ async (params) => {
     if (typeof v.name === 'string') return v.name;
     if (typeof v.text === 'string') return v.text;
     return Object.keys(v).map((k) => { const s = compact(v[k]); return s ? k + '=' + s : ''; }).filter(Boolean).join(' ');
+  };
+  const NEW_SENTINEL = 2147483647;
+  const growth = (v) => {
+    if (Array.isArray(v)) return v.map(growth);
+    if (v && typeof v === 'object' && Number(v.growthPercentage) === NEW_SENTINEL) return Object.assign({}, v, { growthPercentage: 'new' });
+    return Number(v) === NEW_SENTINEL ? 'new' : v;
   };
   const orBlank = (v) => (v === undefined || v === null ? '' : v);
   const companies = [];
@@ -96,8 +104,11 @@ async (params) => {
           employeeCountRange: compact(c.employeeCountRange),
           revenueRange: compact(c.revenueRange),
           headquarters: compact(c.headquarters),
-          employeeGrowthPercentages: compact(c.employeeGrowthPercentages),
+          employeeGrowthPercentages: compact(growth(c.employeeGrowthPercentages)),
           flagshipCompanyUrl: c.flagshipCompanyUrl || '',
+          employeeDisplayCount: orBlank(c.employeeDisplayCount),
+          decisionMakersDisplayCount: orBlank(c.decisionMakersDisplayCount),
+          location: compact(c.location),
         };
         let row = full;
         if (custom) {

@@ -62,7 +62,7 @@ cap? Cut it into sub-lists with `salesnav-tam-tracker`.
    variant in one `count.js` call (`kind: account`). Encoding: `$ENGINE/reference.md`.
 6. **Pull rows.** `account_search.js` with `count` 100, paging `start` by 100; save each page under
    `results/`; convert with `python3 "$ENGINE/scripts/salesnav_rows.py" accounts results/*.json -o accounts.csv`.
-   **Details.** `companies_details.js` over the company ids in batches of 100; save under `results/`.
+   **Details.** Before this step, read `$ENGINE/references/salesnav-kb/15-batch-scrape.md`. `companies_details.js` over the company ids in batches of 100; save under `results/`.
 7. **Multi-segment plan + merge** (before this step, read `$ENGINE/references/salesnav-kb/10-approach-segmented-merge.md`) (niche ICP spread over several LinkedIn industries; replaces steps 5 and 6).
    Write `segments.json`: segment name to `industries[]`, `keywords`, optional `parts` (headcount split) and
    `max_rows`; segments industry-disjoint. `python3 "$ENGINE/scripts/segments.py" plan --segments segments.json

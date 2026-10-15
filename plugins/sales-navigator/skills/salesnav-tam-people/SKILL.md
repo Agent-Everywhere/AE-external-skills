@@ -55,7 +55,7 @@ scoped by those company ids, an exact count per variant, and rows the user has c
 5. **Sample, then pull.** On a large `ACCOUNT_LIST` search page with the returned `count`; on `fetch_timeout` lower `count` or raise `evaluate_timeout_ms`. One page with `lead_search.js` (`count` 100); read titles and companies with the
    user and fix filters; then page `start` by 100 up to the 2,500 viewable cap and save under `results/`.
    Convert with `python3 "$ENGINE/scripts/salesnav_rows.py" leads results/*.json -o leads.csv`.
-6. **Deeper detail** only when asked: `profiles_batch.js` over the rows' `entityUrn`s (`batch` up to 100).
+6. **Deeper detail** only when asked. Before this step, read `$ENGINE/references/salesnav-kb/15-batch-scrape.md`. `profiles_batch.js` over the rows' `entityUrn`s (`batch` up to 100; `extras: true` adds education, skills, languages).
 7. **Report** a table (variant, count, note), the pulled count, what was excluded after collecting (no
    exclusions at search time) and the next step. Rows carry a Sales Nav lead URL: leave `linkedin_url` blank.
 

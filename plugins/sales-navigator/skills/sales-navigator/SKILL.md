@@ -47,7 +47,7 @@ never cookies or tokens. `csrf_ready.js` confirms the page is ready; `count.js` 
 (`count=1`); `lead_search.js` and `account_search.js` return rows (`count` up to 100, paged by `start`);
 `typeahead.js` resolves filter ids; `companies_details.js` gives description, specialties, revenue and HQ for
 up to 100 ids (qualify); `companies_websites.js` the website for up to 100 ids; `profiles_batch.js` summary
-and positions for many leads (`batch` up to 100); `profile.js` one lead's positions, summary, degree
+and positions for many leads (`batch` up to 100; `extras`: education, skills; limits: `$ENGINE/references/salesnav-kb/15-batch-scrape.md`); `profile.js` one lead's positions, summary, degree
 (`extras`: education, skills; no contact info); `activity.js` recent posts and comments; `account.js` a
 company's detail (`headcount`, `news`). Lists: `lists.js` reads them; `list_create.js`, `list_save_accounts.js` and `list_save_sharded.js` are
 the only snippets that write (POST): a new account list and up to 50 accounts per call into it (sharded: continues

@@ -13,8 +13,8 @@ seconds before the first call (`csrf_ready.js`); a 403 within ~100 ms means the 
 |---|---|---|
 | Lead search | `/sales-api/salesApiLeadSearch?q=searchQuery&query=<restli>&start=N&count=25&decorationId=com.linkedin.sales.deco.desktop.searchv2.LeadSearchResult-14` | `paging.total` is exact; `count=1` to size; 2,500 viewable; `count` up to 100 verified (default 25); rows carry `summary`, `currentPositions` |
 | Account search | `/sales-api/salesApiAccountSearch?q=searchQuery&query=<restli>&start=N&count=25&decorationId=com.linkedin.sales.deco.desktop.searchv2.AccountSearchResult-4` | 1,000 viewable; `count` up to 100 verified (default 25); no website in the row |
-| Websites, company details | `/sales-api/salesApiCompanies?ids=List(id1,...,idN)&decoration=%28entityUrn%2Cname%2Cwebsite%29` | decoration URL-encoded, parentheses too (`companies_details.js` lists the richer one); max 100 ids per call (200 returns 400) |
-| Profile details | `/sales-api/salesApiProfiles?ids=List((profileId:X,authType:Y,authToken:Z),...)&decoration=...` | `profiles_batch.js`; triple from a lead row's `entityUrn`; 100 per call works (about 890 KB), default 25 |
+| Websites, company details | `/sales-api/salesApiCompanies?ids=List(id1,...,idN)&decoration=%28entityUrn%2Cname%2Cwebsite%29` | decoration URL-encoded, parentheses too (`companies_details.js` lists the richer one); max 100 ids per call (101 returns 400); an unknown decoration field returns 400 |
+| Profile details | `/sales-api/salesApiProfiles?ids=List((profileId:X,authType:Y,authToken:Z),...)&decoration=...` | `profiles_batch.js`; triple from a lead row's `entityUrn`; max 100 per call (101 returns 400; about 650 KB with `extras: true`), default 25; never request `contactInfo` |
 | Lists (read) | `/sales-api/salesApiLists?q=listType&listType=ACCOUNT&start=0&count=25` (or `LEAD`) | `lists.js`; elements carry id, name, entityCount, listType, listSource, role |
 | List create (write) | POST `/sales-api/salesApiLists` | `list_create.js`; JSON `{"name","listType","role":"OWNER"}`; a body without `role` returns 422 |
 | Save accounts (write) | POST `/sales-api/salesApiCompanies?action=save` | `list_save_accounts.js`; JSON `{"companyIds":[<int ids>],"lists":["<listId>"]}`; 50 ids per call at most (75 and 100 return 400) |
@@ -148,7 +148,7 @@ in one `values:List(...)`) plus seniority and title filters. A segment merge kee
 ## Gotchas that bite
 
 1. **403 right after load**: wait for the token (`csrf_ready.js`); 403/429 after that is a stop.
-2. **400 on company or profile details**: encode the whole decoration, parentheses included; 100 ids at most.
+2. **400 on company or profile details**: encode the whole decoration, parentheses included; 100 ids at most (101 returns 400); one unknown decoration field fails the whole call.
 3. **Filters before keywords** in the query.
 4. **The 1,000 account cap**: shard by HQ state, then headcount band, then metro; count each shard with
    `count=1`. Shards overlap: dedupe by company id (`dedupe.py`), report "sum X, unique Y".
