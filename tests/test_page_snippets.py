@@ -29,6 +29,26 @@ def run_snippet(name, params, responses=None, cookie=COOKIE):
     return json.loads(proc.stdout)
 
 
+LIST_ROW = {"id": 7, "name": "A", "entityCount": 3, "listType": "ACCOUNT", "listSource": "MANUAL", "role": "OWNER",
+            "extra": 1}
+
+
+
+def lists_resp(rows, total=None):
+    return {"status": 200, "body": {"paging": {"total": len(rows) if total is None else total}, "elements": [
+        {"id": i, "name": n, "entityCount": c, "listType": "ACCOUNT"} for i, n, c in rows]}}
+
+
+def save_resp(statuses):
+    return {"status": 200, "body": {"value": {"listEntityActionResponses": [{"status": x} for x in statuses]}}}
+
+
+def save_calls(out):
+    return [json.loads(c["body"]) for c in out["calls"] if c["url"] == "/sales-api/salesApiCompanies?action=save"]
+
+
+SHARD = {"delayMs": 0, "readDelayMs": 0}
+
 PROFILE_MAIN_CASE = {"fullName": "P", "positions": [{"title": "T", "companyUrn": "urn:li:fs_salesCompany:9"}],
                      "contactInfo": {"primaryEmail": "x@example.invalid"}}
 
@@ -641,6 +661,30 @@ class PageSnippets(unittest.TestCase):
                                                           "headquarters": {"city": "C", "country": "US"}}}}}]),
             ({"ids": ["1"], "fields": ["name"]}, [{"status": 403, "body": {}}]),
         ],
+        "lists.js": [
+            ({"listType": "ACCOUNT", "all": True, "delayMs": 0},
+             [{"status": 200, "body": {"paging": {"total": 2}, "elements": [LIST_ROW]}},
+              {"status": 200, "body": {"paging": {"total": 2}, "elements": [dict(LIST_ROW, id=8, name="B")]}}]),
+            ({"listType": "LEAD"}, [{"status": 403, "body": {}}]),
+        ],
+        "list_create.js": [
+            ({"name": "New", "listType": "ACCOUNT", "description": "d", "delayMs": 0},
+             [{"status": 200, "body": {"paging": {"total": 1}, "elements": [LIST_ROW]}},
+              {"status": 201, "body": None, "headers": {"x-restli-id": "99"}}]),
+            ({"name": "A", "listType": "ACCOUNT"}, [{"status": 200, "body": {"paging": {"total": 1}, "elements": [LIST_ROW]}}]),
+        ],
+        "list_save_accounts.js": [
+            ({"listId": "7", "ids": ["urn:li:fs_salesCompany:1", "2", "x"], "delayMs": 0},
+             [{"status": 200, "body": {"value": {"listEntityActionResponses": [{"status": "SUCCESS"}, {"status": "SUCCESS"}]}}}]),
+            ({"listId": "7", "ids": ["1"]}, [{"status": 400, "body": {}}]),
+        ],
+        "list_save_sharded.js": [
+            ({"listId": "7", "ids": ["1", "2", "3"], "delayMs": 0, "readDelayMs": 0, "shardAt": 2},
+             [lists_resp([(7, "Base", 1)]), save_resp(["SUCCESS"]), lists_resp([(7, "Base", 2)]), lists_resp([(7, "Base", 2)]),
+              {"status": 201, "body": None, "headers": {"x-restli-id": "99"}}, save_resp(["SUCCESS"]),
+              lists_resp([(7, "Base", 2), (99, "Base #2", 1)])]),
+            ({"listId": "7", "ids": ["1"]}, [{"status": 403, "body": {}}]),
+        ],
         "profiles_batch.js": [
             ({"leads": [LEAD_URN, "bad"], "delayMs": 0},
              [{"status": 200, "body": {"results": {"FIXTUREID123": {"fullName": "A", "positions": [{"title": "T", "current": True}]}}}}]),
@@ -699,6 +743,292 @@ class PageSnippets(unittest.TestCase):
             results.append(json.loads(proc.stdout))
         self.assertEqual(results[0], results[1])
         self.assertEqual(results[0]["rows"], 1)
+
+    # --- lists: read, create, save accounts
+    def test_lists_url_slim_rows_and_paging(self):
+        out = run_snippet("lists.js", {"listType": "ACCOUNT"},
+                          [{"status": 200, "body": {"paging": {"total": 40}, "elements": [LIST_ROW]}}])
+        call = out["calls"][0]
+        self.assertEqual(call["url"], "/sales-api/salesApiLists?q=listType&listType=ACCOUNT&start=0&count=25")
+        self.assertNotIn("method", {k: v for k, v in call.items() if v})   # a GET
+        res = out["result"]
+        self.assertEqual((res["status"], res["total"], res["rows"]), (200, 40, 1))
+        self.assertEqual(res["lists"], [{"id": 7, "name": "A", "entityCount": 3, "listType": "ACCOUNT", "listSource": "MANUAL"}])
+        out = run_snippet("lists.js", {"listType": "lead", "start": 25, "count": 500}, [{"status": 200, "body": {}}])
+        self.assertIn("listType=LEAD&start=25&count=25", out["calls"][0]["url"])   # count is clamped to 25
+        out = run_snippet("lists.js", {"listType": "ACCOUNT", "all": True, "delayMs": 0}, [
+            {"status": 200, "body": {"paging": {"total": 30}, "elements": [dict(LIST_ROW, id=i) for i in range(25)]}},
+            {"status": 200, "body": {"paging": {"total": 30}, "elements": [dict(LIST_ROW, id=100 + i) for i in range(5)]}}])
+        self.assertEqual([c["url"].split("&start=")[1].split("&")[0] for c in out["calls"]], ["0", "25"])
+        self.assertEqual(len(out["result"]["lists"]), 30)
+        named = run_snippet("lists.js", {"listType": "ACCOUNT", "name": " a "},
+                            [{"status": 200, "body": {"paging": {"total": 2}, "elements": [LIST_ROW, dict(LIST_ROW, id=8, name="B")]}}])
+        self.assertEqual([x["id"] for x in named["result"]["lists"]], [7])
+        self.assertEqual(run_snippet("lists.js", {"listType": "PEOPLE"}, [])["result"]["error"], "list_type_invalid")
+
+    def test_list_create_posts_body_with_role_and_reads_id_from_header(self):
+        out = run_snippet("list_create.js", {"name": " PureFlow TAM ", "listType": "account", "description": "d"},
+                          [{"status": 200, "body": {"paging": {"total": 1}, "elements": [LIST_ROW]}},
+                           {"status": 201, "body": None, "headers": {"x-restli-id": "99"}}])
+        read, post = out["calls"]
+        self.assertIn("/sales-api/salesApiLists?q=listType&listType=ACCOUNT", read["url"])   # reads first
+        self.assertEqual((post["url"], post["method"]), ("/sales-api/salesApiLists", "POST"))
+        self.assertEqual(json.loads(post["body"]),
+                         {"name": "PureFlow TAM", "listType": "ACCOUNT", "role": "OWNER", "description": "d"})
+        self.assertEqual(post["headers"]["content-type"], "application/json")
+        self.assertEqual(post["headers"]["csrf-token"], TOKEN)
+        self.assertEqual(out["result"], {"status": 201, "id": "99", "name": "PureFlow TAM", "reused": False})
+
+    def test_list_create_id_from_body_or_by_rereading_the_lists(self):
+        empty = {"status": 200, "body": {"paging": {"total": 0}, "elements": []}}
+        out = run_snippet("list_create.js", {"name": "N", "listType": "LEAD"}, [empty, {"status": 200, "body": {"id": 55}}])
+        self.assertEqual((out["result"]["id"], len(out["calls"])), ("55", 2))
+        again = {"status": 200, "body": {"paging": {"total": 1}, "elements": [dict(LIST_ROW, id=123, name="n")]}}
+        out = run_snippet("list_create.js", {"name": "N", "listType": "LEAD", "delayMs": 0},
+                          [empty, {"status": 201, "body": None}, again])
+        self.assertEqual((out["result"]["id"], out["result"]["reused"], len(out["calls"])), ("123", False, 3))
+        out = run_snippet("list_create.js", {"name": "N", "listType": "LEAD", "delayMs": 0},
+                          [empty, {"status": 201, "body": None}, empty])
+        self.assertEqual(out["result"]["error"], "created_but_id_unread")
+
+    def test_list_create_refuses_an_existing_name_unless_reuse(self):
+        existing = [{"status": 200, "body": {"paging": {"total": 1}, "elements": [LIST_ROW]}}]
+        out = run_snippet("list_create.js", {"name": " a ", "listType": "ACCOUNT"}, existing)
+        self.assertEqual((out["result"]["error"], out["result"]["id"]), ("list_name_exists", 7))
+        self.assertEqual([c.get("method") for c in out["calls"]], [None])   # no write was made
+        out = run_snippet("list_create.js", {"name": "A", "listType": "ACCOUNT", "reuse": True}, existing)
+        self.assertEqual(out["result"], {"status": 200, "id": 7, "name": "A", "reused": True})
+        self.assertEqual(len(out["calls"]), 1)
+
+    def test_list_create_refusals_and_errors_make_no_write(self):
+        for params, err in (({"listType": "ACCOUNT"}, "name_required"), ({"name": "  ", "listType": "ACCOUNT"}, "name_required"),
+                            ({"name": "N"}, "list_type_invalid"), ({"name": "N", "listType": "COMPANY"}, "list_type_invalid")):
+            with self.subTest(params=params):
+                out = run_snippet("list_create.js", params, [])
+                self.assertEqual((out["result"]["error"], out["calls"]), (err, []))
+        out = run_snippet("list_create.js", {"name": "N", "listType": "ACCOUNT"}, [], cookie="x=1")
+        self.assertEqual((out["result"]["error"], out["calls"]), ("csrf_missing", []))
+        out = run_snippet("list_create.js", {"name": "N", "listType": "ACCOUNT"}, [{"status": 403, "body": {"m": "no"}}])
+        self.assertEqual((out["result"]["status"], len(out["calls"])), (403, 1))
+        empty = {"status": 200, "body": {"paging": {"total": 0}, "elements": []}}
+        out = run_snippet("list_create.js", {"name": "N", "listType": "ACCOUNT"}, [empty, {"status": 422, "body": {"m": "x"}}])
+        self.assertEqual(out["result"]["status"], 422)
+        self.assertIn("x", out["result"]["body"])
+
+    def test_list_save_accounts_url_body_and_result(self):
+        ok = {"status": 200, "body": {"value": {"listEntityActionResponses": [{"status": "SUCCESS"}]}}}
+        out = run_snippet("list_save_accounts.js", {"listId": "7", "ids": ["urn:li:fs_salesCompany:11", "22", "22", "x"]}, [ok])
+        call = out["calls"][0]
+        self.assertEqual((call["url"], call["method"]), ("/sales-api/salesApiCompanies?action=save", "POST"))
+        self.assertEqual(json.loads(call["body"]), {"companyIds": [11, 22], "lists": ["7"]})   # int ids, deduped
+        self.assertEqual(call["headers"]["content-type"], "application/json")
+        self.assertEqual(call["headers"]["csrf-token"], TOKEN)
+        self.assertEqual(call["credentials"], "include")
+        res = out["result"]
+        self.assertEqual((res["status"], res["saved"], res["failed"], res["batches"], res["invalid"]), (200, 2, [], 1, 1))
+
+    def test_list_save_accounts_chunks_at_50_and_clamps_batch(self):
+        ids = [str(i) for i in range(1, 126)]
+        for params in ({}, {"batch": 500}, {"batch": 75}):
+            with self.subTest(params=params):
+                ok = {"status": 200, "body": {"value": {"listEntityActionResponses": [{"status": "SUCCESS"}]}}}
+                out = run_snippet("list_save_accounts.js", dict({"listId": 7, "ids": ids, "delayMs": 0}, **params), [ok] * 3)
+                sizes = [len(json.loads(c["body"])["companyIds"]) for c in out["calls"]]
+                self.assertEqual(sizes, [50, 50, 25])
+                self.assertTrue(all(json.loads(c["body"])["lists"] == ["7"] for c in out["calls"]))
+                self.assertEqual((out["result"]["saved"], out["result"]["failed"], out["result"]["batches"]), (125, [], 3))
+        out = run_snippet("list_save_accounts.js", {"listId": 7, "ids": ids[:10], "delayMs": 0, "batch": 4}, [])
+        self.assertEqual([len(json.loads(c["body"])["companyIds"]) for c in out["calls"]], [4, 4, 2])
+
+    def test_list_save_accounts_reports_partial_failures_and_stops_on_http_errors(self):
+        mixed = {"status": 200, "body": {"value": {"listEntityActionResponses": [{"status": "SUCCESS"}, {"status": "FAILED"}, {"status": "SUCCESS"}]}}}
+        out = run_snippet("list_save_accounts.js", {"listId": "7", "ids": ["1", "2", "3"]}, [mixed])
+        self.assertEqual((out["result"]["saved"], out["result"]["failed"]), (2, ["2"]))   # one entry per id: by position
+        odd = {"status": 200, "body": {"value": {"listEntityActionResponses": [{"status": "SUCCESS"}, {"status": "FAILED"}]}}}
+        out = run_snippet("list_save_accounts.js", {"listId": "7", "ids": ["1", "2", "3"]}, [odd])
+        self.assertEqual((out["result"]["saved"], out["result"]["failed"]), (0, ["1", "2", "3"]))
+        out = run_snippet("list_save_accounts.js", {"listId": "7", "ids": ["1", "2", "3"]}, [{"status": 200, "body": {}}])
+        self.assertEqual((out["result"]["saved"], out["result"]["failed"]), (0, ["1", "2", "3"]))   # no SUCCESS seen: not saved
+        ids = [str(i) for i in range(1, 121)]
+        ok = {"status": 200, "body": {"value": {"listEntityActionResponses": [{"status": "SUCCESS"}]}}}
+        out = run_snippet("list_save_accounts.js", {"listId": "7", "ids": ids, "delayMs": 0},
+                          [ok, {"status": 429, "body": {"m": "slow"}}])
+        res = out["result"]
+        self.assertEqual((res["status"], res["saved"], res["batches"], len(out["calls"])), (429, 50, 2, 2))
+        self.assertEqual(res["failed"], ids[50:])   # the failed batch and the one never attempted
+
+    def test_list_save_accounts_refusals_make_no_request(self):
+        for params, err in (({"ids": ["1"]}, "list_id_required"), ({"listId": "  ", "ids": ["1"]}, "list_id_required"),
+                            ({"listId": "7", "ids": []}, "ids_required"), ({"listId": "7", "ids": ["x", "y"]}, "ids_required"),
+                            ({"listId": "7"}, "ids_required")):
+            with self.subTest(params=params):
+                out = run_snippet("list_save_accounts.js", params, [])
+                self.assertEqual((out["result"]["error"], out["calls"]), (err, []))
+        out = run_snippet("list_save_accounts.js", {"listId": "7", "ids": ["1"]}, [], cookie="x=1")
+        self.assertEqual((out["result"]["error"], out["calls"]), ("csrf_missing", []))
+
+    def test_only_the_list_write_snippets_use_a_write_method(self):
+        writers = sorted(p.name for p in PAGE.glob("*.js") if "method:" in p.read_text())
+        self.assertEqual(writers, ["list_create.js", "list_save_accounts.js", "list_save_sharded.js"])
+
+    def test_list_save_accounts_counts_exceed_limit_separately(self):
+        mixed = save_resp(["SUCCESS", "EXCEED_LIMIT", "FAILED"])
+        res = run_snippet("list_save_accounts.js", {"listId": "7", "ids": ["1", "2", "3"]}, [mixed])["result"]
+        self.assertEqual((res["saved"], res["exceeded"], res["failed"]), (1, ["2"], ["3"]))
+        res = run_snippet("list_save_accounts.js", {"listId": "7", "ids": ["1", "2", "3"]}, [save_resp(["EXCEED_LIMIT"])])["result"]
+        self.assertEqual((res["saved"], res["exceeded"], res["failed"]), (0, ["1", "2", "3"], []))   # unmappable: whole batch
+
+    # --- list_save_sharded.js: auto-rotation at the 1,000 cap
+    def test_sharded_rotates_when_the_count_reaches_the_cap_and_creates_the_next_list(self):
+        ids = [str(i) for i in range(1, 11)]
+        out = run_snippet("list_save_sharded.js", dict({"listId": "7", "ids": ids}, **SHARD), [
+            lists_resp([(7, "Base", 996)]),                      # read the confirmed list
+            save_resp(["SUCCESS"] * 4),                          # batch cut to the 4 slots left
+            lists_resp([(7, "Base", 1000)]),                     # verify entityCount: at the cap
+            lists_resp([(7, "Base", 1000)]),                     # look for "Base #2": none
+            {"status": 201, "body": None, "headers": {"x-restli-id": "99"}},
+            save_resp(["SUCCESS"] * 6),
+            lists_resp([(7, "Base", 1000), (99, "Base #2", 6)]),
+        ])
+        res = out["result"]
+        saves = save_calls(out)
+        self.assertEqual([(b["lists"], b["companyIds"]) for b in saves], [(["7"], [1, 2, 3, 4]), (["99"], [5, 6, 7, 8, 9, 10])])
+        create = [c for c in out["calls"] if c.get("method") == "POST" and c["url"] == "/sales-api/salesApiLists"][0]
+        self.assertEqual(json.loads(create["body"]), {"name": "Base #2", "listType": "ACCOUNT", "role": "OWNER"})
+        self.assertEqual((res["status"], res["saved"], res["failed"], res["exceeded"], res["base"]), (200, 10, [], 0, "Base"))
+        self.assertEqual([(s["listId"], s["name"], s["saved"], s["entityCount"], s["created"]) for s in res["shards"]],
+                         [("7", "Base", 4, 1000, False), ("99", "Base #2", 6, 6, True)])
+
+    def test_sharded_exceed_limit_mid_batch_is_not_saved_and_is_resaved_in_the_next_list(self):
+        ids = [str(i) for i in range(1, 11)]
+        out = run_snippet("list_save_sharded.js", dict({"listId": "7", "ids": ids}, **SHARD), [
+            lists_resp([(7, "Base", 990)]),
+            save_resp(["SUCCESS"] * 5 + ["EXCEED_LIMIT"] * 5),   # the stale count hid that the list was full
+            lists_resp([(7, "Base", 1000)]),
+            lists_resp([(7, "Base", 1000)]),
+            {"status": 201, "body": None, "headers": {"x-restli-id": "99"}},
+            save_resp(["SUCCESS"] * 5),
+            lists_resp([(7, "Base", 1000), (99, "Base #2", 5)]),
+        ])
+        res = out["result"]
+        self.assertEqual([(b["lists"], b["companyIds"]) for b in save_calls(out)],
+                         [(["7"], list(range(1, 11))), (["99"], [6, 7, 8, 9, 10])])
+        self.assertEqual((res["saved"], res["exceeded"], res["failed"]), (10, 5, []))
+        self.assertEqual([(s["name"], s["saved"], s["exceeded"]) for s in res["shards"]], [("Base", 5, 5), ("Base #2", 5, 0)])
+        self.assertEqual(res["shards"][0]["countMismatches"], 1)   # 990 -> 1000 with 5 saved: the count was stale
+
+    def test_sharded_reuses_an_existing_numbered_list_and_never_creates_it(self):
+        out = run_snippet("list_save_sharded.js", dict({"listId": "7", "ids": ["1", "2"]}, **SHARD), [
+            lists_resp([(7, "Base", 1000), (8, "base #2", 100)]),   # the confirmed list is already full
+            lists_resp([(7, "Base", 1000), (8, "base #2", 100)]),   # "Base #2" exists (case-insensitive)
+            save_resp(["SUCCESS", "SUCCESS"]),
+            lists_resp([(7, "Base", 1000), (8, "base #2", 102)]),
+        ])
+        res = out["result"]
+        self.assertEqual([c["method"] for c in out["calls"] if c.get("method")], ["POST"])   # only the save
+        self.assertEqual([(b["lists"], b["companyIds"]) for b in save_calls(out)], [(["8"], [1, 2])])
+        self.assertEqual([(s["listId"], s["created"], s["saved"], s["entityCount"]) for s in res["shards"]],
+                         [("7", False, 0, 1000), ("8", False, 2, 102)])
+
+    def test_sharded_strips_an_existing_suffix_and_skips_a_full_next_list(self):
+        out = run_snippet("list_save_sharded.js", dict({"listId": "8", "ids": ["1"], "name": "Base #2"}, **SHARD), [
+            lists_resp([(8, "Base #2", 1000), (9, "Base #3", 1000)]),
+            lists_resp([(8, "Base #2", 1000), (9, "Base #3", 1000)]),   # "Base #3" exists but is full
+            lists_resp([(8, "Base #2", 1000), (9, "Base #3", 1000)]),   # so "Base #4" is looked up
+            {"status": 201, "body": None, "headers": {"x-restli-id": "10"}},
+            save_resp(["SUCCESS"]),
+            lists_resp([(10, "Base #4", 1)]),
+        ])
+        res = out["result"]
+        self.assertEqual(res["base"], "Base")
+        self.assertEqual([b["lists"] for b in save_calls(out)], [["10"]])
+        self.assertEqual([s["name"] for s in res["shards"]], ["Base #2", "Base #3", "Base #4"])
+        create = [c for c in out["calls"] if c.get("method") == "POST" and c["url"] == "/sales-api/salesApiLists"][0]
+        self.assertEqual(json.loads(create["body"])["name"], "Base #4")
+
+    def test_sharded_batches_are_50_and_stop_on_a_non_200(self):
+        ids = [str(i) for i in range(1, 121)]
+        out = run_snippet("list_save_sharded.js", dict({"listId": "7", "ids": ids}, **SHARD), [
+            lists_resp([(7, "Base", 0)]), save_resp(["SUCCESS"]), lists_resp([(7, "Base", 50)]),
+            {"status": 429, "body": {"m": "slow"}},
+        ])
+        res = out["result"]
+        self.assertEqual([len(b["companyIds"]) for b in save_calls(out)], [50, 50])
+        self.assertEqual((res["status"], res["saved"], res["batches"]), (429, 50, 2))
+        self.assertEqual(res["failed"], ids[50:])   # the failed batch and the one never attempted
+
+    def test_sharded_stops_when_the_next_list_cannot_be_created_or_the_count_is_unreadable(self):
+        out = run_snippet("list_save_sharded.js", dict({"listId": "7", "ids": ["1", "2"]}, **SHARD), [
+            lists_resp([(7, "Base", 1000)]), lists_resp([(7, "Base", 1000)]), {"status": 422, "body": {"m": "bad"}}])
+        res = out["result"]
+        self.assertEqual((res["status"], res["saved"], res["failed"], save_calls(out)), (422, 0, ["1", "2"], []))
+        out = run_snippet("list_save_sharded.js", dict({"listId": "7", "ids": ["1", "2"]}, **SHARD), [
+            lists_resp([(7, "Base", 0)]), save_resp(["SUCCESS"] * 2), {"status": 500, "body": {}}])
+        res = out["result"]
+        self.assertEqual((res["status"], res["error"], res["saved"], res["failed"]), (500, "count_unreadable", 2, []))
+
+    def test_sharded_caps_shards_and_refuses_without_writing(self):
+        out = run_snippet("list_save_sharded.js", dict({"listId": "7", "ids": ["1"], "maxShards": 1}, **SHARD),
+                          [lists_resp([(7, "Base", 1000)])])
+        self.assertEqual((out["result"]["error"], out["result"]["failed"], save_calls(out)), ("max_shards_reached", ["1"], []))
+        out = run_snippet("list_save_sharded.js", dict({"listId": "99", "ids": ["1"]}, **SHARD), [lists_resp([(7, "Base", 0)])])
+        self.assertEqual((out["result"]["error"], out["result"]["failed"], save_calls(out)), ("list_not_found", ["1"], []))
+        for params, err in (({"ids": ["1"]}, "list_id_required"), ({"listId": "7", "ids": ["x"]}, "ids_required")):
+            out = run_snippet("list_save_sharded.js", params, [])
+            self.assertEqual((out["result"]["error"], out["calls"]), (err, []))
+        out = run_snippet("list_save_sharded.js", {"listId": "7", "ids": ["1"]}, [], cookie="x=1")
+        self.assertEqual((out["result"]["error"], out["calls"]), ("csrf_missing", []))
+
+    # --- lead_search.js: per-request timeout, retry with a smaller count
+    @staticmethod
+    def _run_lead_search_with_hanging_fetch(params, hang_above):
+        """A fetch that never answers (but honours AbortSignal) when count > hang_above."""
+        script = """
+        global.document = {cookie: %s};
+        const seen = [];
+        global.fetch = (url, opts) => {
+          const count = Number(/count=(\\d+)/.exec(url)[1]);
+          seen.push(count);
+          if (count <= %d) return Promise.resolve({status: 200, json: async () => ({paging: {total: 9}, elements: [{n: count}]}), text: async () => ''});
+          return new Promise((resolve, reject) => opts.signal.addEventListener('abort', () => {
+            const e = new Error('The operation was aborted'); e.name = 'AbortError'; reject(e); }));
+        };
+        const fn = eval('(' + %s + ')');
+        fn(%s).then((result) => console.log(JSON.stringify({result, seen})));
+        """ % (json.dumps(COOKIE), hang_above, json.dumps((PAGE / "lead_search.js").read_text(encoding="utf-8").strip()),
+               json.dumps(params))
+        proc = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=30)
+        assert proc.returncode == 0, proc.stderr
+        return json.loads(proc.stdout)
+
+    def test_lead_search_retries_a_timed_out_page_with_a_halved_count(self):
+        out = self._run_lead_search_with_hanging_fetch(
+            {"query": CLEAN, "count": 100, "timeoutMs": 60, "budgetMs": 2000}, hang_above=30)
+        res = out["result"]
+        self.assertEqual(out["seen"], [100, 50, 25])
+        self.assertEqual((res["status"], res["count"], res["retries"], res["rows"], res["start"]), (200, 25, 2, 1, 0))
+        self.assertEqual(res["elements"], [{"n": 25}])
+
+    def test_lead_search_without_a_timeout_makes_one_request_and_reports_retries_0(self):
+        out = self._run_lead_search_with_hanging_fetch({"query": CLEAN, "count": 40, "timeoutMs": 60}, hang_above=100)
+        self.assertEqual((out["seen"], out["result"]["retries"], out["result"]["count"]), ([40], 0, 40))
+
+    def test_lead_search_reports_fetch_timeout_with_a_hint_when_every_attempt_times_out(self):
+        out = self._run_lead_search_with_hanging_fetch(
+            {"query": CLEAN, "count": 40, "timeoutMs": 40, "budgetMs": 5000}, hang_above=0)
+        res = out["result"]
+        self.assertEqual(out["seen"], [40, 20, 10])   # halved down to the minimum of 10, then stop
+        self.assertEqual((res["status"], res["error"], res["count"], res["retries"], res["tried"]),
+                         (0, "fetch_timeout", 10, 2, [40, 20, 10]))
+        self.assertIn("evaluate_timeout_ms", res["hint"])
+        self.assertIn("lower count", res["hint"])
+
+    def test_lead_search_stops_retrying_when_the_budget_is_spent(self):
+        out = self._run_lead_search_with_hanging_fetch(
+            {"query": CLEAN, "count": 100, "timeoutMs": 80, "budgetMs": 100}, hang_above=0)
+        self.assertEqual(out["result"]["error"], "fetch_timeout")
+        self.assertLess(len(out["seen"]), 4)
+        self.assertLess(out["result"]["ms"], 1000)
 
     def test_csrf_ready(self):
         self.assertTrue(run_snippet("csrf_ready.js", {})["result"]["ready"])

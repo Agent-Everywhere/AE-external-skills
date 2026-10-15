@@ -280,8 +280,9 @@ class FailClosedFlow(unittest.TestCase):
         for name in PURPOSE:
             with self.subTest(skill=name):
                 # 0.6.0: the accounts flow carries the intake steps; 0.6.1: the 4-line ENGINE block; 0.6.2: count mode
-                self.assertLessEqual(len(body(name).splitlines()), 90 if name == "salesnav-tam-accounts" else 76)
-        self.assertLessEqual(len(body("sales-navigator").splitlines()), 98)
+                # 0.7.0: the accounts flow carries the multi-segment, list-save and rubric sections
+                self.assertLessEqual(len(body(name).splitlines()), 120 if name == "salesnav-tam-accounts" else 76)
+        self.assertLessEqual(len(body("sales-navigator").splitlines()), 104)
 
 
 if __name__ == "__main__":

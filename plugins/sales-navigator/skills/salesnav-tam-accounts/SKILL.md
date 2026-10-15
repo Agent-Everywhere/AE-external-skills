@@ -5,7 +5,7 @@ description: >-
   industry, geography and headcount net, optional keyword priority lanes, account rows pulled 100 at a
   time, company details scored for fit, and a qualified-account count. Use for "how many companies
   match", "build an account search", "size this market by accounts", "qualify these accounts".
-  Read-only; creates no Sales Nav list.
+  Read-only except an account list the user confirmed by name.
 ---
 
 # Sales Nav TAM: accounts
@@ -25,6 +25,8 @@ ENGINE="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/sales-navigator}"
 ```
 
 Snippets (`count.js` and the rest) live in `$ENGINE/page/`; run one with `python3 "$ENGINE/runtime/session.py" --emit <snippet>.js --params '{...}' --compact`.
+
+Field-notes KB: `$ENGINE/references/salesnav-kb/` (from this skill's folder: `../sales-navigator/references/salesnav-kb/`; inside the engine: `references/salesnav-kb/`). Read the named page before the step that names it.
 
 **Job.** Turn "companies like these" into a qualified account list: cast a broad net, pull the rows,
 read each company's own description, keep the fits, and report how many qualify. Over the 1,000 viewable
@@ -51,21 +53,48 @@ cap? Cut it into sub-lists with `salesnav-tam-tracker`.
 3. **Browser gate.** In a signed-in `linkedin.com/sales` tab run `csrf_ready.js`. No browser connected or no JS
    tool: the profile is written, so stop and tell the user how to connect (a signed-in Sales Nav tab with a
    browser JS tool, or Agent Browser); resume at step 4.
-4. **Calibrate from the examples.** `typeahead.js` for geography (`BING_GEO`) and industry ids, and each example
+4. **Calibrate from the examples.** Before this step, read `$ENGINE/references/salesnav-kb/04-industry-quirks.md`. `typeahead.js` for geography (`BING_GEO`) and industry ids, and each example
    customer's company id (nothing found: `account_search.js` with its name as keywords); then `companies_details.js`
    for industry, headcount, description, specialties. Derive the broad net's industry ids and the scoring
    rubric (keep and drop signals) from them. A niche industry resolves to nothing: use its parent.
-5. **Broad net.** Build the query from resolved ids: industry, geography, headcount bands; no keywords.
+5. **Broad net.** Before this step, read `$ENGINE/references/salesnav-kb/03-view-cap-and-slicing.md`, `$ENGINE/references/salesnav-kb/11-approach-broad-net-slicing.md` and, for keyword lanes, `$ENGINE/references/salesnav-kb/12-approach-lookalike-plus-lanes.md`. Build the query from resolved ids: industry, geography, headcount bands; no keywords.
    Optionally add a few high-signal keyword lanes as a priority tier (count each alone first). Size every
    variant in one `count.js` call (`kind: account`). Encoding: `$ENGINE/reference.md`.
 6. **Pull rows.** `account_search.js` with `count` 100, paging `start` by 100; save each page under
    `results/`; convert with `python3 "$ENGINE/scripts/salesnav_rows.py" accounts results/*.json -o accounts.csv`.
    **Details.** `companies_details.js` over the company ids in batches of 100; save under `results/`.
-7. **Score and exclude** from description and specialties into `facts`, `fit_reason`, `keep` with step 4's
+7. **Multi-segment plan + merge** (before this step, read `$ENGINE/references/salesnav-kb/10-approach-segmented-merge.md`) (niche ICP spread over several LinkedIn industries; replaces steps 5 and 6).
+   Write `segments.json`: segment name to `industries[]`, `keywords`, optional `parts` (headcount split) and
+   `max_rows`; segments industry-disjoint. `python3 "$ENGINE/scripts/segments.py" plan --segments segments.json
+   --region <id> --headcount B,C,D --out plan.json` counts every segment (run the plan with
+   `$ENGINE/runtime/session.py`); split any segment over 1,000 (headcount band first, then state). Then `plan --kind
+   pull --counts <counts file>` pulls each segment 25 rows a page, `companies_details.js` fetches details, and ONE shared
+   rubric (step 8) scores every segment. `python3 "$ENGINE/scripts/segments.py" merge --pulls r1.jsonl r2.jsonl --out
+   merged.csv` dedupes by company id and keeps a pipe-joined `segment` column. Report "sum X, unique Y".
+8. **Score and exclude** (before this step, read `$ENGINE/references/salesnav-kb/20-rubric-template.md`) from description and specialties into `facts`, `fit_reason`, `keep` with step 4's
    rubric: calibrate on 10 spread rows with the user. Exclusions (contract manufacturer, co-packer, CBD and the
-   like) belong here in scoring, never as keyword NOT terms. A website lookup only for thin rows.
-8. **Report** the pulled, qualified and dropped counts (with reasons), the priority-tier count, the file
+   like) belong here in scoring, never as keyword NOT terms. A website lookup only for thin rows. Rubric: below.
+9. **Save to a list (optional; the one seat write).** Before this step, read `$ENGINE/references/salesnav-kb/14-lists.md`. Only when the user wants it: ask for the exact list name once
+   per run, `lists.js` first (never modify, rename or delete a list the user did not name), `list_create.js`
+   (`listType: ACCOUNT`; refuses an existing name unless `reuse`), `list_save_sharded.js` (sharding wrapper of `list_save_accounts.js`) over the `keep` ids (50 a
+   call), then `lists.js` to verify `entityCount`. Saves are paced, not quota-capped
+   (`run_log.py add --saved-accounts N`). It shards on its own: `<name>`, `<name> #2`, `<name> #3`, rotating at 1,000
+   (hard max 1,000 a list, observed live; past it saves return 200 with per-entity `EXCEED_LIMIT`, which it detects and resaves); report every shard id. A saved list feeds `salesnav-tam-people`.
+10. **Report** the pulled, qualified and dropped counts (with reasons), the priority-tier count, the file
    paths, and whether the net exceeds 1,000 (then suggest `salesnav-tam-tracker`). Next: `salesnav-tam-people`.
+
+## Rubric
+
+One rubric for all segments, calibrated on 10 spread rows with the user, then a regex pre-score and a model or human
+judgment pass over the keeps (one run: regex 574 keeps, judged 362).
+- Drop contract manufacturers, including indirect phrasing ("we partner with you" plus formulation, "for brands",
+  "delivery systems"), and ingredient or packaging suppliers (examples: Nulixir, Catalyst Nutraceuticals).
+- CBD or hemp matches whole-word `thc` only. `distributor` or `ingredients for` alone never drops a brand that shows
+  own-brand signals (keep: F3 Energy, Graymatter, Bonafide Health).
+- A stand-in used to calibrate can be wrong (Yellow Emperor is a contract manufacturer: drop). Check its details.
+- Thin or empty description: `unsure`, never `keep`.
+- Tier the keeps: tier 1 liquid, shot, tincture, syrup, functional beverage (Amazon or DTC ranked first); tier 2
+  non-liquid supplement brands and wellness topicals.
 
 ## Count mode ("just get a count")
 
@@ -76,7 +105,9 @@ count only); over 1,000, stratify into non-overlapping sub-nets. Method: `$ENGIN
 ## Hard rules
 
 - If you cannot run a page snippet (no browser JS tool, no Agent Browser, no CDP), stop and tell the user; never click through the UI.
-- Read-only: never create or save a Sales Nav list, saved search or lead, and never send.
+- Read-only except list saves: create a Sales Nav list (account type) and save accounts to it only after the user confirms the exact
+  list name once per run; never modify, rename or delete a list the user did not name. Saved accounts are paced, not
+  quota-capped. No saved searches, no lead saves, never send.
 - Respect caps: pace calls 3 to 5 seconds apart, one session per seat. Log with
   `python3 "$ENGINE/scripts/run_log.py" add --pages N --small-calls N` and check
   `python3 "$ENGINE/scripts/run_log.py" quota`. Stop when `python3 "$ENGINE/scripts/run_log.py" quota` shows

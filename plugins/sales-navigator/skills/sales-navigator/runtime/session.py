@@ -49,10 +49,10 @@ expression taking a params object and returning JSON: `async (params) => { ... }
 page/ folder FIRST, then the plan's own folder, then --snippets-dir folders. Paged calls write one
 record per page with id "<id>#<start>".
 
-Page budget: references/guardrails.md allows 40 search pages a day by default and never more than
-80. A paged call stops after "max_pages" pages (default 40, at most 80) and a run executes at most
-"max_pages_total" pages of paged calls (default 40, or the largest explicit "max_pages" in the
-plan; at most 80). A paged call that stops with rows left unread is "truncated".
+Page budget: reference.md allows 100 search pages a day by default and never more than
+200 (search reads are generous, paced 3 to 5 s). A paged call stops after "max_pages" pages (default 100,
+at most 200) and a run executes at most "max_pages_total" pages of paged calls (default 100, or the
+largest explicit "max_pages" in the plan; at most 200). A paged call that stops with rows left unread is "truncated".
 Sample, not collection: set "sample": true on the plan (default for every call) or on one call to
 say the partial page pull is intentional (for example max_pages 2 to read a 50-row sample of a
 big search). "sample" only counts for a call that sets an explicit "pages.max_pages" and stops on
@@ -103,8 +103,8 @@ HEARTBEAT_MAX_FAILURES = 3  # consecutive failed beats before the run checkpoint
 
 # Pacing and page budget. Source of truth: the skill's references/guardrails.md (a test compares).
 MIN_DELAY_MS = 2000
-DEFAULT_MAX_PAGES = 40
-HARD_MAX_PAGES = 80
+DEFAULT_MAX_PAGES = 100
+HARD_MAX_PAGES = 200
 DEFAULT_EVAL_TIMEOUT_MS = 60000
 
 DEFAULT_AUTH = {"url_contains": "/sales/",

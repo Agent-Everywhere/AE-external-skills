@@ -23,6 +23,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 import dedupe  # noqa: E402
 import run_log  # noqa: E402
+import segments  # noqa: E402
 import shard_plan  # noqa: E402
 import validate_csv  # noqa: E402
 
@@ -45,7 +46,7 @@ def read_csv(path):
 
 class ScriptsAreRunnable(unittest.TestCase):
     def test_help_works_for_every_script(self):
-        for name in ("shard_plan", "dedupe", "validate_csv", "run_log"):
+        for name in ("shard_plan", "dedupe", "validate_csv", "run_log", "segments"):
             with self.subTest(script=name):
                 proc = subprocess.run([sys.executable, str(SCRIPTS / (name + ".py")), "--help"],
                                       capture_output=True, text=True, timeout=30)
@@ -425,19 +426,19 @@ class RunLogTests(unittest.TestCase):
         self.assertEqual(c(81, lim), "OVER CEILING")
 
     def test_add_then_today_sums_the_local_date(self):
-        for argv in (["add", "--pages", "10", "--profiles", "5"], ["add", "--pages", "25"]):
+        for argv in (["add", "--pages", "55", "--profiles", "5"], ["add", "--pages", "25"]):
             code, out, err = run_main(run_log, argv + ["--log", self.log])
             self.assertEqual(code, 0, err)
         code, out, _ = run_main(run_log, ["today", "--log", self.log])
         self.assertEqual(code, 0)
         pages = [l for l in out.splitlines() if l.startswith("pages")][0].split()
-        self.assertEqual(pages[1:], ["35", "40", "80", "NEAR"])
+        self.assertEqual(pages[1:], ["80", "100", "200", "NEAR"])
         profiles = [l for l in out.splitlines() if l.startswith("profiles")][0].split()
         self.assertEqual(profiles[1:], ["5", "80", "150", "OK"])
         lines = Path(self.log).read_text().splitlines()
-        self.assertEqual(lines[0], "date,time,pages,profiles,accounts,saved_searches,small_calls,note")
+        self.assertEqual(lines[0], "date,time,pages,profiles,accounts,saved_searches,small_calls,saved_accounts,note")
         self.assertEqual(len(lines), 3)
-        self.assertEqual(read_csv(self.log)[0]["pages"], "10")
+        self.assertEqual(read_csv(self.log)[0]["pages"], "55")
         self.assertEqual(read_csv(self.log)[0]["date"], date.today().isoformat())
 
     def write_rows(self, *rows):
@@ -450,9 +451,9 @@ class RunLogTests(unittest.TestCase):
     def test_other_days_are_not_counted(self):
         today = date.today()
         yesterday = today - timedelta(days=1)
-        self.write_rows((yesterday.isoformat(), "09:00:00", 79, 0, 0, 0, 0, ""),
-                        ("not-a-date", "09:00:00", 5, 0, 0, 0, 0, ""),
-                        (today.isoformat(), "10:00:00", 3, 0, 0, 0, 0, "x"))
+        self.write_rows((yesterday.isoformat(), "09:00:00", 79, 0, 0, 0, 0, 0, ""),
+                        ("not-a-date", "09:00:00", 5, 0, 0, 0, 0, 0, ""),
+                        (today.isoformat(), "10:00:00", 3, 0, 0, 0, 0, 0, "x"))
         with contextlib.redirect_stderr(io.StringIO()):
             entries = run_log.read_entries(self.log)
         self.assertEqual(len(entries), 2)
@@ -479,12 +480,12 @@ class RunLogTests(unittest.TestCase):
         self.assertIn("header must be", err)
 
     def test_over_ceiling_exits_2_and_over_default_exits_0(self):
-        code, out, _ = run_main(run_log, ["add", "--pages", "41", "--log", self.log])
+        code, out, _ = run_main(run_log, ["add", "--pages", "101", "--log", self.log])
         self.assertEqual(code, 0)
         self.assertIn("OVER DEFAULT", out)
         self.assertIn("explicit go", out)
-        code, out, _ = run_main(run_log, ["add", "--pages", "40", "--log", self.log])
-        self.assertEqual(code, 2)            # 81 > ceiling 80
+        code, out, _ = run_main(run_log, ["add", "--pages", "100", "--log", self.log])
+        self.assertEqual(code, 2)            # 201 > ceiling 200
         self.assertIn("OVER CEILING", out)
         self.assertIn("STOP", out)
         code, _, _ = run_main(run_log, ["today", "--log", self.log])
@@ -520,34 +521,65 @@ class RunLogTests(unittest.TestCase):
     def test_today_with_no_log_file_is_all_ok(self):
         code, out, _ = run_main(run_log, ["today", "--log", self.log])
         self.assertEqual(code, 0)
-        self.assertEqual(out.count("OK"), 5)
+        self.assertEqual(out.count("OK"), 6)
 
     def test_small_calls_are_counted_against_their_guardrail(self):
-        code, out, _ = run_main(run_log, ["add", "--small-calls", "125", "--log", self.log])
+        code, out, _ = run_main(run_log, ["add", "--small-calls", "250", "--log", self.log])
         row = [l for l in out.splitlines() if l.startswith("small_calls")][0].split()
-        self.assertEqual((code, row[1], row[2], row[3], row[4]), (0, "125", "150", "200", "NEAR"))
-        code, out, _ = run_main(run_log, ["add", "--small-calls", "30", "--log", self.log])
+        self.assertEqual((code, row[1], row[2], row[3], row[4]), (0, "250", "300", "500", "NEAR"))
+        code, out, _ = run_main(run_log, ["add", "--small-calls", "60", "--log", self.log])
         self.assertEqual(code, 0)
         self.assertIn("OVER DEFAULT", [l for l in out.splitlines() if l.startswith("small_calls")][0])
-        code, out, _ = run_main(run_log, ["add", "--small-calls", "50", "--log", self.log])
+        code, out, _ = run_main(run_log, ["add", "--small-calls", "200", "--log", self.log])
         self.assertEqual(code, 2)
         self.assertIn("OVER CEILING", out)
 
-    def test_small_call_default_is_150_with_a_200_ceiling(self):
-        self.assertEqual(run_log.LIMITS["small_calls"], {"default": 150, "ceiling": 200})
-        # 150 calls (a 50-account pull plus sizing and lookups) is still inside the default
-        code, out, _ = run_main(run_log, ["add", "--small-calls", "150", "--log", self.log])
+    def test_small_call_default_is_300_with_a_500_ceiling(self):
+        self.assertEqual(run_log.LIMITS["small_calls"], {"default": 300, "ceiling": 500})
+        self.assertEqual(run_log.LIMITS["pages"], {"default": 100, "ceiling": 200})
+        # 300 calls (a 50-account pull plus sizing and lookups) is still inside the default
+        code, out, _ = run_main(run_log, ["add", "--small-calls", "300", "--log", self.log])
         line = [l for l in out.splitlines() if l.startswith("small_calls")][0]
         self.assertEqual(code, 0)
         self.assertNotIn("OVER", line)
 
     def test_cap_messages_tell_the_agent_to_report_remaining_rows_and_offer_a_choice(self):
-        _, out, _ = run_main(run_log, ["add", "--small-calls", "151", "--log", self.log])
+        _, out, _ = run_main(run_log, ["add", "--small-calls", "301", "--log", self.log])
         self.assertIn("how many rows remain", out)
         self.assertIn("continue tomorrow or raise today's cap with their explicit OK", out)
-        _, out, _ = run_main(run_log, ["add", "--small-calls", "60", "--log", self.log])
+        _, out, _ = run_main(run_log, ["add", "--small-calls", "200", "--log", self.log])
         self.assertIn("how many rows remain", out)
         self.assertIn("offer to continue tomorrow", out)
+
+    def test_saved_accounts_do_not_trip_the_account_pages_cap(self):
+        """Saving accounts to a list is its own pacing-guarded action, not 'account pages opened'."""
+        self.assertEqual(run_log.LIMITS["accounts"], {"default": 60, "ceiling": 120})  # unchanged
+        self.assertEqual(run_log.LIMITS["saved_accounts"], {"default": 2500, "ceiling": 5000})
+        code, out, _ = run_main(run_log, ["add", "--saved-accounts", "500", "--small-calls", "10", "--log", self.log])
+        self.assertEqual(code, 0)
+        lines = {l.split()[0]: l.split() for l in out.splitlines()[2:] if l.split()}
+        self.assertEqual(lines["accounts"][1:], ["0", "60", "120", "OK"])
+        self.assertEqual(lines["saved_accounts"][1:], ["500", "2500", "5000", "OK"])
+        self.assertNotIn("OVER", out)
+        # 5K in one paced run is above the pacing default (needs the user's go) and at the ceiling, not past it
+        code, out, _ = run_main(run_log, ["add", "--saved-accounts", "4500", "--log", self.log])
+        self.assertEqual(code, 0)
+        self.assertIn("OVER DEFAULT", [l for l in out.splitlines() if l.startswith("saved_accounts")][0])
+        self.assertEqual([l for l in out.splitlines() if l.startswith("accounts")][0].split()[-1], "OK")
+        code, out, _ = run_main(run_log, ["add", "--saved-accounts", "1", "--log", self.log])
+        self.assertEqual(code, 2)            # 5001 > ceiling 5000
+        self.assertEqual(read_csv(self.log)[0]["saved_accounts"], "500")
+
+    def test_a_log_with_the_older_header_is_read_and_gets_the_new_column_on_write(self):
+        Path(self.log).write_text("date,time,pages,profiles,accounts,saved_searches,small_calls,note\n"
+                                  "%s,09:00:00,7,0,3,0,2,old\n" % date.today().isoformat())
+        code, out, _ = run_main(run_log, ["add", "--saved-accounts", "50", "--log", self.log])
+        self.assertEqual(code, 0)
+        rows = read_csv(self.log)
+        self.assertEqual(Path(self.log).read_text().splitlines()[0], ",".join(run_log.COLUMNS))
+        self.assertEqual((rows[0]["pages"], rows[0]["accounts"], rows[0]["note"], rows[0]["saved_accounts"]), ("7", "3", "old", "0"))
+        self.assertEqual(rows[1]["saved_accounts"], "50")
+        self.assertEqual([l for l in out.splitlines() if l.startswith("accounts")][0].split()[1], "3")
 
     def test_saved_searches_flag_is_recorded(self):
         run_main(run_log, ["add", "--saved-searches", "9", "--log", self.log])
@@ -701,6 +733,157 @@ class DraftsCsvValidation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             result = validate_csv.validate(self.write(tmp, [self.draft(), self.draft()]))
         self.assertEqual([(e[0], e[2]) for e in result["errors"]], [(3, "duplicate")])
+
+
+class SegmentsScript(unittest.TestCase):
+    """segments.py: plan (count and pull) and merge for a multi-segment account TAM."""
+
+    SEGMENTS = {
+        "S1 retail health": {"industries": ["1359"], "keywords": 'tincture OR "liquid supplement"'},
+        "S2 HWF": {"industries": ["3207"], "parts": {"B": ["B"], "CD": ["C", "D"]}, "max_rows": 100},
+        "S3 food": {"industries": ["23", "142"], "headcount": ["C"]},
+    }
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+
+    def write(self, name, obj):
+        path = self.dir / name
+        path.write_text(obj if isinstance(obj, str) else json.dumps(obj), encoding="utf-8")
+        return str(path)
+
+    def plan(self, *extra, segs=None):
+        seg = self.write("segments.json", self.SEGMENTS if segs is None else segs)
+        out = str(self.dir / "plan.json")
+        code, stdout, stderr = run_main(segments, ["plan", "--segments", seg, "--region", "103644278", "--out", out] + list(extra))
+        return code, stdout, stderr, (json.loads(Path(out).read_text()) if code == 0 else None)
+
+    def test_query_has_filters_first_then_encoded_keywords(self):
+        q = segments.build_query("103644278", ["1359"], ["B", "C"], 'tincture OR "liquid supplement"')
+        self.assertEqual(q, "(filters:List((type:REGION,values:List((id:103644278,selectionType:INCLUDED))),"
+                            "(type:INDUSTRY,values:List((id:1359,selectionType:INCLUDED))),"
+                            "(type:COMPANY_HEADCOUNT,values:List((id:B,selectionType:INCLUDED),(id:C,selectionType:INCLUDED)))),"
+                            "keywords:tincture%20OR%20%22liquid%20supplement%22)")
+        self.assertNotIn("keywords", segments.build_query("1", ["2"], ["B"]))
+
+    def test_count_plan_chunks_six_queries_a_call_and_validates(self):
+        many = {"seg%d" % i: {"industries": ["1"]} for i in range(14)}
+        code, out, _, plan = self.plan(segs=many)
+        self.assertEqual(code, 0, out)
+        self.assertEqual([c["id"] for c in plan["calls"]], ["count_1", "count_2", "count_3"])
+        self.assertEqual([len(c["params"]["queries"]) for c in plan["calls"]], [6, 6, 2])
+        self.assertTrue(all(c["snippet"] == "count.js" and c["params"]["kind"] == "account" for c in plan["calls"]))
+        self.assertEqual(plan["calls"][0]["params"]["queries"][0]["label"], "seg0")
+        sys.path.insert(0, str(ROOT / "packages" / "browser-runtime"))
+        import session
+        self.assertEqual(session.validate_plan(plan, [SKILL / "page"]), [])
+
+    def test_parts_headcount_override_and_segment_ids(self):
+        code, _, _, plan = self.plan()
+        labels = [q["label"] for q in plan["calls"][0]["params"]["queries"]]
+        self.assertEqual(labels, ["S1_retail_health", "S2_HWF-B", "S2_HWF-CD", "S3_food"])
+        by = {q["label"]: q["query"] for q in plan["calls"][0]["params"]["queries"]}
+        self.assertIn("id:B,selectionType:INCLUDED)))", by["S2_HWF-B"])
+        self.assertIn("(id:C,selectionType:INCLUDED),(id:D,selectionType:INCLUDED)", by["S2_HWF-CD"])
+        self.assertTrue(by["S3_food"].count("COMPANY_HEADCOUNT") == 1 and "(id:C,selectionType:INCLUDED)))" in by["S3_food"])
+        self.assertIn("(id:23,selectionType:INCLUDED),(id:142,selectionType:INCLUDED)", by["S3_food"])
+        code, _, _, plan = self.plan("--only", "S3 food")
+        self.assertEqual([q["label"] for q in plan["calls"][0]["params"]["queries"]], ["S3_food"])
+
+    def test_pull_plan_pages_25_caps_at_viewable_and_marks_samples(self):
+        counts = self.write("counts.json", {"S1 retail health": 313, "S2 HWF-B": 1020, "S2 HWF-CD": 234, "S3 food": 0})
+        code, out, err, plan = self.plan("--kind", "pull", "--counts", counts)
+        self.assertEqual(code, 0, err)
+        by = {c["id"]: c for c in plan["calls"]}
+        self.assertEqual(sorted(by), ["pull_S1_retail_health", "pull_S2_HWF-B", "pull_S2_HWF-CD"])   # zero count is skipped
+        s1 = by["pull_S1_retail_health"]
+        self.assertEqual((s1["snippet"], s1["params"]["count"]), ("account_search.js", 25))
+        self.assertEqual(s1["pages"], {"param": "start", "step": 25, "cap": 313, "max_pages": 13})
+        self.assertNotIn("sample", s1)                              # a full pull is not a sample
+        b = by["pull_S2_HWF-B"]                                     # total 1,020 but max_rows 100
+        self.assertEqual((b["pages"]["cap"], b["pages"]["max_pages"], b["sample"]), (100, 4, True))
+        self.assertEqual(plan["max_pages_total"], 13 + 4 + 4)
+        self.assertIn("WARN", err)                                  # 1,020 is over the viewable cap
+        self.assertIn("S2_HWF-B", err)
+        sys.path.insert(0, str(ROOT / "packages" / "browser-runtime"))
+        import session
+        self.assertEqual(session.validate_plan(plan, [SKILL / "page"]), [])
+
+    def test_pull_plan_from_a_count_run_and_cap_at_1000(self):
+        record = {"id": "count_1", "ok": True, "result": {"status": 200, "failed": 0, "results": [
+            {"label": "S1_retail_health", "status": 200, "total": 5000}, {"label": "S3_food", "status": 400}]}}
+        counts = self.write("run.jsonl", json.dumps(record) + "\n")
+        code, _, err, plan = self.plan("--kind", "pull", "--counts", counts, "--only", "S1 retail health")
+        self.assertEqual(code, 0, err)
+        pages = plan["calls"][0]["pages"]
+        self.assertEqual((pages["cap"], pages["max_pages"], plan["calls"][0]["sample"]), (1000, 40, True))
+        self.assertIn("split by headcount band, then state", err)
+
+    def test_plan_refusals(self):
+        counts = self.write("counts.json", {"S1_retail_health": 10})
+        code, _, err, _ = self.plan("--kind", "pull", "--counts", counts)
+        self.assertEqual(code, 2)
+        self.assertIn("no count for S2_HWF-B", err)
+        code, _, err, _ = self.plan("--kind", "pull")
+        self.assertEqual((code, "--counts" in err), (2, True))
+        names = "ABCDEFGH"
+        big = {n: {"industries": [str(i)]} for i, n in enumerate(names, 1)}
+        counts = self.write("big.json", {n: 900 for n in names})
+        code, _, err, _ = self.plan("--kind", "pull", "--counts", counts, segs=big)
+        self.assertEqual(code, 2)
+        self.assertIn("288 pages exceed the 200", err)
+        for bad in ({"A": {"industries": []}}, {"A": {"industries": ["x"]}}, {"A": {"industries": ["1"], "headcount": ["Z"]}},
+                    {"A": {"industries": ["1"], "max_rows": 5000}}, {}, {"A": "text"}):
+            with self.subTest(bad=bad):
+                self.assertEqual(self.plan(segs=bad)[0], 2)
+        self.assertEqual(self.plan("--headcount", "B,Q")[0], 2)
+        self.assertEqual(self.plan("--only", "nothing")[0], 2)
+
+    def element(self, cid, name="Co", industry="Health, Wellness & Fitness", band="11-50 employees"):
+        return {"companyName": name, "industry": industry, "employeeCountRange": band,
+                "entityUrn": "urn:li:fs_salesCompany:%s" % cid, "companyPictureDisplayImage": {"x": 1}}
+
+    def record(self, rid, elements, ok=True):
+        return json.dumps({"id": rid, "ok": ok, "result": {"status": 200, "total": 9, "elements": elements}}) + "\n"
+
+    def test_merge_dedupes_by_id_and_pipe_joins_segments(self):
+        r1 = self.write("r1.jsonl",
+                        self.record("count_1", [self.element(99)]) +                      # not a pull record
+                        self.record("pull_S1_retail#0", [self.element(1, "One"), self.element(2, "Two")]) +
+                        self.record("pull_S1_retail#25", [self.element(3, "Three")]) +
+                        self.record("pull_S1_retail#25", [self.element(3, "Three")]) +     # the same page twice (resume)
+                        self.record("pull_S9_failed#0", [self.element(50)], ok=False) + "not json\n")
+        r2 = self.write("r2.jsonl", self.record("pull_S3_food", [self.element(2, "Two"), self.element(4, "Four"), {"x": 1}]))
+        out = str(self.dir / "merged.csv")
+        code, stdout, err = run_main(segments, ["merge", "--pulls", r1, r2, "--out", out])
+        self.assertEqual(code, 0, err)
+        rows = read_csv(out)
+        self.assertEqual(list(rows[0].keys()), ["id", "name", "industry", "employeeCountRange", "segment"])
+        self.assertEqual([(r["id"], r["segment"]) for r in rows],
+                         [("1", "S1_retail"), ("2", "S1_retail|S3_food"), ("3", "S1_retail"), ("4", "S3_food")])
+        self.assertEqual(rows[0]["name"], "One")
+        self.assertEqual(rows[0]["employeeCountRange"], "11-50 employees")
+        self.assertIn("sum 5, unique 4", stdout)
+        self.assertIn("S1_retail 3", stdout)
+
+    def test_merge_with_no_pull_rows_is_an_error(self):
+        r = self.write("r.jsonl", self.record("count_1", [self.element(1)]))
+        code, _, err = run_main(segments, ["merge", "--pulls", r, "--out", str(self.dir / "m.csv")])
+        self.assertEqual(code, 2)
+        self.assertIn("no pull_<segment>", err)
+        code, _, err = run_main(segments, ["merge", "--pulls", str(self.dir / "missing.jsonl"), "--out", str(self.dir / "m.csv")])
+        self.assertEqual(code, 2)
+
+    def test_plan_then_merge_round_trip_ids(self):
+        counts = self.write("c.json", {"S1_retail_health": 30})
+        code, _, _, plan = self.plan("--kind", "pull", "--counts", counts, "--only", "S1 retail health")
+        call_id = plan["calls"][0]["id"]
+        r = self.write("r.jsonl", self.record(call_id + "#0", [self.element(7)]) + self.record(call_id + "#25", [self.element(8)]))
+        out = str(self.dir / "m.csv")
+        self.assertEqual(run_main(segments, ["merge", "--pulls", r, "--out", out])[0], 0)
+        self.assertEqual({row["segment"] for row in read_csv(out)}, {"S1_retail_health"})
 
 
 if __name__ == "__main__":

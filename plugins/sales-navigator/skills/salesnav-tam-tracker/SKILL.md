@@ -25,6 +25,8 @@ ENGINE="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/sales-navigator}"
 
 Snippets (`count.js` and the rest) live in `$ENGINE/page/`; run one with `python3 "$ENGINE/runtime/session.py" --emit <snippet>.js --params '{...}' --compact`.
 
+Field-notes KB: `$ENGINE/references/salesnav-kb/` (from this skill's folder: `../sales-navigator/references/salesnav-kb/`; inside the engine: `references/salesnav-kb/`). Read the named page before the step that names it.
+
 **Job.** Cover a market bigger than one search can show (1,000 accounts, 2,500 leads) with sub-lists
 that each fit under the cap, and keep a checklist so any later task knows what is counted, pulled and next.
 
@@ -37,14 +39,14 @@ that each fit under the cap, and keep a checklist so any later task knows what i
    to every script). Check the tracker first: `python3 "$ENGINE/scripts/tam_tracker.py" status`. It is
    `tam_tracker.csv` (columns: list_id, master, filters_delta, count, pulled, status new|partial|done,
    last_pulled, file).
-2. Plan the cut. Count states in priority order with `count.js` until about 90 percent of the national
+2. Plan the cut. Before this step, read `$ENGINE/references/salesnav-kb/03-view-cap-and-slicing.md`. Count states in priority order with `count.js` until about 90 percent of the national
    count is covered, then split big states by headcount band, then metro. `python3 "$ENGINE/scripts/shard_plan.py"`
    proposes the split from the counts you give it. State ids come from `typeahead.js`.
 3. Record each sub-list under the cap, with ids that carry the master: `python3
    "$ENGINE/scripts/tam_tracker.py" add --list-id acme-tx-c --master acme --filters-delta "state=Texas;
    headcount=C" --count 840 --kind account` (`--kind lead` for people). Exit 5 means over the cap (1,000
    accounts, 2,500 leads): split it further.
-4. Ask `python3 "$ENGINE/scripts/tam_tracker.py" next`, pull that list page by page (`account_search.js` or
+4. Before pulling, read `$ENGINE/references/salesnav-kb/05-rate-caps-and-pacing.md`. Ask `python3 "$ENGINE/scripts/tam_tracker.py" next`, pull that list page by page (`account_search.js` or
    `lead_search.js`, `count` 100, `start` += `count`), save each page under `results/<list_id>/`, then
    `python3 "$ENGINE/scripts/tam_tracker.py" update --master acme --list-id ID --pulled N --file PATH`.
    Status turns partial, then done; a changed `--count N` re-derives it.
@@ -52,15 +54,19 @@ that each fit under the cap, and keep a checklist so any later task knows what i
    FILE.csv`, check it with `python3 "$ENGINE/scripts/validate_csv.py" FILE.csv`, and merge shards with
    `python3 "$ENGINE/scripts/dedupe.py"`. Shards overlap: report "sum X, unique Y", never the sum alone.
    Qualifying accounts: `salesnav-tam-accounts`.
-6. Report `tam_tracker.py status`, the unique total, what is left, and the next list.
+6. Before recording a list id, read `$ENGINE/references/salesnav-kb/14-lists.md`. Report `tam_tracker.py status`, the unique total, what is left, and the next list. Across several segments the
+   saved Sales Nav list is the master of record: note its list id (from `lists.js`) in `--filters-delta`
+   (for example `list=<listId>`) so a later task finds it; `list_id` here is the tracker's own sub-list id.
 
 ## Hard rules
 
 - If you cannot run a page snippet (no browser JS tool, no Agent Browser, no CDP), stop and tell the user; never click through the UI.
 - Never substitute another data source (other MCP datasets, web estimates) for the Sales Nav count without asking the user.
-- Read-only by default; never send from here, and never create a Sales Nav list or saved search without
-  the user's explicit confirmation. Say what a pull costs in pages first; do not chain big pulls.
-- Respect caps: default 40 result pages a day (a `count=100` call is 4 pages), pace 3 to 5 seconds apart.
+- Read-only by default; never send from here. A Sales Nav list is the master of record across segments: save to it
+  only through `salesnav-tam-accounts` (exact list name confirmed once per run, never modify a list the user did not
+  name; saves are paced; `list_save_sharded.js` shards `<name>`, `<name> #2`... at 1,000 accounts); never create a saved search without the user's explicit confirmation. Say
+  what a pull costs in pages first; do not chain big pulls.
+- Respect caps: default 100 result pages a day (a `count=100` call is 4 pages), pace 3 to 5 seconds apart.
   Log with `python3 "$ENGINE/scripts/run_log.py" add --pages N` and check
   `python3 "$ENGINE/scripts/run_log.py" quota`; never raise a cap without the user's explicit go. A big TAM is
   several days: the tracker is how the next day resumes.
