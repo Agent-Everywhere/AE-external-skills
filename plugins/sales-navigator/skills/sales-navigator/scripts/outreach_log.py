@@ -38,7 +38,7 @@ first one plus follow-ups (0 while only pending). Dates are local calendar dates
 YYYY-MM-DD; for add and followup --date may not be in the future or more than 2 days in the past
 (log a send when it happens).
 
-Limits come from references/guardrails.md ("Outreach caps"). --daily, --weekly and --followup-daily
+Limits come from reference.md ("Outreach caps and stop rules"; execution-action quotas: references/salesnav-kb/05-rate-caps-and-pacing.md). --daily, --weekly and --followup-daily
 can lower a limit; a value above the default is ignored (with a note) unless --allow-over-cap is
 given, and --allow-over-cap is only for the user's explicit go. Likewise --max-touches is clamped
 to the default maximum, and add / followup stop at a reached cap, unless --allow-over-cap.
@@ -75,7 +75,7 @@ try:
 except ImportError:  # Windows: no advisory locks; the ledger is then only safe for one run at a time
     fcntl = None
 
-# Source of truth: references/guardrails.md ("Outreach caps"). A test fails if these drift.
+# Source of truth: reference.md ("Outreach caps and stop rules"; see also references/salesnav-kb/05-rate-caps-and-pacing.md). A test fails if these drift.
 DAILY_CONNECTION_CAP = 20
 WEEKLY_CONNECTION_CAP = 100
 DAILY_FOLLOWUP_CAP = 20

@@ -40,7 +40,9 @@ NAMES = sorted(REQUIRED)
 # 0.6.2: count mode (scored sample) and memory-never-skips-intake in the accounts flow.
 # 0.7.0: accounts +multi-segment step, list save step and rubric (1400, 120); people +ACCOUNT_LIST scoping (900).
 # 0.7.x: KB read-before lines: accounts (1500, 124), tracker (870, 80), people stays (900, 76).
-BUDGET = {"salesnav-tam-accounts": (1500, 124), "salesnav-tam-people": (900, 76), "salesnav-tam-tracker": (870, 80)}
+# 0.7.2: outreach KB read-before lines (820, 76).
+BUDGET = {"salesnav-tam-accounts": (1500, 124), "salesnav-tam-people": (900, 76), "salesnav-tam-tracker": (870, 80),
+          "salesnav-outreach": (820, 76)}
 # Who reads what: references/salesnav-kb/00-index.md. Each SKILL.md names its pages as references/salesnav-kb/<file>.
 KB = TOOLKIT / "references" / "salesnav-kb"
 KB_READERS = {
@@ -48,6 +50,7 @@ KB_READERS = {
     "salesnav-tam-accounts": ("03", "04", "10", "11", "12", "15", "20"),
     "salesnav-tam-people": ("13", "14", "02", "15"),
     "salesnav-tam-tracker": ("03", "05", "14"),
+    "salesnav-outreach": ("01", "05"),
 }
 # Files the user's workspace holds; a SKILL.md may name them without the engine shipping them.
 WORKSPACE_FILES = {"company-profile.md", "leads.csv", "accounts.csv", "tam_tracker.csv", "FILE.csv", "merged.csv",

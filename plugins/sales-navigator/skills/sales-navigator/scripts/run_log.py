@@ -53,8 +53,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import workspace  # noqa: E402
 import outreach_log  # noqa: E402  (its file lock; quota also reads its ledger)
 
-# Daily per-seat limits from references/guardrails.md ("Daily volume defaults").
-# Keep in sync with that table (a test checks it).
+# Daily per-seat limits: references/salesnav-kb/05-rate-caps-and-pacing.md, and reference.md
+# ("Daily volume defaults"). Keep in sync with the reference.md table (a test checks it).
 LIMITS = {
     "pages": {"default": 100, "ceiling": 200},          # search result pages read (paced 3 to 5 s)
     "small_calls": {"default": 300, "ceiling": 500},    # counts, typeahead, website batches, list reads and saves

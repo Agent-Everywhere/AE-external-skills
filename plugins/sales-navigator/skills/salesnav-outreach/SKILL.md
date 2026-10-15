@@ -25,6 +25,8 @@ ENGINE="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/sales-navigator}"
 
 Snippets (`lead_search.js` and the rest) live in `$ENGINE/page/`; run one with `python3 "$ENGINE/runtime/session.py" --emit <snippet>.js --params '{...}' --compact`.
 
+Field-notes KB: `$ENGINE/references/salesnav-kb/` (from this skill's folder: `../sales-navigator/references/salesnav-kb/`; inside the engine: `references/salesnav-kb/`). Read the named page before the step that names it.
+
 **Job.** Run the daily touch loop safely: pick people, draft true sourced messages, get typed approval,
 send one at a time through the ledger, and record who accepted or replied.
 
@@ -34,7 +36,7 @@ send one at a time through the ledger, and record who accepted or replied.
    the user. Never fall back to driving the Sales Navigator UI by hand (clicking filters, scrolling
    results, saving lists).** The one UI action allowed
    is a send the user approved in step 5.
-1. `python3 "$ENGINE/scripts/workspace.py" locate` (elsewhere pass `--workspace DIR` to every script), then
+1. Before this step, read `$ENGINE/references/salesnav-kb/01-navigation-basics.md`. `python3 "$ENGINE/scripts/workspace.py" locate` (elsewhere pass `--workspace DIR` to every script), then
    `python3 "$ENGINE/scripts/run_log.py" quota`. Read `company-profile.md` (`$ENGINE/templates/company-profile.md`
    is the shape): seller facts, tone, days before a follow-up. No profile: propose a filled one.
 2. Pick leads from `leads.csv`. Drop anyone `python3 "$ENGINE/scripts/outreach_log.py" check` reports as
@@ -45,7 +47,7 @@ send one at a time through the ledger, and record who accepted or replied.
    one true thing about the person and one reason for writing; every claim's source goes in `sources`, and a
    claim without one is cut. 3rd-degree people need an InMail (may use a credit).
 4. `python3 "$ENGINE/scripts/validate_csv.py" drafts/<date>.csv --kind drafts`; show the exact texts. Send nothing.
-5. To send: run `python3 "$ENGINE/scripts/outreach_log.py" caps --for connection`; exit 2 means stop for the
+5. Before this step, read `$ENGINE/references/salesnav-kb/05-rate-caps-and-pacing.md`. To send: run `python3 "$ENGINE/scripts/outreach_log.py" caps --for connection`; exit 2 means stop for the
    day. Show the exact batch (people, kind, text) and wait for the user's typed approval, which covers only
    that batch (a changed person, text or kind is a new batch). For each person, one at a time: open the lead
    and skip an existing message thread or pending invitation; `python3 "$ENGINE/scripts/outreach_log.py" add

@@ -101,7 +101,7 @@ DEFAULT_MAX_SECONDS = 2280
 HEARTBEAT_EVERY = 25  # seconds; the connector requires <= 60
 HEARTBEAT_MAX_FAILURES = 3  # consecutive failed beats before the run checkpoints and stops
 
-# Pacing and page budget. Source of truth: the skill's references/guardrails.md (a test compares).
+# Pacing and page budget. Source of truth: references/salesnav-kb/05-rate-caps-and-pacing.md (pacing, pages/day) and reference.md ("Daily volume defaults"; a test compares the page counts).
 MIN_DELAY_MS = 2000
 DEFAULT_MAX_PAGES = 100
 HARD_MAX_PAGES = 200
@@ -385,7 +385,7 @@ def validate_plan(plan, dirs=None):
     if "evaluate_timeout_ms" in plan and not _is_int(plan["evaluate_timeout_ms"], 1000, 600000):
         bad.append("evaluate_timeout_ms must be 1000..600000")
     if "max_pages_total" in plan and not _is_int(plan["max_pages_total"], 1, HARD_MAX_PAGES):
-        bad.append("max_pages_total must be 1..%d (guardrails hard ceiling)" % HARD_MAX_PAGES)
+        bad.append("max_pages_total must be 1..%d (KB 05 hard ceiling)" % HARD_MAX_PAGES)
     if "sample" in plan and not isinstance(plan["sample"], bool):
         bad.append("sample must be true or false")
     auth = plan.get("auth")
@@ -605,7 +605,7 @@ class Runner:
         if stored is not None:
             return stored, False
         if paged and self.pages_run >= self.page_budget:
-            raise _Checkpoint(call_id, "page budget reached (%d pages; guardrails pages/day)" % self.page_budget)
+            raise _Checkpoint(call_id, "page budget reached (%d pages; KB 05 pages/day)" % self.page_budget)
         self.pause()
         self.check_stop(call_id)  # the pause counts against the time budget too
         self.stage(call_id)
