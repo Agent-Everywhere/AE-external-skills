@@ -38,7 +38,7 @@ REQUIRED = {
 NAMES = sorted(REQUIRED)
 # (words, lines) per SKILL.md; default (800, 76). 0.6.0: the accounts flow carries the intake steps; 0.6.1: 4-step ENGINE block;
 # 0.6.2: count mode (scored sample) and memory-never-skips-intake in the accounts flow.
-BUDGET = {"salesnav-tam-accounts": (1150, 100)}
+BUDGET = {"salesnav-tam-accounts": (1000, 90)}
 # Files the user's workspace holds; a SKILL.md may name them without the engine shipping them.
 WORKSPACE_FILES = {"company-profile.md", "leads.csv", "accounts.csv", "tam_tracker.csv", "FILE.csv",
                    "/Claude/company-profile.md"}
@@ -201,40 +201,44 @@ class PurposeSkillDocs(unittest.TestCase):
         self.assertIn("no keywords", steps[5])
 
     def test_count_mode_needs_a_scored_sample_and_never_guesses_a_qualified_number(self):
-        """0.6.2: a live count ask returned raw counts plus a GUESSED qualified 4-6K. A count ask is the raw count
-        of the net AND an estimate from a scored sample, never a guess."""
-        body = squash("salesnav-tam-accounts")
-        mode = body.split("## count mode", 1)[1].split("## hard rules", 1)[0]
+        """0.6.2: a live count ask returned raw counts plus a GUESSED qualified 4-6K. The accounts skill points to the
+        ONE canonical Count mode section in reference.md; recipes and the engine SKILL.md only point to it."""
+        mode = squash("salesnav-tam-accounts").split("## count mode", 1)[1].split("## hard rules", 1)[0]
         for phrase in ("raw count", "estimated qualified count", "scored sample", "1 to 2 pages", "`count` 100",
-                       "spread across the net", "companies_details.js", "`keep`/`drop`/`unsure`", "reason",
-                       "sample size n", "qualified rate", "margin", "estimated qualified = raw count x rate",
-                       "labelled an estimate",
-                       "never guess a qualified number without a sample",
-                       "pull the full list or shard only if the user asks"):
+                       "never guess a qualified number without a sample", "stratify into non-overlapping sub-nets",
+                       'reference.md`, "count mode"'):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, mode)
-        for doc in ("reference.md", "recipes.md"):
+        ref = squash_text(TOOLKIT / "reference.md")
+        self.assertEqual(ref.count("## count mode"), 1)
+        section = ref.split("## count mode", 1)[1].split("## tam recipe", 1)[0]
+        for phrase in ("deduped raw count", "never guess a qualified number without a sample", "none: raw count only",
+                       "`keep`/`drop`/`unsure` with reasons", "relevance-ranked", "first 1,000",
+                       "raw at most 1,000: sample across `start` offsets", "estimate = raw x rate",
+                       "raw over 1,000: stratify into non-overlapping sub-nets", "each at most 1,000",
+                       "sum of count_i x rate_i", "covers only the top 1,000",
+                       "keep/n to (keep + unsure)/n", "labelled an estimate", '"under x" or "over x"'):
+            with self.subTest(ref=phrase):
+                self.assertIn(phrase, section)
+        self.assertNotIn("1.96", ref)   # no Wald margin: it collapses at tiny n and extreme rates
+        for doc in ("recipes.md", "SKILL.md"):
+            pointer = squash_text(TOOLKIT / doc)
             with self.subTest(doc=doc):
-                self.assertIn("never guess a qualified number without a sample", squash_text(TOOLKIT / doc))
+                self.assertIn("count mode", pointer)
+                self.assertNotIn("sum of count_i", pointer)   # the method lives once, in reference.md
+        self.assertIn("sum x, unique y", squash_text(TOOLKIT / "recipes.md"))   # overlapping shards are not additive
 
     def test_memory_never_skips_the_site_read_or_the_intake(self):
-        """0.6.2: a live run used memory about the company, skipped the site read and the intake."""
+        """0.6.2: a live run used memory about the company, skipped the site read and the intake. One sentence."""
         raw = text("salesnav-tam-accounts")
         flow = raw.split("## Flow", 1)[1].split("## Count mode", 1)[0]
         steps = [" ".join(x.split()).lower() for x in re.split(r"(?m)^(?=\d+\. )", flow) if re.match(r"\d+\. ", x)]
-        self.assertIn("always read the website", steps[0])
-        self.assertIn("even when memory or earlier context already describes the company", steps[0])
-        self.assertIn("never replace the read", steps[0])
-        for phrase in ("memory never skips this", "before any search, always show the drafted icp",
-                       "these questions with their defaults", "prefilled everything", "5-line icp summary",
-                       'ask "go?"', "just get a count", '"just pick"'):
-            with self.subTest(phrase=phrase):
-                self.assertIn(phrase, steps[1])
-        ref = squash_text(TOOLKIT / "reference.md")
-        for phrase in ("even when memory or earlier context already describes the company",
-                       "memory never skips intake", 'ask "go?"'):
-            with self.subTest(ref=phrase):
-                self.assertIn(phrase, ref)
+        self.assertIn("memory may prefill, never skips the site read or intake", steps[1])
+        self.assertIn("show the drafted icp", steps[1])
+        self.assertIn('ask "go?" before any search', steps[1])
+        self.assertIn("just get a count", steps[1])
+        self.assertIn("read the website", steps[0])
+        self.assertEqual(" ".join(raw.split()).lower().count("memory"), 1)
 
     def test_people_skill_requires_qualified_accounts_first(self):
         body = squash("salesnav-tam-people")
