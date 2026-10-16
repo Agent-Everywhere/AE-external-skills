@@ -69,6 +69,23 @@
         "tam",
         "outreach"
       ]
+    },
+    {
+      "name": "quickbooks",
+      "source": "./plugins/quickbooks",
+      "version": "0.1.0",
+      "description": "CLI + skill: operate QuickBooks Online through a signed-in browser (your own Chrome or Agent Browser): lists, search, reports, and approval-gated creates/voids. Unofficial; needs Node 20+.",
+      "strict": false,
+      "skills": [
+        "./skills/quickbooks"
+      ],
+      "category": "finance",
+      "tags": [
+        "quickbooks",
+        "accounting",
+        "intuit",
+        "browser"
+      ]
     }
   ]
 }

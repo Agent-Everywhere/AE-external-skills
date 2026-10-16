@@ -20,6 +20,8 @@ KNOWN_RUNTIMES = {"local", "agent-browser"}
 SEMVER = r"\d+\.\d+\.\d+"
 # skill dir -> marketplace plugin name, where they differ ("claude-" is a reserved plugin prefix)
 PLUGIN_NAMES = {"claude-desktop": "desktop-cowork"}
+# multi-skill plugins under plugins/ besides sales-navigator (checked in their own test files)
+OTHER_PLUGINS = ["quickbooks"]
 
 
 PLUGIN = ROOT / "plugins" / "sales-navigator"
@@ -94,7 +96,7 @@ class SkillManifests(unittest.TestCase):
         self.assertEqual(sorted(entries), sorted(
             [PLUGIN_NAMES.get(d.name, d.name) for d in skill_dirs()
              if sync_runtime.load_manifest(d)["category"] != "sales"]
-            + ["sales-navigator"]))
+            + ["sales-navigator"] + OTHER_PLUGINS))
 
     def test_sales_navigator_plugin_ships_only_its_skills(self):
         """The marketplace source folder is what installs: it must not drag in tests, build scripts or packages."""
