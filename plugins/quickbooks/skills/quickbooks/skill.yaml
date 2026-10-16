@@ -1,0 +1,7 @@
+# Per-skill manifest. Keep in step with .claude-plugin/marketplace.json (checked by tests).
+name: quickbooks
+version: 0.1.0
+category: finance
+# Browser runtimes: local = the user's own Chrome over CDP; agent-browser = AE cloud browser (claim flow).
+# A non-empty list makes build/sync_runtime.py vendor packages/browser-runtime into runtime/.
+runtimes: [local, agent-browser]

@@ -1,0 +1,16 @@
+{
+  "name": "qbo",
+  "version": "0.1.0",
+  "description": "Operate QuickBooks Online through a signed-in browser (AE cloud browser or local Chrome over CDP).",
+  "type": "module",
+  "private": true,
+  "bin": { "qbo": "./bin/qbo.js" },
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "lint": "node --check src/*.js",
+    "build": "node scripts/gen-snippets.mjs && npx --yes esbuild@0.24.0 bin/qbo.js --bundle --platform=node --format=esm --target=node20 --outfile=dist/qbo.mjs --banner:js='import { createRequire as __cr } from \"node:module\"; const require = __cr(import.meta.url);' --log-level=warning && chmod +x dist/qbo.mjs"
+  },
+  "dependencies": { "commander": "^13.1.0", "ws": "^8.18.0" },
+  "engines": { "node": ">=20" },
+  "files": ["bin", "src", "dist", "README.md"]
+}
