@@ -41,7 +41,12 @@ Pick the browser:
   (the claim lives 60 seconds), then
   `AB_CLAIM="<claim>" node "$QBO" --runtime agent-browser --base "<connector base>" doctor`.
   `qbo` claims the browser (`POST <base>/browser/claim`), heartbeats every 25 s, and releases on exit.
-  One `qbo` process per claim; `close_session` when done.
+  The lease ends when the claiming CDP socket closes, so a bare claim serves ONE `qbo` run. For several
+  commands, hold it: `AB_CLAIM="<claim>" node "$QBO" --base "<base>" --session-file "$S" hold &`
+  (S = a private path; the file is 0600 and holds only a local relay URL), then run any number of
+  `node "$QBO" --session-file "$S" <command>`; stop with `kill -INT` and `close_session`.
+  Intuit sign-in in a fresh cloud browser hits a reCAPTCHA; have the user sign in to QuickBooks via
+  `browser action=open_browser` and Save, then open sessions with the saved profile.
 
 If `doctor` says not signed in (exit 3), ask the user to sign in to QuickBooks in that browser (live view
 for the cloud browser). If Intuit asks for a verification code, stop and ask the user; never guess or

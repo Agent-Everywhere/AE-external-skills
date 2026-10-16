@@ -1,4 +1,5 @@
 // Browser connection: local Chrome over CDP, or the AE cloud browser (one-use claim -> cdp_url + heartbeat).
+import { readFileSync, writeFileSync, chmodSync } from "node:fs";
 import { Cdp, Page } from "./cdp.js";
 
 export class ConnectError extends Error {
@@ -37,12 +38,35 @@ export function startHeartbeat({ base, sessionId, heartbeatToken, fetchImpl, int
   };
 }
 
-/** Connect per options; returns { cdp, page, heartbeat, close() }. Secrets are never logged. */
+/** Write a held session (cdp_url + heartbeat token) to a 0600 file so later qbo runs can reuse one claim. */
+export function writeSessionFile(path, { base, cdpUrl, sessionId, heartbeatToken }) {
+  writeFileSync(path, JSON.stringify({ base, cdp_url: cdpUrl, session_id: sessionId, heartbeat_token: heartbeatToken }), { mode: 0o600 });
+  chmodSync(path, 0o600);
+}
+
+/** Read a session file written by `qbo hold`. */
+export function readSessionFile(path) {
+  let j;
+  try { j = JSON.parse(readFileSync(path, "utf8")); }
+  catch (e) { throw new ConnectError(`could not read session file ${path}: ${e.code || e.message} (start one with \`qbo hold\`)`, 2); }
+  if (!j.cdp_url || !j.session_id) throw new ConnectError(`session file ${path} is missing cdp_url / session_id`, 2);
+  return { base: j.base, cdpUrl: j.cdp_url, sessionId: j.session_id, heartbeatToken: j.heartbeat_token };
+}
+
+/** Connect per options; returns { cdp, page, heartbeat, close() }. Secrets are never logged.
+ *  agent-browser: with a session file (from `qbo hold`) attach to the held browser; else claim AB_CLAIM. */
 export async function connect(opts = {}) {
-  const runtime = opts.runtime || (opts.base || process.env.AB_CLAIM ? "agent-browser" : "cdp");
+  const runtime = opts.runtime || (opts.base || process.env.AB_CLAIM || opts.sessionFile || process.env.QBO_SESSION_FILE ? "agent-browser" : "cdp");
   let cdpUrl = opts.cdpUrl || process.env.QBO_CDP_URL || "http://127.0.0.1:9222";
   let heartbeat = null;
-  if (runtime === "agent-browser") {
+  const sessionFile = opts.sessionFile || process.env.QBO_SESSION_FILE;
+  if (runtime === "agent-browser" && sessionFile) {
+    const c = readSessionFile(sessionFile);
+    cdpUrl = c.cdpUrl;
+    // `qbo hold` owns the heartbeat; this run only reports auth.
+    const base = opts.base || c.base;
+    heartbeat = { report: (signedIn) => base && c.heartbeatToken ? postJson(base, "/browser/auth", { session_id: c.sessionId, heartbeat_token: c.heartbeatToken, signed_in: !!signedIn }).catch(() => {}) : Promise.resolve(), stop: async () => {} };
+  } else if (runtime === "agent-browser") {
     const c = await claimAgentBrowser({ base: opts.base || process.env.AB_BASE, claim: opts.claim || process.env.AB_CLAIM });
     cdpUrl = c.cdpUrl;
     heartbeat = startHeartbeat({ base: opts.base || process.env.AB_BASE, ...c });
