@@ -42,3 +42,21 @@ test("session file is 0600 and round-trips; bad files fail clearly", () => {
   assert.deepEqual(readSessionFile(p), { base: "https://b", cdpUrl: "ws://127.0.0.1:1/t", sessionId: "s", heartbeatToken: "h" });
   assert.throws(() => readSessionFile(join(dir, "missing.json")), ConnectError);
 });
+
+test("Cdp.send rejects at once after the socket closes, and the relay reports the upstream close code", async () => {
+  const upstream = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  await new Promise((r) => upstream.once("listening", r));
+  let upWs;
+  upstream.on("connection", (ws) => { upWs = ws; });
+  const relay = await startRelay(`ws://127.0.0.1:${upstream.address().port}`);
+  const c = await Cdp.connect(relay.url);
+  upWs.close(4000, "lease over");
+  const info = await relay.closed;
+  assert.equal(info.code, 4000);
+  assert.equal(info.reason, "lease over");
+  await new Promise((r) => setTimeout(r, 50));
+  const t = Date.now();
+  await assert.rejects(c.send("A.b"), /CDP connection closed/);
+  assert.ok(Date.now() - t < 1000);
+  upstream.close();
+});

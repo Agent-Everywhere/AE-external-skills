@@ -41,12 +41,20 @@ export async function startRelay(upstreamUrl, { WebSocketImpl = WebSocket } = {}
       for (const c of clients) if (c.readyState === 1) c.send(s);
     }
   });
+  // Keepalive so idle-timeout proxies between us and the cloud browser don't drop the socket.
+  const ping = setInterval(() => { try { up.ping(); } catch { /* closing */ } }, 20000);
+  ping.unref?.();
   let closedResolve;
   const closed = new Promise((r) => { closedResolve = r; });
-  up.on("close", () => { for (const c of clients) c.close(); wss.close(); closedResolve(); });
+  up.on("close", (code, reason) => {
+    clearInterval(ping);
+    for (const c of clients) c.close(1011, "upstream closed");
+    wss.close();
+    closedResolve({ code, reason: String(reason || "").slice(0, 120) });
+  });
   return {
     url: `ws://127.0.0.1:${wss.address().port}/${token}`,
     closed,
-    async close() { for (const c of clients) c.close(); await new Promise((r) => wss.close(r)); up.close(); },
+    async close() { clearInterval(ping); for (const c of clients) c.close(); await new Promise((r) => wss.close(r)); up.close(); },
   };
 }

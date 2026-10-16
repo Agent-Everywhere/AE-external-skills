@@ -7093,6 +7093,7 @@ var Cdp = class _Cdp {
     const id = ++this.id;
     const msg = { id, method, params };
     if (sessionId) msg.sessionId = sessionId;
+    if (this.ws.readyState !== 1) return Promise.reject(new Error("CDP connection closed"));
     return new Promise((resolve, reject) => {
       const t = setTimeout(() => {
         this.pending.delete(id);
@@ -7347,19 +7348,28 @@ async function startRelay(upstreamUrl, { WebSocketImpl = wrapper_default } = {})
       for (const c of clients) if (c.readyState === 1) c.send(s);
     }
   });
+  const ping = setInterval(() => {
+    try {
+      up.ping();
+    } catch {
+    }
+  }, 2e4);
+  ping.unref?.();
   let closedResolve;
   const closed = new Promise((r) => {
     closedResolve = r;
   });
-  up.on("close", () => {
-    for (const c of clients) c.close();
+  up.on("close", (code, reason) => {
+    clearInterval(ping);
+    for (const c of clients) c.close(1011, "upstream closed");
     wss.close();
-    closedResolve();
+    closedResolve({ code, reason: String(reason || "").slice(0, 120) });
   });
   return {
     url: `ws://127.0.0.1:${wss.address().port}/${token}`,
     closed,
     async close() {
+      clearInterval(ping);
       for (const c of clients) c.close();
       await new Promise((r) => wss.close(r));
       up.close();
@@ -7830,34 +7840,47 @@ function benchCommands() {
   ];
 }
 async function runBench(qbo, page, { runs = 5, only, log: log2 = () => {
+}, onRow = () => {
 } } = {}) {
-  const cmds = benchCommands().filter(([n]) => !only || n.includes(only));
+  const filters = only ? String(only).split(",").map((x) => x.trim()).filter(Boolean) : [];
+  const cmds = benchCommands().filter(([n]) => !filters.length || filters.some((f) => n.includes(f)));
   const results = [];
+  const closed = (e) => /CDP connection closed|WebSocket is not open/i.test(String(e && e.message));
+  const step = async (errors, fn) => {
+    try {
+      await fn();
+      return true;
+    } catch (e) {
+      errors.push(String(e.message).slice(0, 120));
+      if (closed(e)) throw e;
+      return false;
+    }
+  };
   for (const [name, fn] of cmds) {
     const cold = [], warm = [], errors = [];
-    for (let i = 0; i < runs; i++) {
-      await page.goto("about:blank");
-      const t = performance.now();
-      try {
-        await fn(qbo);
-        cold.push(Math.round(performance.now() - t));
-      } catch (e) {
-        errors.push(String(e.message).slice(0, 120));
+    try {
+      for (let i = 0; i < runs; i++) {
+        if (!await step(errors, () => page.goto("about:blank"))) continue;
+        const t = performance.now();
+        if (await step(errors, () => fn(qbo))) cold.push(Math.round(performance.now() - t));
       }
-    }
-    await qbo.ensureReady();
-    for (let i = 0; i < runs; i++) {
-      const t = performance.now();
-      try {
-        await fn(qbo);
-        warm.push(Math.round(performance.now() - t));
-      } catch (e) {
-        errors.push(String(e.message).slice(0, 120));
+      if (await step(errors, () => qbo.ensureReady())) {
+        for (let i = 0; i < runs; i++) {
+          const t = performance.now();
+          if (await step(errors, () => fn(qbo))) warm.push(Math.round(performance.now() - t));
+        }
       }
+    } catch (e) {
+      results.aborted = `browser connection closed during "${name}"`;
     }
     const row = { command: name, cold: stats(cold), warm: stats(warm), errors: errors.length, firstError: errors[0] || null };
-    log2(`${name}: cold median ${row.cold.median} ms p95 ${row.cold.p95} | warm median ${row.warm.median} ms p95 ${row.warm.p95}${errors.length ? " | errors " + errors.length : ""}`);
+    log2(`${name}: cold median ${row.cold.median} ms p95 ${row.cold.p95} | warm median ${row.warm.median} ms p95 ${row.warm.p95}${errors.length ? " | errors " + errors.length + " (" + row.firstError + ")" : ""}`);
     results.push(row);
+    onRow(row, results);
+    if (results.aborted) {
+      log2(`bench stopped: ${results.aborted}`);
+      break;
+    }
   }
   return results;
 }
@@ -7973,8 +7996,8 @@ function buildProgram() {
         clearTimeout(t);
         resolve();
       });
-      relay.closed.then(() => {
-        if (!stopping) log("cloud browser disconnected");
+      relay.closed.then((c2) => {
+        if (!stopping) log(`cloud browser disconnected at ${(/* @__PURE__ */ new Date()).toISOString()} (code ${c2?.code ?? "?"}${c2?.reason ? ", " + c2.reason : ""}); the lease is gone, open a new session`);
         clearTimeout(t);
         resolve();
       });
@@ -8078,10 +8101,16 @@ function buildProgram() {
     process.stdout.write(`(${src.trim().replace(/^\/\/.*\n/gm, "")})(${o.params})
 `);
   });
-  program2.command("bench").description("time every read command: N cold and N warm runs, median and p95").option("--runs <n>", "runs per mode", (v) => parseInt(v, 10), 5).option("--only <substr>", "only commands containing this text").option("--md <file>", "write a Markdown table").action((o, cmd) => withQbo(cmd, async (q, s) => {
-    const results = await runBench(q, s.page, { runs: o.runs, only: o.only, log });
-    if (o.md) writeFileSync2(o.md, benchMarkdown(results) + "\n");
-    out(cmd, { runs: o.runs, results }, () => benchMarkdown(results));
+  program2.command("bench").description("time every read command: N cold and N warm runs, median and p95").option("--runs <n>", "runs per mode", (v) => parseInt(v, 10), 5).option("--only <substr>", "only commands containing this text (comma-separated for several)").option("--md <file>", "write a Markdown table").action((o, cmd) => withQbo(cmd, async (q, s) => {
+    const save = (_row, rs) => {
+      if (o.md) writeFileSync2(o.md, benchMarkdown(rs) + "\n");
+    };
+    const results = await runBench(q, s.page, { runs: o.runs, only: o.only, log, onRow: save });
+    save(null, results);
+    out(cmd, { runs: o.runs, results, aborted: results.aborted || null }, () => benchMarkdown(results) + (results.aborted ? `
+
+stopped early: ${results.aborted}` : ""));
+    if (results.aborted) process.exitCode = 1;
   }));
   return program2;
 }

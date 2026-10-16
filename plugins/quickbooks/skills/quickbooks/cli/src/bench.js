@@ -19,24 +19,40 @@ export function benchCommands() {
   ];
 }
 
-export async function runBench(qbo, page, { runs = 5, only, log = () => {} } = {}) {
-  const cmds = benchCommands().filter(([n]) => !only || n.includes(only));
+/** `only` is a comma-separated list of substrings. A failed reset/reload counts as an error for that run
+ *  instead of aborting the bench; if the browser connection itself closes, stop and return what was measured
+ *  (results.aborted = reason). onRow(row, results) fires after each command so callers can save progress. */
+export async function runBench(qbo, page, { runs = 5, only, log = () => {}, onRow = () => {} } = {}) {
+  const filters = only ? String(only).split(",").map((x) => x.trim()).filter(Boolean) : [];
+  const cmds = benchCommands().filter(([n]) => !filters.length || filters.some((f) => n.includes(f)));
   const results = [];
+  const closed = (e) => /CDP connection closed|WebSocket is not open/i.test(String(e && e.message));
+  const step = async (errors, fn) => {
+    try { await fn(); return true; }
+    catch (e) { errors.push(String(e.message).slice(0, 120)); if (closed(e)) throw e; return false; }
+  };
   for (const [name, fn] of cmds) {
     const cold = [], warm = [], errors = [];
-    for (let i = 0; i < runs; i++) {
-      await page.goto("about:blank");
-      const t = performance.now();
-      try { await fn(qbo); cold.push(Math.round(performance.now() - t)); } catch (e) { errors.push(String(e.message).slice(0, 120)); }
-    }
-    await qbo.ensureReady();
-    for (let i = 0; i < runs; i++) {
-      const t = performance.now();
-      try { await fn(qbo); warm.push(Math.round(performance.now() - t)); } catch (e) { errors.push(String(e.message).slice(0, 120)); }
+    try {
+      for (let i = 0; i < runs; i++) {
+        if (!(await step(errors, () => page.goto("about:blank")))) continue;
+        const t = performance.now();
+        if (await step(errors, () => fn(qbo))) cold.push(Math.round(performance.now() - t));
+      }
+      if (await step(errors, () => qbo.ensureReady())) {
+        for (let i = 0; i < runs; i++) {
+          const t = performance.now();
+          if (await step(errors, () => fn(qbo))) warm.push(Math.round(performance.now() - t));
+        }
+      }
+    } catch (e) {
+      results.aborted = `browser connection closed during "${name}"`;
     }
     const row = { command: name, cold: stats(cold), warm: stats(warm), errors: errors.length, firstError: errors[0] || null };
-    log(`${name}: cold median ${row.cold.median} ms p95 ${row.cold.p95} | warm median ${row.warm.median} ms p95 ${row.warm.p95}${errors.length ? " | errors " + errors.length : ""}`);
+    log(`${name}: cold median ${row.cold.median} ms p95 ${row.cold.p95} | warm median ${row.warm.median} ms p95 ${row.warm.p95}${errors.length ? " | errors " + errors.length + " (" + row.firstError + ")" : ""}`);
     results.push(row);
+    onRow(row, results);
+    if (results.aborted) { log(`bench stopped: ${results.aborted}`); break; }
   }
   return results;
 }

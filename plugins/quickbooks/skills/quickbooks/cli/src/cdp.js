@@ -48,6 +48,7 @@ export class Cdp {
     const id = ++this.id;
     const msg = { id, method, params };
     if (sessionId) msg.sessionId = sessionId;
+    if (this.ws.readyState !== 1) return Promise.reject(new Error("CDP connection closed"));
     return new Promise((resolve, reject) => {
       const t = setTimeout(() => { this.pending.delete(id); reject(new Error(`CDP timeout: ${method}`)); }, timeoutMs);
       this.pending.set(id, {

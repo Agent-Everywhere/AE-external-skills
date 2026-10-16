@@ -121,7 +121,7 @@ export function buildProgram() {
       await new Promise((resolve) => {
         const t = setTimeout(resolve, Number(o.maxSeconds) * 1000);
         for (const sig of ["SIGINT", "SIGTERM"]) process.once(sig, () => { clearTimeout(t); resolve(); });
-        relay.closed.then(() => { if (!stopping) log("cloud browser disconnected"); clearTimeout(t); resolve(); });
+        relay.closed.then((c) => { if (!stopping) log(`cloud browser disconnected at ${new Date().toISOString()} (code ${c?.code ?? "?"}${c?.reason ? ", " + c.reason : ""}); the lease is gone, open a new session`); clearTimeout(t); resolve(); });
       });
       stopping = true;
       await hb.stop();
@@ -256,12 +256,14 @@ export function buildProgram() {
 
   program.command("bench").description("time every read command: N cold and N warm runs, median and p95")
     .option("--runs <n>", "runs per mode", (v) => parseInt(v, 10), 5)
-    .option("--only <substr>", "only commands containing this text")
+    .option("--only <substr>", "only commands containing this text (comma-separated for several)")
     .option("--md <file>", "write a Markdown table")
     .action((o, cmd) => withQbo(cmd, async (q, s) => {
-      const results = await runBench(q, s.page, { runs: o.runs, only: o.only, log });
-      if (o.md) writeFileSync(o.md, benchMarkdown(results) + "\n");
-      out(cmd, { runs: o.runs, results }, () => benchMarkdown(results));
+      const save = (_row, rs) => { if (o.md) writeFileSync(o.md, benchMarkdown(rs) + "\n"); };
+      const results = await runBench(q, s.page, { runs: o.runs, only: o.only, log, onRow: save });
+      save(null, results);
+      out(cmd, { runs: o.runs, results, aborted: results.aborted || null }, () => benchMarkdown(results) + (results.aborted ? `\n\nstopped early: ${results.aborted}` : ""));
+      if (results.aborted) process.exitCode = 1;
     }));
 
   return program;

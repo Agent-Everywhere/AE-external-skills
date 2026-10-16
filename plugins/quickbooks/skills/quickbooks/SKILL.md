@@ -45,6 +45,9 @@ Pick the browser:
   commands, hold it: `AB_CLAIM="<claim>" node "$QBO" --base "<base>" --session-file "$S" hold &`
   (S = a private path; the file is 0600 and holds only a local relay URL), then run any number of
   `node "$QBO" --session-file "$S" <command>`; stop with `kill -INT` and `close_session`.
+  The cloud browser can drop its connection before the lease ceiling (seen at ~80 s and ~15 min); `hold`
+  then logs the close code and exits. Open a new session and resume (`bench --only a,b,...`). Cold
+  commands (fresh app load) take ~10 s in the cloud vs ~1.2 s locally; warm calls are similar (~0.3 s).
   Intuit sign-in in a fresh cloud browser hits a reCAPTCHA; have the user sign in to QuickBooks via
   `browser action=open_browser` and Save, then open sessions with the saved profile.
 
