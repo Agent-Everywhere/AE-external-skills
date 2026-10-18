@@ -360,10 +360,32 @@ class QuotaFile(TmpCase):
         self.assertIn("| pages | 12 | 100 | 200 | OK | 12 |", md)
         self.assertIn("| Connection requests today | 12 | 20 | OK |", md)
         self.assertIn("| Connection requests, last 7 days | 41 | 100 | OK |", md)
+        self.assertIn("| InMails / Open Profile messages today | 0 | 20 | OK |", md)
+        self.assertIn("| InMails, last 7 days | 0 | n/a | n/a |", md)
         self.assertIn("local CSV files stay the source of truth", md)
         # rewritten, not appended
         run_main(run_log, ["quota", "--workspace", str(ws)])
         self.assertEqual((ws / "quota.md").read_text(encoding="utf-8").count("# Sales Navigator quota"), 1)
+
+    def test_quota_shows_inmails_against_the_daily_cap_of_20(self):
+        ws = self.root / "ws"
+        self.seed(ws)
+        for i in range(17):
+            code, _, err = run_main(outreach_log, ["add", "--workspace", str(ws), "--lead-id", "ACwAAAinm%03d" % i,
+                                                   "--kind", "inmail", "--message", "i%d" % i])
+            self.assertEqual(code, 0, err)
+        _, out, _ = run_main(run_log, ["quota", "--workspace", str(ws)])
+        self.assertIn("17/20 InMails", out)
+        md = (ws / "quota.md").read_text(encoding="utf-8")
+        self.assertIn("| InMails / Open Profile messages today | 17 | 20 | NEAR |", md)
+        self.assertIn("| InMails, last 7 days | 17 | n/a | n/a |", md)
+        for i in range(17, 20):
+            run_main(outreach_log, ["add", "--workspace", str(ws), "--lead-id", "ACwAAAinm%03d" % i,
+                                    "--kind", "inmail", "--message", "i%d" % i])
+        _, out, _ = run_main(run_log, ["quota", "--workspace", str(ws)])
+        self.assertIn("InMail cap reached", out)
+        self.assertIn("| InMails / Open Profile messages today | 20 | 20 | CAP REACHED |",
+                      (ws / "quota.md").read_text(encoding="utf-8"))
 
     def test_quota_without_any_logs_is_zeros_and_says_there_is_no_ledger(self):
         ws = self.new_ws("empty")

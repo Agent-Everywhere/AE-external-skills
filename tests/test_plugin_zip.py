@@ -51,7 +51,7 @@ class PluginZipTests(unittest.TestCase):
         kb = "skills/sales-navigator/references/salesnav-kb/"
         shipped = sorted(n[len(kb):] for n in self.names if n.startswith(kb) and n.endswith(".md"))
         source = sorted(p.name for p in (ROOT / "plugins" / PLUGIN / kb).glob("*.md"))
-        self.assertEqual(len(shipped), 14)
+        self.assertEqual(len(shipped), 16)
         self.assertIn("00-index.md", shipped)
         self.assertEqual(shipped, source)
 

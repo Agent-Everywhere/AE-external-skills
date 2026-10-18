@@ -47,7 +47,7 @@ send one at a time through the ledger, and record who accepted or replied.
    one true thing about the person and one reason for writing; every claim's source goes in `sources`, and a
    claim without one is cut. 3rd-degree people need an InMail (may use a credit).
 4. `python3 "$ENGINE/scripts/validate_csv.py" drafts/<date>.csv --kind drafts`; show the exact texts. Send nothing.
-5. Before this step, read `$ENGINE/references/salesnav-kb/05-rate-caps-and-pacing.md`. To send: run `python3 "$ENGINE/scripts/outreach_log.py" caps --for connection`; exit 2 means stop for the
+5. Before this step, read `$ENGINE/references/salesnav-kb/05-rate-caps-and-pacing.md`. To send: run `python3 "$ENGINE/scripts/outreach_log.py" caps --for connection` (an InMail batch: `caps --for inmail`, up front); exit 2 means stop for the
    day. Show the exact batch (people, kind, text) and wait for the user's typed approval, which covers only
    that batch (a changed person, text or kind is a new batch). For each person, one at a time: open the lead
    and skip an existing message thread or pending invitation; `python3 "$ENGINE/scripts/outreach_log.py" add

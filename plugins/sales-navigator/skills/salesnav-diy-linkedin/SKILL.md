@@ -28,6 +28,9 @@ Before any step read `$ENGINE/references/salesnav-kb/16-diy-linkedin-endpoints.m
 **Job.** Give a team without a hosted LinkedIn API the same loop: find the person, know their state (degree,
 pending, accepted, replied), draft, get typed approval, send by UI click after typed approval, and poll for results.
 
+This skill mirrors, from the user's own machine and browser, many of the actions a hosted LinkedIn API such as Unipile
+provides. Systematic team use belongs on a hosted outreach system.
+
 ## Flow
 
 0. Run `python3 "$ENGINE/scripts/doctor.py"`. If doctor fails or the engine can't be found, stop and tell the user. Never fall back to driving the Sales Navigator UI by hand (clicking filters, scrolling results, saving lists). Needs a

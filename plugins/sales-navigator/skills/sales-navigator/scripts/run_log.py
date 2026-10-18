@@ -246,14 +246,16 @@ def quota_data(pull_entries, outreach_events, limits, today, outreach_found=True
     day_t = totals_for(pull_entries, today)
     week_t = totals_between(pull_entries, week_first, today)
     used = ol.usage(outreach_events, today)
-    daily, weekly, followup = caps or (ol.DAILY_CONNECTION_CAP, ol.WEEKLY_CONNECTION_CAP, ol.DAILY_FOLLOWUP_CAP)
+    daily, weekly, followup, inmail = caps or (ol.DAILY_CONNECTION_CAP, ol.WEEKLY_CONNECTION_CAP,
+                                               ol.DAILY_FOLLOWUP_CAP, ol.DAILY_INMAIL_CAP)
     return {"today": today, "day": day_t, "week": week_t, "limits": limits,
             "statuses": {a: classify(day_t[a], limits[a]) for a in LIMITS},
             "outreach_found": outreach_found, "used": used,
-            "caps": {"daily": daily, "weekly": weekly, "followup": followup},
+            "caps": {"daily": daily, "weekly": weekly, "followup": followup, "inmail": inmail},
             "invite_status": {"day": ol.classify(used["day_n"], daily),
                               "week": ol.classify(used["week_n"], weekly),
-                              "followup": ol.classify(used["followups_day"], followup)}}
+                              "followup": ol.classify(used["followups_day"], followup),
+                              "inmail": ol.classify(used["inmail_day"], inmail)}}
 
 
 def summary_line(q):
@@ -268,12 +270,15 @@ def summary_line(q):
     parts.append("%d/%d invites" % (q["used"]["day_n"], q["caps"]["daily"]))
     if q["used"]["followups_day"]:
         parts.append("%d/%d follow-ups" % (q["used"]["followups_day"], q["caps"]["followup"]))
+    if q["used"]["inmail_day"]:
+        parts.append("%d/%d InMails" % (q["used"]["inmail_day"], q["caps"]["inmail"]))
     parts.append("week %d/%d" % (q["used"]["week_n"], q["caps"]["weekly"]))
     line = "Today: " + " · ".join(parts)
     flags = ["%s %s" % (a.replace("_", " "), s) for a, s in q["statuses"].items() if s.startswith("OVER")]
     flags += ["%s cap reached" % k for k, s in (("daily invite", q["invite_status"]["day"]),
                                                 ("weekly invite", q["invite_status"]["week"]),
-                                                ("follow-up", q["invite_status"]["followup"]))
+                                                ("follow-up", q["invite_status"]["followup"]),
+                                                ("InMail", q["invite_status"]["inmail"]))
               if s == "CAP REACHED"]
     if flags:
         line += "  !! " + ", ".join(flags)
@@ -301,7 +306,8 @@ def quota_markdown(q, workspace_dir, now):
               "| Connection requests today | %d | %d | %s |" % (used["day_n"], caps["daily"], st["day"]),
               "| Connection requests, last 7 days | %d | %d | %s |" % (used["week_n"], caps["weekly"], st["week"]),
               "| Follow-up messages today | %d | %d | %s |" % (used["followups_day"], caps["followup"], st["followup"]),
-              "| InMails today / last 7 days | %d / %d | your credits | n/a |" % (used["inmail_day"], used["inmail_week"])]
+              "| InMails / Open Profile messages today | %d | %d | %s |" % (used["inmail_day"], caps["inmail"], st["inmail"]),
+              "| InMails, last 7 days | %d | n/a | n/a |" % used["inmail_week"]]
     if not q["outreach_found"]:
         lines += ["", "No `outreach_log.csv` in the workspace yet, so outreach shows 0. That is only true if "
                       "nothing was ever sent (see the profile's `Outreach started`)."]
@@ -324,12 +330,12 @@ def cmd_quota(args, log_path, limits):
         out_path = str(Path(log_path).with_name(OUTREACH_LOG))
     found = Path(out_path).is_file() and Path(out_path).stat().st_size > 0
     events = ol.read_events(out_path)
-    daily, weekly, followup, _inmail, notes = ol.resolve_limits(argparse.Namespace(
+    daily, weekly, followup, inmail, notes = ol.resolve_limits(argparse.Namespace(
         daily=args.daily, weekly=args.weekly, followup_daily=args.followup_daily, inmail_daily=None,
         allow_over_cap=False))
     for note in notes:
         print(note, file=sys.stderr)
-    q = quota_data(read_entries(log_path), events, limits, today, found, (daily, weekly, followup))
+    q = quota_data(read_entries(log_path), events, limits, today, found, (daily, weekly, followup, inmail))
     quota_path = Path(args.quota_file) if args.quota_file else ws_dir / QUOTA_FILE
     quota_path.parent.mkdir(parents=True, exist_ok=True)
     quota_path.write_text(quota_markdown(q, ws_dir, datetime.now()), encoding="utf-8")

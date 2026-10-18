@@ -428,6 +428,38 @@ class PageSnippets(unittest.TestCase):
         self.assertEqual((out["result"]["error"], out["result"]["invalid"]), ("leads_required", 1))
         self.assertEqual(out["calls"], [])
 
+    def test_profiles_batch_ids_build_name_search_triples_and_chunk(self):
+        ids = ["ACoAAA%04d" % n for n in range(230)]
+        out = run_snippet("profiles_batch.js", {"ids": ids + [ids[0], "bad id!", 7], "delayMs": 0, "batch": 5000}, [])
+        self.assertEqual([c["url"].count("(profileId:") for c in out["calls"]], [100, 100, 30])  # deduped, <= 100 per call
+        self.assertTrue(out["calls"][0]["url"].startswith(
+            "/sales-api/salesApiProfiles?ids=List((profileId:ACoAAA0000,authType:NAME_SEARCH,authToken:x),"
+            "(profileId:ACoAAA0001,authType:NAME_SEARCH,authToken:x),"))
+        self.assertEqual(out["result"]["invalid"], 2)
+        # ids dedupe against leads on the same id key, and a missing id is reported
+        body = {"results": {"FIXTUREID123": {"entityUrn": LEAD_URN, "fullName": "A B"}}}
+        out = run_snippet("profiles_batch.js", {"leads": [LEAD], "ids": ["FIXTUREID123", "ACwAAOther-1"]},
+                          [{"status": 200, "body": body}])
+        self.assertEqual(out["calls"][0]["url"].split("&decoration=")[0],
+                         "/sales-api/salesApiProfiles?ids=List((profileId:FIXTUREID123,authType:NAME_SEARCH,authToken:tok9),"
+                         "(profileId:ACwAAOther-1,authType:NAME_SEARCH,authToken:x))")
+        self.assertEqual((out["result"]["rows"], out["result"]["missing"]), (1, ["ACwAAOther-1"]))
+        out = run_snippet("profiles_batch.js", {"ids": ["bad id!"]}, [])
+        self.assertEqual((out["result"]["error"], out["result"]["invalid"]), ("leads_required", 1))
+
+    def test_profiles_batch_urls_only_uses_the_minimal_decoration_and_shape(self):
+        body = {"results": {"ACoAAAx": {"entityUrn": "urn:li:fs_salesProfile:(ACoAAAx,NAME_SEARCH,x)", "headline": "H",
+                                        "flagshipProfileUrl": "https://www.linkedin.com/in/pat", "summary": "dropped"}}}
+        out = run_snippet("profiles_batch.js", {"ids": ["ACoAAAx"], "urlsOnly": True, "extras": True},
+                          [{"status": 200, "body": body}])
+        self.assertEqual(len(out["calls"]), 1)
+        self.assertEqual(out["calls"][0]["url"].split("&decoration=")[1],
+                         "%28entityUrn%2CflagshipProfileUrl%2Cheadline%29")  # urlsOnly wins over extras
+        res = out["result"]
+        self.assertEqual((res["status"], res["rows"], res["missing"]), (200, 1, []))
+        self.assertEqual(res["profiles"], [{"entityUrn": "urn:li:fs_salesProfile:(ACoAAAx,NAME_SEARCH,x)", "headline": "H",
+                                            "profileUrl": "https://www.linkedin.com/in/pat"}])
+
     def test_typeahead_shape_and_empty_flag(self):
         body = {"elements": [{"id": "103644278", "displayValue": "United States", "extra": 1}]}
         out = run_snippet("typeahead.js", {"type": "BING_GEO", "term": "United States"},
