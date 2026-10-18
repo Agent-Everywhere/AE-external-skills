@@ -14,19 +14,20 @@ Five plugins. Install only the ones you need.
 | [`grokbot`](skills/grokbot/SKILL.md) | CLI + skill. The `grokbot` command (bundled single-file Node CLI) plus a skill that drives it: status/doctor, agents, groups, sections, pins, transcripts, `send --wait`, app restart | A person on their Mac who wants Claude Code to drive their Grok Bot desktop app | Claude Code on the Mac that has Grok Bot installed | Node 20+, the signed-in Grok Bot app | `/plugin install grokbot@ae-external-skills` (CLI alone: see Install) |
 | [`grokbot-box`](skills/grokbot-box/SKILL.md) | Skill only. No CLI bundled: it clones this repo inside the box and uses the `grokbot` CLI from there | A Grok Bot agent inside its own cloud box that manages its sibling workers (list, create, organize, send, delete) under a restricted, audited agent policy | Inside a Grok Bot cloud box | Node 20+ in the box, a clone of this repo | `/plugin install grokbot-box@ae-external-skills` |
 | [`desktop-cowork`](skills/claude-desktop/SKILL.md) | Skill + helper script (`desktop.py`, using Peekaboo). The skill folder is `claude-desktop`; the plugin name avoids the `claude-` prefix, which the marketplace reserves | Claude Code on a Mac driving the Claude Desktop app: Cowork tasks, replies, approvals, projects, skills, connectors, plugins, scheduled tasks | Claude Code on your Mac, controlling the Desktop app by screenshots and clicks | macOS 15+, Peekaboo, Screen Recording / Accessibility / Automation permission | `/plugin install desktop-cowork@ae-external-skills` |
-| [`sales-navigator`](plugins/sales-navigator/skills/sales-navigator/SKILL.md) | One plugin bundling 5 skills: the `sales-navigator` toolkit plus `salesnav-tam-accounts`, `salesnav-tam-people`, `salesnav-tam-tracker` and `salesnav-outreach` | Anyone with a LinkedIn Sales Navigator seat who sizes markets, builds lists and runs outreach | Claude Desktop / Cowork's built-in browser, your own Chrome, or Agent Browser | A signed-in Sales Navigator seat; Agent Browser only: the connector `https://browser-mcp-production-6535.up.railway.app/mcp` (Google sign-in) | `/plugin install sales-navigator@ae-external-skills` |
+| [`sales-navigator`](plugins/sales-navigator/skills/sales-navigator/SKILL.md) | One plugin bundling 6 skills: the `sales-navigator` toolkit plus `salesnav-tam-accounts`, `salesnav-tam-people`, `salesnav-tam-tracker`, `salesnav-outreach` and `salesnav-diy-linkedin` | Anyone with a LinkedIn Sales Navigator seat who sizes markets, builds lists and runs outreach | Claude Desktop / Cowork's built-in browser, your own Chrome, or Agent Browser | A signed-in Sales Navigator seat; Agent Browser only: the connector `https://browser-mcp-production-6535.up.railway.app/mcp` (Google sign-in) | `/plugin install sales-navigator@ae-external-skills` |
 | [`quickbooks`](plugins/quickbooks/skills/quickbooks/SKILL.md) | CLI + skill. The `qbo` command (bundled single-file Node CLI) plus a skill: doctor, lists, search, reports (P&L, balance sheet, aging, general ledger...), and approval-gated create / void / delete. Calls QuickBooks Online's own API from inside your signed-in tab, with page reading as a fallback | Anyone with a QuickBooks Online company who wants Claude to read the books and do small, approved bookkeeping steps | Claude Code (or any agent with shell access) attached to your own Chrome over CDP, or Agent Browser | Node 20+, a browser signed in to QuickBooks Online; Agent Browser only: the connector `https://browser-mcp-production-6535.up.railway.app/mcp` | `/plugin install quickbooks@ae-external-skills` |
 
 `grokbot` and `grokbot-box` are not the same thing: `grokbot` is for a human on a Mac, `grokbot-box`
 is for an agent inside a box. Each skill points to the other.
 
-The `sales-navigator` plugin's five skills:
+The `sales-navigator` plugin's six skills:
 
 - [`sales-navigator`](plugins/sales-navigator/skills/sales-navigator/SKILL.md): the slim toolkit for your own seat: exact counts, account and lead searches through the in-page API, website lookups, CSV and cap-tracking scripts, example flows. Read-only except account lists you name and confirm, and sends you explicitly approve per batch.
 - [`salesnav-tam-accounts`](plugins/sales-navigator/skills/salesnav-tam-accounts/SKILL.md): build a company-side TAM: a broad industry/geo/headcount net (plus optional priority keyword lanes), rows at 100 per call, company details scored for fit, a qualified-account count, multi-segment merge, optional save to an account list you name. Read-only otherwise.
 - [`salesnav-tam-people`](plugins/sales-navigator/skills/salesnav-tam-people/SKILL.md): build the people side: a lead search scoped to the qualified account ids, exact counts per variant, rows at 100 per call. Uses an account list (`ACCOUNT_LIST` filter) when one exists; saves no leads.
 - [`salesnav-tam-tracker`](plugins/sales-navigator/skills/salesnav-tam-tracker/SKILL.md): cut a master search over the viewable cap into sub-lists, pull them, dedupe across shards, track coverage in `tam_tracker.csv`.
 - [`salesnav-outreach`](plugins/sales-navigator/skills/salesnav-outreach/SKILL.md): daily connection requests, InMails, messages and follow-ups with an outreach ledger. Drafts by default; sends only after you type approval of the exact batch.
+- [`salesnav-diy-linkedin`](plugins/sales-navigator/skills/salesnav-diy-linkedin/SKILL.md): what a hosted LinkedIn API (Unipile, LiReach) does, from your own signed-in browser: profile and member-id lookup, who accepted, inbox replies, InMail credits, and approved sends by hand-confirmed click under conservative caps. Backed by KB 16.
 
 > **Unofficial.** `desktop-cowork` is not affiliated with or endorsed by Anthropic. It drives the app by screenshots and clicks, which may break when the app's layout changes, and it takes over your mouse and keyboard while it runs: read the rules in its [`SKILL.md`](skills/claude-desktop/SKILL.md) first.
 >
@@ -114,6 +115,8 @@ round (at most 5 questions), calibrate on example customers, then accounts, then
 
 0.7.2 wires the field-notes KB into `salesnav-outreach` (read KB 01 before step 1 and KB 05 before the send step) and points the runtime and log scripts at KB 05 / `reference.md` instead of the retired `references/guardrails.md`.
 
+0.8.0 adds `salesnav-diy-linkedin` and KB page 16 (`16-diy-linkedin-endpoints.md`): the loop a hosted LinkedIn API (Unipile, LiReach) provides, run from your own signed-in browser. Reads use same-origin fetches mapped in KB 16; writes stay hand-confirmed UI clicks under the outreach caps.
+
 If you installed the older `claude-desktop`, `salesnav-tam-accounts`, `salesnav-tam-people`,
 `salesnav-tam-tracker` or `salesnav-outreach` plugins, run `/plugin uninstall <name>@ae-external-skills`
 for each, then install `desktop-cowork` and `sales-navigator`.
@@ -125,7 +128,7 @@ If you installed `ae-desktop-operator` (the earlier name of `desktop-cowork`), r
 
 ```
 .claude-plugin/
-  marketplace.json  # Claude Code marketplace: one plugin per skill, except sales-navigator (bundles its five skills)
+  marketplace.json  # Claude Code marketplace: one plugin per skill, except sales-navigator (bundles its six skills)
 plugins/sales-navigator/   # the ONLY folder the sales-navigator plugin installs (marketplace `source`)
   skills/
     sales-navigator/        # the shared ENGINE: page/, scripts/, runtime/, reference.md, recipes.md, templates/
@@ -133,6 +136,7 @@ plugins/sales-navigator/   # the ONLY folder the sales-navigator plugin installs
     salesnav-tam-people/
     salesnav-tam-tracker/
     salesnav-outreach/
+    salesnav-diy-linkedin/
 packages/
   browser-runtime/  # SOURCE OF TRUTH for the shared browser runtime (session.py + one README)
 build/
@@ -166,7 +170,7 @@ The tests run the same check and fail if a skill's `runtime/` copy has drifted (
 Most marketplace entries use their own skill folder as the plugin source (`"source": "./skills/<name>"`,
 `"skills": ["."]`), so a plugin installs only its own skill. The exception is `sales-navigator`, one
 bundled plugin with `"source": "./plugins/sales-navigator"`, `"strict": false`, a `version` and an explicit
-`skills` list of its five skill folders (paths relative to that source). The source folder holds only
+`skills` list of its six skill folders (paths relative to that source). The source folder holds only
 `skills/`, so `tests/`, `build/`, `packages/` and `.github/` never ship into an install (a test pins this).
 Do not point any plugin at the repo root. Bump the entry's `version` with the engine's `skill.yaml`
 `version` on every release of the plugin, or clients will not see the update (a test pins that too). `grokbot-box` does not

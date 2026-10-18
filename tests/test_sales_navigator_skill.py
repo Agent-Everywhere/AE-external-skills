@@ -100,7 +100,8 @@ class HardRulesAndBudget(unittest.TestCase):
     KB_PAGES = ["00-index.md", "01-navigation-basics.md", "02-filters-and-ids.md", "03-view-cap-and-slicing.md",
                 "04-industry-quirks.md", "05-rate-caps-and-pacing.md", "10-approach-segmented-merge.md",
                 "11-approach-broad-net-slicing.md", "12-approach-lookalike-plus-lanes.md",
-                "13-approach-account-first-people.md", "14-lists.md", "15-batch-scrape.md", "20-rubric-template.md"]
+                "13-approach-account-first-people.md", "14-lists.md", "15-batch-scrape.md", "16-diy-linkedin-endpoints.md",
+                "20-rubric-template.md"]
 
     def test_the_kb_holds_exactly_the_expected_pages(self):
         self.assertEqual(sorted(p.name for p in KB.iterdir()), self.KB_PAGES)

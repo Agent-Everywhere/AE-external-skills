@@ -95,7 +95,7 @@ seller's site, then propose a filled `$ENGINE/templates/company-profile.md` to c
 ## Purpose skills
 
 Focused skills use this engine from the folder next to theirs: `salesnav-tam-accounts`,
-`salesnav-tam-people`, `salesnav-tam-tracker`, `salesnav-outreach`. Edit tools here only.
+`salesnav-tam-people`, `salesnav-tam-tracker`, `salesnav-outreach`, `salesnav-diy-linkedin`. Edit tools here only.
 
 ## Build your own flow
 
