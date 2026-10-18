@@ -116,7 +116,7 @@ records (`profiles_batch.js`) a day, apart from page views. Log a `count=100` se
 
 If the profile sets lower caps, pass them as `--daily`, `--weekly`, `--followup-daily` to every
 `outreach_log.py` call and to `run_log.py quota` (a script never allows more than these defaults).
-InMails go only within the seat's credits. Pacing: 3 to 5 seconds between API calls, 30 to 90 seconds
+InMails and Open Profile messages are capped at 20 a day (`--inmail-daily` lowers it) and go only within the seat's credits. Pacing: 3 to 5 seconds between API calls, 30 to 90 seconds
 between two sends. Send nothing more that day on a warning, captcha,
 "unusual activity", limit banner, reached cap (`outreach_log.py caps` exits 2), or a missing ledger (exit 4:
 ask the user, never start a fresh one). For a send, the ledger flow is `check`, then

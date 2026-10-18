@@ -27,7 +27,7 @@ The `sales-navigator` plugin's six skills:
 - [`salesnav-tam-people`](plugins/sales-navigator/skills/salesnav-tam-people/SKILL.md): build the people side: a lead search scoped to the qualified account ids, exact counts per variant, rows at 100 per call. Uses an account list (`ACCOUNT_LIST` filter) when one exists; saves no leads.
 - [`salesnav-tam-tracker`](plugins/sales-navigator/skills/salesnav-tam-tracker/SKILL.md): cut a master search over the viewable cap into sub-lists, pull them, dedupe across shards, track coverage in `tam_tracker.csv`.
 - [`salesnav-outreach`](plugins/sales-navigator/skills/salesnav-outreach/SKILL.md): daily connection requests, InMails, messages and follow-ups with an outreach ledger. Drafts by default; sends only after you type approval of the exact batch.
-- [`salesnav-diy-linkedin`](plugins/sales-navigator/skills/salesnav-diy-linkedin/SKILL.md): what a hosted LinkedIn API (Unipile, LiReach) does, from your own signed-in browser: profile and member-id lookup, who accepted, inbox replies, InMail credits, and approved sends by hand-confirmed click under conservative caps. Backed by KB 16.
+- [`salesnav-diy-linkedin`](plugins/sales-navigator/skills/salesnav-diy-linkedin/SKILL.md): what a hosted LinkedIn API (such as Unipile) does, from your own signed-in browser: profile and member-id lookup, who accepted, inbox replies, InMail credits, and approved sends by UI click after typed approval of the exact batch under conservative caps. Backed by KB 16.
 
 > **Unofficial.** `desktop-cowork` is not affiliated with or endorsed by Anthropic. It drives the app by screenshots and clicks, which may break when the app's layout changes, and it takes over your mouse and keyboard while it runs: read the rules in its [`SKILL.md`](skills/claude-desktop/SKILL.md) first.
 >
@@ -115,7 +115,7 @@ round (at most 5 questions), calibrate on example customers, then accounts, then
 
 0.7.2 wires the field-notes KB into `salesnav-outreach` (read KB 01 before step 1 and KB 05 before the send step) and points the runtime and log scripts at KB 05 / `reference.md` instead of the retired `references/guardrails.md`.
 
-0.8.0 adds `salesnav-diy-linkedin` and KB page 16 (`16-diy-linkedin-endpoints.md`): the loop a hosted LinkedIn API (Unipile, LiReach) provides, run from your own signed-in browser. Reads use same-origin fetches mapped in KB 16; writes stay hand-confirmed UI clicks under the outreach caps.
+0.8.0 adds `salesnav-diy-linkedin` and KB page 16 (`16-diy-linkedin-endpoints.md`): the loop a hosted LinkedIn API (such as Unipile) provides, run from your own signed-in browser. Reads use same-origin fetches mapped in KB 16; writes stay UI clicks after typed approval of the exact batch, under the outreach caps (now including a 20-a-day InMail / Open Profile cap in `outreach_log.py`). Also covers saved searches (list verified; running one is a UI action that resets its counter).
 
 If you installed the older `claude-desktop`, `salesnav-tam-accounts`, `salesnav-tam-people`,
 `salesnav-tam-tracker` or `salesnav-outreach` plugins, run `/plugin uninstall <name>@ae-external-skills`

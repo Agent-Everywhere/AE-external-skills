@@ -1,4 +1,4 @@
-# 16 DIY LinkedIn endpoints (no Unipile, no LiReach)
+# 16 DIY LinkedIn endpoints (no hosted LinkedIn API)
 
 What a hosted LinkedIn API (Unipile and tools built on it) does for an outreach program, mapped to the calls the
 user's own signed-in browser already makes. Read by `salesnav-diy-linkedin`. The API is private, undocumented and
@@ -11,7 +11,7 @@ to reading the page.
 |---|---|
 | **VERIFIED 2026-10-18** | Read-only GET run in a signed-in browser on that date, 200, shape checked (keys only, no data kept) |
 | **VERIFIED (engine)** | Already shipped and verified as a `page/` snippet in this engine; see `reference.md` |
-| **UNTESTED** | Write. Shape from public community reverse-engineering and from observing the UI, never submitted while writing this page. The supported path is the UI click after typed approval |
+| **UNTESTED** | Write, or a read not exercised. Writes are UI only (click after typed approval of the exact batch); no programmatic send is documented here |
 | **GONE** | Returned 410 on 2026-10-18; do not use |
 
 ## Common request rules
@@ -39,7 +39,7 @@ to reading the page.
 
 ## Capability map
 
-Unipile paths are its v2 API (`https://api.unipile.com/v2/{account}/...`) as used by LiReach.
+Unipile paths are its v2 API (`https://api.unipile.com/v2/{account}/...`), the example of a hosted LinkedIn API.
 
 | Capability | Unipile (v2) | DIY browser equivalent | Status |
 |---|---|---|---|
@@ -50,8 +50,11 @@ Unipile paths are its v2 API (`https://api.unipile.com/v2/{account}/...`) as use
 | Sales Nav people search (URL or params) | `POST /{acct}/linkedin/sales-navigator/search[/people]` | `lead_search.js` (`/sales-api/salesApiLeadSearch`, 100 per call, 2,500 viewable) | VERIFIED (engine) |
 | Search parameter lookup (geo, industry, title ids) | `GET /{acct}/linkedin/sales-navigator/search/parameters` | `typeahead.js` (`/sales-api/salesApiFacetTypeahead`) | VERIFIED (engine) |
 | Company profile | `getClassicCompanyProfile` | `account.js`, `companies_details.js` (`/sales-api/salesApiCompanies`) | VERIFIED (engine) |
-| Lists read / account list save | not used by LiReach | `lists.js`, `list_save_accounts.js` | VERIFIED (engine) |
+| Lists read / account list save | not used | `lists.js` (read), `list_save_accounts.js` (write) | VERIFIED (engine); `list_save_accounts.js` is VERIFIED (engine, write) |
 | Posts and comments of a lead | category only, never called | `activity.js` (`/sales-api/salesApiInsightsV2`; post text unverified) | VERIFIED (engine), partial |
+| Saved searches: list (name, id, `newHitsCount`, `lastViewedAt`) | `load_saved_search` source, `last_viewed_at` / `new_results_count` | `GET /sales-api/salesApiSavedSearchesV2?decoration=%28%20createdAt%2C%20id%2C%20lastViewedAt%2C%20name%2C%20newHitsCount%2C%20seat%2C%20keywords%2C%20filters%20%29&count=50&q=savedPeopleSearches&start=0` (`/sales/` tab, `accept: application/json`): `elements[]` with `id`, `name`, `newHitsCount` (number), `lastViewedAt`, `createdAt`, `seat`, `filters`; `paging` | VERIFIED 2026-10-18 (list only; keys checked, no names kept) |
+| Saved searches: new results only | `last_viewed_at` / `new_results_count` loop | Read `newHitsCount`; if above 0, open the saved search's results page in the UI (this marks it viewed and resets the counter on the real account, so only do it when you mean to) and pull the rows. Without the UI: take the saved search's `filters`/`keywords`, run `lead_search.js` with the equivalent search, and diff the returned lead ids against your own last-seen ids (kept in the workspace) | UNTESTED (running a saved search was not exercised: it resets the counter) |
+| Recent searches | `load_recent_search` source | The recent-searches list is in the search page UI. No endpoint was found: `salesApiRecentSearches` returned 404 and a `recentPeopleSearches` finder on the saved-searches route returned 400. Re-run the search by its URL with `lead_search.js` instead | GONE / not found (2026-10-18) |
 | Sent connection requests (pending) | `GET /{acct}/users/me/relation-requests?type=sent` | `GET /voyager/api/relationships/sentInvitationViewsV2?invitationType=CONNECTION&q=invitationType&start=0&count=10`: `*elements` of `SentInvitationViewV2`; `included[]` `Invitation` has `toMemberId`, `sentTime`, `customMessage`, `entityUrn`, `sharedSecret` (needed to withdraw) | VERIFIED 2026-10-18 |
 | Acceptance detection | `relation.new` webhook, or "invite left the pending list" | Poll connections newest first: `GET /voyager/api/relationships/dash/connections?decorationId=com.linkedin.voyager.dash.deco.web.mynetwork.ConnectionListWithProfile-16&count=10&q=search&sortType=RECENTLY_ADDED&start=0`: `Connection` rows with `createdAt` and `connectedMember` (`urn:li:fsd_profile:<id>`). Match on member id; stop paging at the first `createdAt` older than your last check | VERIFIED 2026-10-18 |
 | Received invitations | not used | `GET /voyager/api/relationships/invitationViews?q=receivedInvitation&start=0&count=10` | VERIFIED 2026-10-18 |
@@ -59,10 +62,10 @@ Unipile paths are its v2 API (`https://api.unipile.com/v2/{account}/...`) as use
 | Messages in one conversation | `GET /{acct}/chats/{chat_id}/messages` | `GET /voyager/api/voyagerMessagingGraphQL/graphql?queryId=messengerMessages.<hash>&variables=(conversationUrn:<urn, fully encoded incl. %28 %29>)`: `Message` rows with `deliveredAt`, `body`, `*sender`. A reply = a message whose sender is not you, later than your send | VERIFIED 2026-10-18 |
 | Sales Nav inbox (InMail and Open Profile replies) | `GET /{acct}/inboxes/SALES_NAVIGATOR_PRIMARY/chats` | From a `/sales/` tab: `GET /sales-api/salesApiMessagingThreads?decoration=<encoded>&count=20&filter=INBOX&q=filter&pageStartsAt=<epoch ms>`; decoration `(id,archived,unreadMessageCount,nextPageStartsAt,totalMessageCount,messages*(id,type,deliveredAt,subject,body,author),participants*~fs_salesProfile(entityUrn,fullName,degree))`. Page older with `pageStartsAt` = the last `nextPageStartsAt` | VERIFIED 2026-10-18 |
 | InMail credit balance | InMail balance route | `GET /sales-api/salesApiCredits?q=findCreditGrant&creditGrantType=LSS_INMAIL`: elements with `type`, `value` | VERIFIED 2026-10-18 |
-| Send connection request (with note) | `POST /{acct}/users/me/relation-requests` `{user_id, message}` | UI: the Connect button on the profile, "Add a note", Send. Community-observed API: `POST /voyager/api/voyagerRelationshipsDashMemberRelationships?action=verifyQuotaAndCreateV2&decorationId=com.linkedin.voyager.dash.deco.relationships.InvitationCreationResultWithInvitee-2` body `{"invitee":{"inviteeUnion":{"memberProfile":"urn:li:fsd_profile:<id>"}},"customMessage":"<=300 chars"}` | UNTESTED |
-| Withdraw a pending request | `DELETE /{acct}/users/me/relation-requests/{id}` | UI: My Network, Manage, Sent, Withdraw. Community-observed: `POST /voyager/api/relationships/invitations/<invitation id>?action=withdraw` body `{"inviteActionType":"ACTOR_WITHDRAW"}` (uses the `sharedSecret`/id from the sent list) | UNTESTED |
-| Message a connection (new or existing chat) | `POST /{acct}/inboxes/CLASSIC_PRIMARY/chats/send`, `POST /{acct}/chats/{id}/messages/send` | UI: Message button, type, Send. Community-observed: `POST /voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage` body `{"message":{"body":{"attributes":[],"text":"..."},"renderContentUnions":[],"conversationUrn":"<urn>"},"mailboxUrn":"urn:li:fsd_profile:<your id>","trackingId":"<random 16 bytes>","dedupeByClientGeneratedToken":false}` (new chat: `hostRecipientUrns` instead of `conversationUrn`) | UNTESTED |
-| InMail / Open Profile message | `POST /{acct}/inboxes/SALES_NAVIGATOR_PRIMARY/chats/send` with a subject | UI: Sales Nav lead page, Message, subject + body, Send. Check `memberBadges.openLink` first: Open Profile costs no credit | UNTESTED (UI only; no API shape recorded) |
+| Send connection request (with note) | `POST /{acct}/users/me/relation-requests` | UI only: the Connect button on the profile, "Add a note", Send, after typed approval of the exact batch | UNTESTED |
+| Withdraw a pending request | `DELETE /{acct}/users/me/relation-requests/{id}` | UI only: My Network, Manage, Sent, Withdraw, after typed approval | UNTESTED |
+| Message a connection (new or existing chat) | chat send routes | UI only: Message button, type, Send, after typed approval of the exact batch | UNTESTED |
+| InMail / Open Profile message | Sales Navigator chat send route | UI only: Sales Nav lead page, Message, subject + body, Send, after typed approval. Check `memberBadges.openLink` first: Open Profile costs no credit | UNTESTED |
 | Reactions, comments, follows, profile-view counts | category only, never called | Not covered. Do these by hand if at all | n/a |
 | Hosted auth / reconnect | `POST /auth/link` | The user signs in to their own browser. Never handle a password or 2FA | n/a |
 
@@ -78,18 +81,39 @@ Unipile paths are its v2 API (`https://api.unipile.com/v2/{account}/...`) as use
 | Stable, versioned endpoints | queryIds and decorations rotate | Re-read them from the page's own requests; mark a broken row and fall back to the UI |
 | Programmatic send, queue, retries | No supported programmatic write | Every send is a human-approved UI click, one at a time, 30 to 90 s apart |
 
+## Send procedure by kind
+
+Every send is a UI click after typed approval of the exact batch. Check the ledger first; exit 2 means stop that
+kind for the day.
+
+| Kind | Check | Record |
+|---|---|---|
+| Connection invite | `outreach_log.py caps --for connection` (20 a day, 100 per 7 days) | `add --kind connection --pending`, then `status --status sent` after the click |
+| Follow-up to a connection | `outreach_log.py caps --for followup` (20 a day); `followup` refuses a 4th touch (3 per person) | `followup --lead-id <id> --message <text>` |
+| Open Profile / InMail | `outreach_log.py caps --for inmail` (20 a day); read `salesApiCredits` first, paid InMail needs credits, Open Profile costs none | `add --kind inmail --pending`, then `status --status sent` |
+
+Profile reads (plain voyager lookups and the per-person pre-send re-check) count against 80 a day: run
+`run_log.py quota` before a read batch, `run_log.py add --profiles <N>` after it, and stop when the budget is reached.
+
+## Saved searches: new results only
+
+List with the `salesApiSavedSearchesV2` row (`newHitsCount`, `lastViewedAt`). Opening a saved search in the UI marks
+it viewed and resets the counter on the real account. The fallback that never touches the counter: run the saved
+search's filters (or its URL) through `lead_search.js` and diff the returned lead ids against your own last-seen ids.
+Never create, edit or delete saved searches from this path.
+
 ## Caps and their sources
 
-Our defaults sit under every source. LinkedIn publishes that limits exist but not the numbers.
+Our defaults sit under every source. LinkedIn publishes that limits exist but not the numbers. Unipile figures below are from https://developer.unipile.com/docs/provider-limits-and-restrictions, accessed 2026-10-18 (vendor guidance, not LinkedIn's).
 
 | Action | Our default | Source and kind |
 |---|---|---|
-| Connection requests | 20 a day, 100 per 7 days | LinkedIn Help ("weekly invitation limit", no number): documented that it exists. Unipile provider-limits page: paid accounts 80 to 100 a day and about 200 a week, free about 150 a week without a note: vendor guidance. "About 100 a week" is widely repeated: folklore. LiReach default 20 per 24h |
+| Connection requests | 20 a day, 100 per 7 days | LinkedIn Help ("weekly invitation limit", no number): documented that it exists. Unipile provider-limits page: paid accounts 80 to 100 a day and about 200 a week, free about 150 a week without a note: vendor guidance. "About 100 a week" is widely repeated: folklore |
 | Note length | 300 characters (free accounts: about 200, about 5 notes a month) | Unipile provider-limits page: vendor guidance; 300 is the UI's counter |
-| Messages to connections | 20 follow-ups a day, 3 per person total | Unipile: 100 a day default for other routes; LiReach default 30 per 24h: vendor and operator guidance |
+| Messages to connections | 20 follow-ups a day, 3 per person total | Unipile: 100 a day per account for sending messages to connections, comments and reactions (its unlisted routes): vendor guidance; our 20 is an operator default well under it |
 | Open Profile messages | 20 a day | LinkedIn caps free Open Profile messages at 800 a month per account (Unipile, vendor-reported); Unipile suggests 30 to 50 a day, randomly spaced |
 | Paid InMail | Within the seat's credits (`salesApiCredits`) | LinkedIn: credits per plan, documented |
-| Profiles opened | 80 a day, ceiling 150 | Unipile: about 100 profile reads a day, a recommendation; LiReach 80 per 24h; field reports of a lock after about 150 to 250 checks: folklore |
+| Profiles opened | 80 a day, ceiling 150 | Unipile: about 100 profile reads a day, a recommendation, not an enforced cap; our 80 is an operator default; field reports of a lock after about 150 to 250 checks: folklore |
 | Inbox / invitation polls | 4 a day | Unipile: first page only, a few times a day, randomly spaced |
 
 New or long-idle accounts start at half these for the first two weeks (Unipile guidance). See also KB 05 for search

@@ -317,6 +317,45 @@ class AddAndFollowupEnforceCaps(LogCase):
         self.fill(20)
         self.assertEqual(self.add(lead="ACwAAAinmail9", kind="inmail")[0], 0)
 
+    def test_inmail_stops_at_the_daily_cap_with_exit_2_and_the_same_count_as_caps(self):
+        self.fill(20, kind="inmail", prefix="ACwAAAim")
+        code, out, _ = self.cli("caps", "--date", self.TODAY, "--for", "inmail")
+        self.assertEqual(code, outreach_log.EXIT_CAP)
+        self.assertRegex(out, r"InMail / Open Profile messages\s+today\s+20 / 20\s+CAP REACHED")
+        code, _, err = self.add(lead="ACwAAAim_over", kind="inmail")
+        self.assertEqual(code, outreach_log.EXIT_CAP)
+        self.assertIn("daily inmail cap reached (20 / 20 today)", err)
+        self.assertEqual(len(self.rows()), 20)  # nothing was written
+
+    def test_inmail_allow_over_cap_lets_the_21st_through(self):
+        self.fill(20, kind="inmail", prefix="ACwAAAim")
+        code, _, _ = self.add("ACwAAAim_21", "inmail", "x", self.TODAY, "--allow-over-cap")
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self.rows()), 21)
+
+    def test_inmail_daily_limit_can_be_lowered_and_raising_is_ignored(self):
+        self.assertEqual(self.add("ACwAAAimlow1", "inmail", "a", self.TODAY, "--inmail-daily", "1")[0], 0)
+        code, _, _ = self.add("ACwAAAimlow2", "inmail", "b", self.TODAY, "--inmail-daily", "1")
+        self.assertEqual(code, outreach_log.EXIT_CAP)
+        self.fill(19, kind="inmail", prefix="ACwAAAimraise")  # 20 today
+        code, _, err = self.add("ACwAAAimlow3", "inmail", "c", self.TODAY, "--inmail-daily", "50")
+        self.assertEqual(code, outreach_log.EXIT_CAP)
+        self.assertIn("--allow-over-cap", err)
+
+    def test_inmail_and_connection_caps_do_not_block_each_other(self):
+        self.fill(20, kind="inmail", prefix="ACwAAAim")
+        self.assertEqual(self.add(lead="ACwAAAconn01", kind="connection")[0], 0)
+        self.fill(19, prefix="ACwAAAconn")  # connections now at 20 too
+        self.assertEqual(self.add(lead="ACwAAAconn_over", kind="connection")[0], outreach_log.EXIT_CAP)
+        self.assertEqual(self.add(lead="ACwAAAim_over", kind="inmail")[0], outreach_log.EXIT_CAP)
+
+    def test_connection_and_followup_scopes_ignore_a_capped_inmail(self):
+        self.fill(20, kind="inmail", prefix="ACwAAAim")
+        self.assertEqual(self.cli("caps", "--date", self.TODAY, "--for", "connection")[0], 0)
+        self.assertEqual(self.cli("caps", "--date", self.TODAY, "--for", "followup")[0], 0)
+        self.assertEqual(self.cli("caps", "--date", self.TODAY, "--for", "inmail")[0], outreach_log.EXIT_CAP)
+        self.assertEqual(self.cli("caps", "--date", self.TODAY, "--for", "all")[0], outreach_log.EXIT_CAP)
+
     def test_lowering_a_limit_is_enforced_and_raising_it_is_ignored(self):
         self.assertEqual(self.cli("add", "--lead-id", "ACwAAAlow001", "--kind", "connection", "--message", "a",
                                   "--date", self.TODAY, "--daily", "1")[0], 0)

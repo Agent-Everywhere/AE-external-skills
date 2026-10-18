@@ -12,7 +12,8 @@ appends, so two runs cannot both log the same person or both slip under a cap.
         this before drafting or sending to anyone. IDs may be a Sales Nav lead URL or an entityUrn.
   outreach_log.py add     --lead-id ID --kind connection|inmail --message TEXT [--pending] [--date YYYY-MM-DD]
         record a send. Refuses (exit 3) a person who is already in the log, and (exit 2) a
-        connection request when the daily or 7-day cap is already reached. With --pending it
+        connection request when the daily or 7-day cap is already reached, or an InMail / Open
+        Profile message when the daily InMail cap is already reached. With --pending it
         records the INTENT (status pending, touches 0) and is run BEFORE the click, so a crash
         between the click and the log can never lead to a second send; after the send is verified
         run `status --status sent`. A pending row counts toward the caps and as contacted.
@@ -23,10 +24,10 @@ appends, so two runs cannot both log the same person or both slip under a cap.
         record a follow-up message to someone who accepted (touches +1, status stays accepted,
         the no-reply clock restarts). Refused once the person has had the maximum touches, and
         (exit 2) when the follow-up daily cap is already reached.
-  outreach_log.py caps    [--for connection|followup|all] [--date YYYY-MM-DD] [--daily N] [--weekly N]
-        connection requests sent today and in the last 7 days, and follow-up messages sent today,
-        against the limits. Exit 2 when a cap in scope is reached (do not send), else 0. InMails
-        are not capped here: they use credits.
+  outreach_log.py caps    [--for connection|followup|inmail|all] [--date YYYY-MM-DD] [--daily N] [--weekly N]
+        connection requests sent today and in the last 7 days, follow-up messages sent today, and
+        InMail / Open Profile messages sent today, against the limits. Exit 2 when a cap in scope is
+        reached (do not send), else 0. InMail credits are a separate limit the user watches.
   outreach_log.py summary [--stale-days N] [--max-touches N]
         counts per status and kind; the pending rows (intent recorded, send not confirmed); with
         --stale-days, the people who accepted at least N days ago, have not replied and still have
@@ -38,8 +39,8 @@ first one plus follow-ups (0 while only pending). Dates are local calendar dates
 YYYY-MM-DD; for add and followup --date may not be in the future or more than 2 days in the past
 (log a send when it happens).
 
-Limits come from reference.md ("Outreach caps and stop rules"; execution-action quotas: references/salesnav-kb/05-rate-caps-and-pacing.md). --daily, --weekly and --followup-daily
-can lower a limit; a value above the default is ignored (with a note) unless --allow-over-cap is
+Limits come from reference.md ("Outreach caps and stop rules"; execution-action quotas: references/salesnav-kb/05-rate-caps-and-pacing.md). --daily, --weekly, --followup-daily and
+--inmail-daily can lower a limit; a value above the default is ignored (with a note) unless --allow-over-cap is
 given, and --allow-over-cap is only for the user's explicit go. Likewise --max-touches is clamped
 to the default maximum, and add / followup stop at a reached cap, unless --allow-over-cap.
 
@@ -79,6 +80,7 @@ except ImportError:  # Windows: no advisory locks; the ledger is then only safe 
 DAILY_CONNECTION_CAP = 20
 WEEKLY_CONNECTION_CAP = 100
 DAILY_FOLLOWUP_CAP = 20
+DAILY_INMAIL_CAP = 20
 MAX_TOUCHES = 3  # the first message plus two follow-ups
 NEAR_FRACTION = 0.8
 WEEK_DAYS = 7  # rolling window, today included
@@ -224,12 +226,13 @@ def usage(events, today, day=None):
 
 
 def resolve_limits(args):
-    """(daily, weekly, followup_daily, notes). Lowering is free; raising needs --allow-over-cap."""
+    """(daily, weekly, followup_daily, inmail_daily, notes). Lowering is free; raising needs --allow-over-cap."""
     notes = []
     out = []
     for value, default, label in ((args.daily, DAILY_CONNECTION_CAP, "daily"),
                                   (args.weekly, WEEKLY_CONNECTION_CAP, "weekly"),
-                                  (args.followup_daily, DAILY_FOLLOWUP_CAP, "follow-up daily")):
+                                  (args.followup_daily, DAILY_FOLLOWUP_CAP, "follow-up daily"),
+                                  (args.inmail_daily, DAILY_INMAIL_CAP, "inmail daily")):
         if value is None:
             out.append(default)
             continue
@@ -240,7 +243,7 @@ def resolve_limits(args):
                          "--allow-over-cap, and only on the user's explicit go" % (label, value, default))
             value = default
         out.append(value)
-    return out[0], out[1], out[2], notes
+    return out[0], out[1], out[2], out[3], notes
 
 
 def resolve_max_touches(args):
@@ -273,6 +276,13 @@ def cap_reached(used, daily, weekly):
     return ""
 
 
+def inmail_cap_reached(used, inmail_daily):
+    """The daily InMail / Open Profile cap, as text, when a new message would exceed it."""
+    if used["inmail_day"] >= inmail_daily:
+        return "daily inmail cap reached (%d / %d today)" % (used["inmail_day"], inmail_daily)
+    return ""
+
+
 # ----------------------------------------------------------------------------- commands
 
 def cmd_check(args):
@@ -301,7 +311,7 @@ def cmd_add(args):
     text = Path(args.message_file).read_text(encoding="utf-8") if args.message_file else args.message
     digest = message_hash(text)
     day, today = send_day(args)
-    daily, weekly, _, notes = resolve_limits(args)
+    daily, weekly, _, inmail_cap, notes = resolve_limits(args)
     for note in notes:
         print(note, file=sys.stderr)
     with locked(args.log):
@@ -312,8 +322,10 @@ def cmd_add(args):
             print("refused: %s is already in the log (%s %s, sent %s)" % (key, ev["kind"], ev["status"], ev["sent_at"]),
                   file=sys.stderr)
             return EXIT_CONTACTED
-        if args.kind == "connection":
-            why = cap_reached(usage(events, today, day), daily, weekly)
+        if args.kind in ("connection", "inmail"):
+            used = usage(events, today, day)
+            why = (cap_reached(used, daily, weekly) if args.kind == "connection"
+                   else inmail_cap_reached(used, inmail_cap))
             if why and not args.allow_over_cap:
                 print("refused: %s. Send nothing more of this kind until it clears." % why, file=sys.stderr)
                 return EXIT_CAP
@@ -355,7 +367,7 @@ def cmd_followup(args):
     text = Path(args.message_file).read_text(encoding="utf-8") if args.message_file else args.message
     digest = message_hash(text)
     day, today = send_day(args)
-    _, _, followup_cap, notes = resolve_limits(args)
+    _, _, followup_cap, _, notes = resolve_limits(args)
     max_touches, more = resolve_max_touches(args)
     for note in notes + more:
         print(note, file=sys.stderr)
@@ -396,27 +408,30 @@ def classify(used, cap):
 
 def cmd_caps(args):
     today = parse_day(args.date) if args.date else date.today()
-    daily, weekly, followup_cap, notes = resolve_limits(args)
+    daily, weekly, followup_cap, inmail_cap, notes = resolve_limits(args)
     used = usage(read_events(args.log), today)
     day_n, week_n, followups_today = used["day_n"], used["week_n"], used["followups_day"]
     d_status, w_status = classify(day_n, daily), classify(week_n, weekly)
     f_status = classify(followups_today, followup_cap)
+    i_status = classify(used["inmail_day"], inmail_cap)
     print("Connection requests (%s)" % today.isoformat())
     print("  today      %3d / %-3d  %s" % (day_n, daily, d_status))
     print("  last %d d   %3d / %-3d  %s" % (WEEK_DAYS, week_n, weekly, w_status))
     print("  can still send today: %d" % max(0, min(daily - day_n, weekly - week_n)))
     print("Follow-up messages")
     print("  today      %3d / %-3d  %s" % (followups_today, followup_cap, f_status))
-    print("InMails sent: %d today, %d in the last %d days (not capped here: use the credits left)"
-          % (used["inmail_day"], used["inmail_week"], WEEK_DAYS))
+    print("InMail / Open Profile messages")
+    print("  today      %3d / %-3d  %s" % (used["inmail_day"], inmail_cap, i_status))
+    print("InMails sent: %d today, %d in the last %d days" % (used["inmail_day"], used["inmail_week"], WEEK_DAYS))
     for note in notes:
         print(note)
     if (daily > DAILY_CONNECTION_CAP or weekly > WEEKLY_CONNECTION_CAP
-            or followup_cap > DAILY_FOLLOWUP_CAP):
-        print("A limit is above its default (%d/day, %d/7 days, %d follow-ups/day): only with the user's explicit go."
-              % (DAILY_CONNECTION_CAP, WEEKLY_CONNECTION_CAP, DAILY_FOLLOWUP_CAP))
+            or followup_cap > DAILY_FOLLOWUP_CAP or inmail_cap > DAILY_INMAIL_CAP):
+        print("A limit is above its default (%d/day, %d/7 days, %d follow-ups/day, %d inmails/day): only with "
+              "the user's explicit go." % (DAILY_CONNECTION_CAP, WEEKLY_CONNECTION_CAP, DAILY_FOLLOWUP_CAP,
+                                           DAILY_INMAIL_CAP))
     scope = {"connection": (d_status, w_status), "followup": (f_status,),
-             "all": (d_status, w_status, f_status)}[args.scope]
+             "inmail": (i_status,), "all": (d_status, w_status, f_status, i_status)}[args.scope]
     reached = "CAP REACHED" in scope
     if reached:
         print("STOP: a cap is reached. Send nothing more of this kind until it clears.")
@@ -476,6 +491,8 @@ def build_parser():
                         help="7-day connection limit (default %d; lower is fine)" % WEEKLY_CONNECTION_CAP)
     limits.add_argument("--followup-daily", type=int, metavar="N",
                         help="follow-up messages per day (default %d; lower is fine)" % DAILY_FOLLOWUP_CAP)
+    limits.add_argument("--inmail-daily", type=int, metavar="N",
+                        help="InMail / Open Profile messages per day (default %d; lower is fine)" % DAILY_INMAIL_CAP)
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="command", required=True)
 
@@ -516,9 +533,9 @@ def build_parser():
     fu.add_argument("--note", default="")
 
     caps = sub.add_parser("caps", parents=[common, limits, over, first],
-                          help="today / last 7 days vs the connection-request caps")
+                          help="today / last 7 days vs the connection-request, follow-up and InMail caps")
     caps.add_argument("--date", metavar="YYYY-MM-DD", help="treat this as today")
-    caps.add_argument("--for", dest="scope", choices=["connection", "followup", "all"], default="all",
+    caps.add_argument("--for", dest="scope", choices=["connection", "followup", "inmail", "all"], default="all",
                       help="which caps decide the exit code: the kind of batch about to be sent (default %(default)s)")
 
     summ = sub.add_parser("summary", parents=[common, over, first],

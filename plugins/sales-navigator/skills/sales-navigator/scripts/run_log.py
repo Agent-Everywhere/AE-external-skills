@@ -324,8 +324,9 @@ def cmd_quota(args, log_path, limits):
         out_path = str(Path(log_path).with_name(OUTREACH_LOG))
     found = Path(out_path).is_file() and Path(out_path).stat().st_size > 0
     events = ol.read_events(out_path)
-    daily, weekly, followup, notes = ol.resolve_limits(argparse.Namespace(
-        daily=args.daily, weekly=args.weekly, followup_daily=args.followup_daily, allow_over_cap=False))
+    daily, weekly, followup, _inmail, notes = ol.resolve_limits(argparse.Namespace(
+        daily=args.daily, weekly=args.weekly, followup_daily=args.followup_daily, inmail_daily=None,
+        allow_over_cap=False))
     for note in notes:
         print(note, file=sys.stderr)
     q = quota_data(read_entries(log_path), events, limits, today, found, (daily, weekly, followup))
