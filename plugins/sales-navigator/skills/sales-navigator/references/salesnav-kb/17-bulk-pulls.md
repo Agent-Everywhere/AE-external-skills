@@ -1,6 +1,6 @@
 # 17 Bulk pulls: lists, searches, deep-scrape batches, companies to people
 
-One page for the three bulk jobs, with the engine snippet behind each step. Companion to page 15 (field lists, fill
+One page for the bulk jobs (list reads, searches, deep-scrape batches, companies to people), with the engine snippet behind each step. Companion to page 15 (field lists, fill
 rates, profile-view evidence) and page 14 (lists). Read-only. Re-measured 2026-10-18 on a real seat; the API is private,
 so on a 400 re-probe one field at a time.
 
@@ -11,8 +11,34 @@ fallback for a few misses only.
 
 | Side | List scrape | Search scrape | Deep-scrape batch (100 per call) | Companies to people |
 |---|---|---|---|---|
-| Companies | account list members: no read endpoint verified (pull the list's ids from the search that built it, or from your own file); `lists.js` reads list names and counts | `account_search.js` (100 rows per call, 1,000 viewable) | `companies_details.js` (`salesApiCompanies`) | n/a |
-| Contacts | lead list: `LEAD_LIST` filter in `lead_search.js` (UNTESTED, section 3); account lists feed people through `ACCOUNT_LIST` | `lead_search.js` (100 rows per call, 2,500 viewable) | `profiles_batch.js` (`salesApiProfiles`; `ids` for bare ACoA/ACwAA ids) | `company_chunks.py` builds the `CURRENT_COMPANY` queries, then `lead_search.js`, then `profiles_batch.js` |
+| Companies | account list members: `ACCOUNT_LIST` filter in `account_search.js` (VERIFIED 2026-10-18, section 0); `lists.js` finds the list id and size | `account_search.js` (100 rows per call, 1,000 viewable) | `companies_details.js` (`salesApiCompanies`) | n/a |
+| Contacts | lead list: `LEAD_LIST` filter in `lead_search.js` (VERIFIED 2026-10-18, section 0); account lists feed people through `ACCOUNT_LIST` | `lead_search.js` (100 rows per call, 2,500 viewable) | `profiles_batch.js` (`salesApiProfiles`; `ids` for bare ACoA/ACwAA ids) | `company_chunks.py` builds the `CURRENT_COMPANY` queries, then `lead_search.js`, then `profiles_batch.js` |
+
+## 0. List reads (VERIFIED 2026-10-18)
+
+Read a saved Sales Nav list in bulk, read-only (no list is modified). `account_search.js` and `lead_search.js` take any query
+string, so a list filter needs no code change: put it in `query`.
+
+- **Find the list id and size:** `lists.js` (`listType: 'ACCOUNT'` or `'LEAD'`, `all: true` to page). Underneath it is
+  `GET /sales-api/salesApiLists?q=listType&listType=ACCOUNT|LEAD&start=0&count=25` (25 a page; `id`, `name`, `entityCount`,
+  `listType`). Check `listType` against the filter you are about to use: an account list id in a `LEAD_LIST` filter (or the
+  reverse) is the wrong type.
+- **Account list to companies:** `account_search.js` with
+  `(filters:List((type:ACCOUNT_LIST,values:List((id:<listId>,selectionType:INCLUDED)))))`, 100 rows a page. The call behind it is
+  `GET /sales-api/salesApiAccountSearch?q=searchQuery&query=<that filter>&start=N&count=100&decorationId=com.linkedin.sales.deco.desktop.searchv2.AccountSearchResult-4`.
+  The company id is the last segment of each row's `entityUrn` (numeric) and feeds `salesApiCompanies` (section 1) directly.
+  - Page until a page returns fewer than 100 rows. `paging.total` is approximate (532 reported for a 537-account list, 1,052
+    for a 1,000-account one), so do not page to the total.
+  - Account search shows 1,000 rows a query, which equals the 1,000-account list cap, so one query reads a whole list.
+  - Measured: 37 of 37 (1 call), 537 of 537 (6 calls), 1,000 of 1,000 (10 calls); no duplicates.
+  - The list page's own entities call was not found (loading the list page fired only chrome and entitlement calls). Use the
+    `ACCOUNT_LIST` search.
+- **Lead list to people:** `lead_search.js` with
+  `(filters:List((type:LEAD_LIST,values:List((id:<listId>,selectionType:INCLUDED)))))`, `count` 100. Measured: 206 of 206 over 3
+  pages. On another list 25 of 26 came back: the occasional hidden, out-of-network or removed member is not returned, so
+  expect a count one or two under `entityCount`. The ACwAA ids in the rows feed `profiles_batch.js` (section 2).
+- **People at a list's accounts:** combine `ACCOUNT_LIST` with `SENIORITY_LEVEL` or `CURRENT_TITLE` filters in `lead_search.js`
+  (section 3, section 4).
 
 ## 1. Company deep-scrape (`companies_details.js`)
 
@@ -51,9 +77,9 @@ fallback for a few misses only.
   `FUNCTION` (25 is Sales), `RECENTLY_CHANGED_JOBS` (id `RPC`), `SENIORITY_LEVEL` (320 Owner/Partner, 310 CXO, 300 VP, 220 Director).
   Several seniorities in one query are OR'd; AND by adding another filter type.
   Example: headcount B + US + Sales + changed jobs + Owner/Partner = 761 leads.
-- **UNTESTED:** `LEAD_LIST` (a lead list as the scope: `(type:LEAD_LIST,values:List((id:<listId>,selectionType:INCLUDED)))`,
-  list ids from `lists.js` with `listType: 'LEAD'`); a copied Sales Nav search URL used as the query (`lead_search.js` strips
-  `recentSearchParam` and unquotes it once). Size with `count=1` before relying on either.
+- `LEAD_LIST` as the scope is verified (section 0); list ids come from `lists.js` with `listType: 'LEAD'`.
+- **UNTESTED:** a copied Sales Nav search URL used as the query (`lead_search.js` strips `recentSearchParam` and unquotes it
+  once). Size with `count=1` before relying on it.
 - `count=1` first on a new filter combination: it prints the total and saves no rows.
 - Search rows list current positions only, so a position's `endedOn` is always blank there.
 - Then `profiles_batch.js` with `urlsOnly` for public URL and headline, 100 leads per call.
@@ -68,10 +94,11 @@ fallback for a few misses only.
 3. A chunk whose total is over 2,500: split the chunk in half and rerun. Title lane (founder, co-founder, owner, CEO, chief
    executive, president, managing partner, principal) as a second query per chunk, then union by lead `entityUrn`.
 4. Post-filter locally: the lead's current-position company id is in the input set; title terms are word matches. "Vice
-   President" matches "president" and "Principal Engineer" matches "principal": drop "product owner" as an excluded title and
-   flag those false positives instead of keeping them. One row per (company, person).
+   President" matches "president" and "Principal Engineer" matches "principal": exclude "Product Owner"; flag "Vice President" /
+   "Principal ..." title matches for review rather than keeping them silently. One row per (company, person).
 5. `profiles_batch.js` over the lead ids for detail, 100 per call. Output one row per (company_id, person).
-- Measured: 511 companies gave 811 lead rows, 582 likely owners at 356 companies, 44 calls, about 5 minutes.
+- Measured: 511 companies gave 811 lead rows, 582 owner-titled rows after the post-filter (a current title matching owner, founder, co-founder, CEO, president or managing
+  partner, minus the false positives above) at 356 companies, 44 calls, about 5 minutes.
 
 ## Stop rules
 
