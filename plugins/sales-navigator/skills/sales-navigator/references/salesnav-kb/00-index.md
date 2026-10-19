@@ -35,7 +35,7 @@ Acme final: 537 accounts (T1 95 / T2 442) in one list, 517 contacts across 323 a
 | [14-lists.md](14-lists.md) | Create, save, filter by account lists; verified limits |
 | [15-batch-scrape.md](15-batch-scrape.md) | Batch-get tier: 100 ids per call, field lists and fill rates, profile-view evidence, tier comparison |
 | [16-diy-linkedin-endpoints.md](16-diy-linkedin-endpoints.md) | DIY without Unipile: endpoint map, verified/untested, gaps, caps with sources |
-| [17-bulk-pulls.md](17-bulk-pulls.md) | Lists, searches, 100-per-call deep scrapes, companies to people |
+| [17-bulk-pulls.md](17-bulk-pulls.md) | List reads, searches, 100-per-call deep scrapes, companies to people |
 | [18-posts-and-engagers.md](18-posts-and-engagers.md) | Creator posts, reactions, comments, content search (read-only) |
 | [20-rubric-template.md](20-rubric-template.md) | Keep / unsure / drop rubric and its fixes |
 
