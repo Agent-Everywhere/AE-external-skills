@@ -19,7 +19,7 @@ PLUGIN = ROOT / "plugins" / "sales-navigator"
 PLUGIN_SKILLS = PLUGIN / "skills"
 ENGINE_DIR = PLUGIN_SKILLS / "sales-navigator"
 SKILLS = ("sales-navigator", "salesnav-tam-accounts", "salesnav-tam-people", "salesnav-tam-tracker",
-          "salesnav-outreach")
+          "salesnav-outreach", "salesnav-diy-linkedin")
 PURPOSE = SKILLS[1:]
 
 # a folder reference that is not prefixed by $ENGINE/ or ${ENGINE}/ (and not the tail of a longer word)

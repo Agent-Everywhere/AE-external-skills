@@ -86,7 +86,7 @@ class HardRulesAndBudget(unittest.TestCase):
             self.assertIn(path.name, text)
 
     def test_word_budgets(self):
-        self.assertLessEqual(words(SKILL / "SKILL.md"), 1010)      # 0.7.1: +10 batch-scrape pointer; 0.6.1: +100 for the 4-step ENGINE block; 0.7.0: +100 lists, segments
+        self.assertLessEqual(words(SKILL / "SKILL.md"), 1045)      # 0.8.0: +35 bulk-pulls/posts pointers and company_chunks; 0.7.1: +10 batch-scrape pointer; 0.6.1: +100 for the 4-step ENGINE block; 0.7.0: +100 lists, segments
         self.assertLessEqual(words(SKILL / "reference.md"), 2990)  # 0.7.1: +40 batch limits, strict decoration; 0.6.1: +150 for the 4-step ENGINE block; 0.6.2: +150 count mode, intake; 0.7.0: +700 lists, ACCOUNT_LIST, segments, rubric
         self.assertLessEqual(words(SKILL / "recipes.md"), 950)   # 0.6.2: count mode; 0.7.0: multi-segment recipe
         total = sum(words(p) for p in SKILL.rglob("*.md") if KB not in p.parents)   # the KB is a separate shipped reference
@@ -100,7 +100,8 @@ class HardRulesAndBudget(unittest.TestCase):
     KB_PAGES = ["00-index.md", "01-navigation-basics.md", "02-filters-and-ids.md", "03-view-cap-and-slicing.md",
                 "04-industry-quirks.md", "05-rate-caps-and-pacing.md", "10-approach-segmented-merge.md",
                 "11-approach-broad-net-slicing.md", "12-approach-lookalike-plus-lanes.md",
-                "13-approach-account-first-people.md", "14-lists.md", "15-batch-scrape.md", "20-rubric-template.md"]
+                "13-approach-account-first-people.md", "14-lists.md", "15-batch-scrape.md", "16-diy-linkedin-endpoints.md",
+                "17-bulk-pulls.md", "18-posts-and-engagers.md", "20-rubric-template.md"]
 
     def test_the_kb_holds_exactly_the_expected_pages(self):
         self.assertEqual(sorted(p.name for p in KB.iterdir()), self.KB_PAGES)

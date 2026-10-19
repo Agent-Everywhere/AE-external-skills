@@ -3,7 +3,13 @@
 //   python3 runtime/session.py --emit profiles_batch.js --params '{...}' --compact   (add --form return if the tool needs `return`).
 // Run on a loaded, signed-in linkedin.com/sales page, after csrf_ready.js reports ready.
 // params: { leads: [entityUrn "urn:li:fs_salesProfile:(id,authType,authToken)", "id,authType,authToken", or
-//   { profileId, authType, authToken }], batch?: 25 (1..100), delayMs?: 3500, extras?: false }
+//   { profileId, authType, authToken }], ids?: [bare profile ids "ACoA..."/"ACwAA..."], batch?: 25 (1..100),
+//   delayMs?: 3500, extras?: false, urlsOnly?: false }
+// ids: bare profile ids, for when only the id is known (no entityUrn). Each becomes the triple
+//   (profileId:<id>,authType:NAME_SEARCH,authToken:x); verified in the wild on 214 profiles. Validated /^[\w-]+$/ (bad
+//   ones count in `invalid`) and deduped with `leads` on the same id key. leads and ids may be mixed in one call.
+// urlsOnly: true swaps in the minimal decoration (entityUrn,flagshipProfileUrl,headline) and returns per profile only
+//   { entityUrn, headline, profileUrl } (profileUrl is flagshipProfileUrl). urlsOnly wins over extras.
 // extras: true adds educations, skills, languages, numOfConnections, memberBadges, inmailRestriction and the lead's
 //   degree to the same single batch decoration (no extra call), plus endedOn and companyUrn on each position.
 //   Default behaviour is unchanged.
@@ -21,7 +27,7 @@
 //   skills [{ name, endorsements }], languages [{ name, proficiency }], numOfConnections, memberBadges
 //   { openLink, premium }, inmailRestriction, and per position endedOn, companyUrn,
 //   missing: [profileIds requested but not returned, matched via entityUrn], errors?: [keys of the response's errors] }
-//   or { status, error|body, profiles }
+//   or { status, error|body, profiles }; with urlsOnly each profile is just { entityUrn, headline, profileUrl }
 async (params) => {
   const p = params || {};
   const csrfMatch = (() => { try { return document.cookie; } catch (e) { return ''; } })().match(/JSESSIONID="?([^";]+)/);
@@ -43,11 +49,21 @@ async (params) => {
     keys.add(t[0]);
     triples.push(t);
   }
+  for (const v of (Array.isArray(p.ids) ? p.ids : [])) {
+    const id = typeof v === 'string' ? v : '';
+    if (!/^[\w-]+$/.test(id)) { invalid++; continue; }
+    if (keys.has(id)) continue;
+    keys.add(id);
+    triples.push([id, 'NAME_SEARCH', 'x']);
+  }
   if (!triples.length) return { status: 0, error: 'leads_required', invalid };
   const delay = Number.isFinite(p.delayMs) ? p.delayMs : 3500;
   const batch = Math.min(100, Math.max(1, Number.isInteger(p.batch) ? p.batch : 25));
-  const extras = p.extras === true;
-  const FIELDS = extras
+  const urlsOnly = p.urlsOnly === true;
+  const extras = p.extras === true && !urlsOnly;
+  const FIELDS = urlsOnly
+    ? '(entityUrn,flagshipProfileUrl,headline)'
+    : extras
     ? '(entityUrn,fullName,headline,summary,location,defaultPosition,degree,positions*(companyName,companyUrn,current,title,description,startedOn,endedOn),'
       + 'educations*(degree,endedOn,schoolName,startedOn,fieldsOfStudy*),skills*,languages*,numOfConnections,memberBadges,inmailRestriction)'
     : '(entityUrn,fullName,headline,summary,location,defaultPosition,positions*(companyName,current,title,description,startedOn))';
@@ -74,6 +90,10 @@ async (params) => {
       const entries = Array.isArray(res) ? res.map((x) => [x && x.entityUrn, x]) : Object.entries(res);
       for (const [key, x] of entries) {
         if (!x || typeof x !== 'object') continue;
+        if (urlsOnly) {
+          profiles.push({ entityUrn: x.entityUrn || String(key || ''), headline: x.headline || '', profileUrl: x.flagshipProfileUrl || '' });
+          continue;
+        }
         const positions = (x.positions || []).map((q) => ({
           companyName: q.companyName || '',
           title: q.title || '',

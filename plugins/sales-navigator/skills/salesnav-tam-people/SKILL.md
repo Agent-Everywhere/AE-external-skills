@@ -45,7 +45,7 @@ scoped by those company ids, an exact count per variant, and rows the user has c
 3. **Scope by account, account-first.** Before this step, read `$ENGINE/references/salesnav-kb/13-approach-account-first-people.md` and `$ENGINE/references/salesnav-kb/14-lists.md`. Preferred: the qualified accounts saved to an account list
    (`salesnav-tam-accounts`, step 9), then one lead search with an `ACCOUNT_LIST` filter (all shard lists, `<name>`, `<name> #2`...,
    OR'd in one `values`; no URL-length limit). Otherwise a `CURRENT_COMPANY` filter (ids as `urn:li:organization:<id>`)
-   in chunks of at most 400 ids (verified: 420 ok, 540 and more fail with HTTP 414; prove a new size with `count=1`). Add `SENIORITY_LEVEL`
+   in chunks of at most 400 ids (`$ENGINE/scripts/company_chunks.py` builds them; `$ENGINE/references/salesnav-kb/17-bulk-pulls.md`; prove a new size with `count=1`). Add `SENIORITY_LEVEL`
    (320 owner, 310 CXO, 300 VP, 220 director) and `CURRENT_TITLE` or `FUNCTION`, with roles by size band: under 50
    employees Founder, CEO, Owner; 50 or more Operations, Product Development, Supply Chain, COO, CFO; 2 to 3 people per
    account (a cap of people per account). Seniority alone returns every director: pair it with a title or function. Encoding and ids:

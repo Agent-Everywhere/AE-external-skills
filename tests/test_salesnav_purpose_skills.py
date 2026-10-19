@@ -1,4 +1,4 @@
-"""The four salesnav-* purpose skills: word and line budgets, hard rules, and their use of the one shared engine.
+"""The salesnav-* purpose skills: word and line budgets, hard rules, and their use of the one shared engine.
 
 The purpose skills hold only SKILL.md and skill.yaml; every tool lives once in the engine skill
 (plugins/sales-navigator/skills/sales-navigator) and is reached through ENGINE.
@@ -34,6 +34,9 @@ REQUIRED = {
     "salesnav-outreach": {"page/lead_search.js", "scripts/outreach_log.py", "scripts/run_log.py",
                           "scripts/workspace.py", "scripts/validate_csv.py", "scripts/doctor.py",
                           "templates/drafts.csv", "templates/company-profile.md", "reference.md"},
+    "salesnav-diy-linkedin": {"page/lead_search.js", "page/profile.js", "scripts/outreach_log.py",
+                              "scripts/run_log.py", "scripts/workspace.py", "scripts/validate_csv.py",
+                              "scripts/doctor.py", "templates/drafts.csv"},
 }
 NAMES = sorted(REQUIRED)
 # (words, lines) per SKILL.md; default (800, 76). 0.6.0: the accounts flow carries the intake steps; 0.6.1: 4-step ENGINE block;
@@ -41,16 +44,18 @@ NAMES = sorted(REQUIRED)
 # 0.7.0: accounts +multi-segment step, list save step and rubric (1400, 120); people +ACCOUNT_LIST scoping (900).
 # 0.7.x: KB read-before lines: accounts (1500, 124), tracker (870, 80), people stays (900, 76).
 # 0.7.2: outreach KB read-before lines (820, 76).
+# 0.8.0: DIY LinkedIn skill (880, 80; mirror framing sentence).
 BUDGET = {"salesnav-tam-accounts": (1500, 124), "salesnav-tam-people": (900, 76), "salesnav-tam-tracker": (870, 80),
-          "salesnav-outreach": (820, 76)}
+          "salesnav-outreach": (820, 76), "salesnav-diy-linkedin": (880, 80)}
 # Who reads what: references/salesnav-kb/00-index.md. Each SKILL.md names its pages as references/salesnav-kb/<file>.
 KB = TOOLKIT / "references" / "salesnav-kb"
 KB_READERS = {
-    "sales-navigator": ("01", "02", "05", "14", "15"),
+    "sales-navigator": ("01", "02", "05", "14", "15", "17", "18"),
     "salesnav-tam-accounts": ("03", "04", "10", "11", "12", "15", "20"),
-    "salesnav-tam-people": ("13", "14", "02", "15"),
+    "salesnav-tam-people": ("13", "14", "02", "15", "17"),
     "salesnav-tam-tracker": ("03", "05", "14"),
     "salesnav-outreach": ("01", "05"),
+    "salesnav-diy-linkedin": ("16", "05"),
 }
 # Files the user's workspace holds; a SKILL.md may name them without the engine shipping them.
 WORKSPACE_FILES = {"company-profile.md", "leads.csv", "accounts.csv", "tam_tracker.csv", "FILE.csv", "merged.csv",
@@ -77,7 +82,7 @@ def squash(name):
 
 
 class PurposeSkillFolders(unittest.TestCase):
-    def test_four_skills_exist_with_manifests(self):
+    def test_all_skills_exist_with_manifests(self):
         for name in NAMES:
             with self.subTest(skill=name):
                 m = sync_runtime.load_manifest(skill(name))

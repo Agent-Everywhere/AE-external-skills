@@ -35,8 +35,8 @@ REQUIRED_PAGE = (
     "profile.js", "profiles_batch.js", "typeahead.js",
 )
 REQUIRED_SCRIPTS = (
-    "dedupe.py", "doctor.py", "outreach_log.py", "run_log.py", "salesnav_rows.py", "segments.py", "shard_plan.py",
-    "tam_tracker.py", "validate_csv.py", "workspace.py",
+    "company_chunks.py", "dedupe.py", "doctor.py", "outreach_log.py", "run_log.py", "salesnav_rows.py", "segments.py",
+    "shard_plan.py", "tam_tracker.py", "validate_csv.py", "workspace.py",
 )
 KB_PAGES = (
     "00-index.md", "01-navigation-basics.md", "02-filters-and-ids.md", "03-view-cap-and-slicing.md",

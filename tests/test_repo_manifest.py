@@ -27,7 +27,8 @@ OTHER_PLUGINS = ["quickbooks"]
 PLUGIN = ROOT / "plugins" / "sales-navigator"
 PLUGIN_SKILLS = PLUGIN / "skills"
 ENGINE = PLUGIN_SKILLS / "sales-navigator"
-PURPOSE = ("salesnav-tam-accounts", "salesnav-tam-people", "salesnav-tam-tracker", "salesnav-outreach")
+PURPOSE = ("salesnav-tam-accounts", "salesnav-tam-people", "salesnav-tam-tracker", "salesnav-outreach",
+           "salesnav-diy-linkedin")
 
 
 def skill_dirs():

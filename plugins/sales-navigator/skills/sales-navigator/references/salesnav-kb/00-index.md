@@ -1,7 +1,7 @@
 # Sales Navigator KB
 
 Field notes for the `sales-navigator` plugin (engine plus `salesnav-tam-accounts`, `salesnav-tam-people`,
-`salesnav-tam-tracker`, `salesnav-outreach`). Written from live runs on a real seat; the Sales Nav API is private and can
+`salesnav-tam-tracker`, `salesnav-outreach`, `salesnav-diy-linkedin`). Written from live runs on a real seat; the Sales Nav API is private and can
 change. The skills are the procedure; these pages are the why, the numbers and the worked approaches.
 
 Worked example throughout: Acme Nutra, a US liquid-supplement contract manufacturer that wants own-label
@@ -12,11 +12,12 @@ Acme final: 537 accounts (T1 95 / T2 442) in one list, 517 contacts across 323 a
 
 | Skill | Pages |
 |---|---|
-| Engine (`sales-navigator`) | 01, 02, 05, 14, 15 |
+| Engine (`sales-navigator`) | 01, 02, 05, 14, 15, 17, 18 |
 | `salesnav-tam-accounts` | 03, 04, 10, 11, 12, 15, 20 |
-| `salesnav-tam-people` | 13, 14, 02, 15 |
+| `salesnav-tam-people` | 13, 14, 02, 15, 17 |
 | `salesnav-tam-tracker` | 03, 05, 14 |
 | `salesnav-outreach` | 01, 05 |
+| `salesnav-diy-linkedin` | 16, 05 |
 
 ## Pages
 
@@ -33,6 +34,9 @@ Acme final: 537 accounts (T1 95 / T2 442) in one list, 517 contacts across 323 a
 | [13-approach-account-first-people.md](13-approach-account-first-people.md) | People scoped by qualified accounts |
 | [14-lists.md](14-lists.md) | Create, save, filter by account lists; verified limits |
 | [15-batch-scrape.md](15-batch-scrape.md) | Batch-get tier: 100 ids per call, field lists and fill rates, profile-view evidence, tier comparison |
+| [16-diy-linkedin-endpoints.md](16-diy-linkedin-endpoints.md) | DIY without Unipile: endpoint map, verified/untested, gaps, caps with sources |
+| [17-bulk-pulls.md](17-bulk-pulls.md) | Lists, searches, 100-per-call deep scrapes, companies to people |
+| [18-posts-and-engagers.md](18-posts-and-engagers.md) | Creator posts, reactions, comments, content search (read-only) |
 | [20-rubric-template.md](20-rubric-template.md) | Keep / unsure / drop rubric and its fixes |
 
 ## Which approach
