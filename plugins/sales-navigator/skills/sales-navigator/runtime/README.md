@@ -37,7 +37,8 @@ need `pip install playwright` (it attaches to an existing browser). `session.py 
 **Param contract.** Each `$ENGINE/page/*.js` declares its params in its header: `// @params a b c`, and
 `// @required a b|c` (`b|c` = either). An unknown or missing key in a plan call or `--emit --params` exits 2
 before any browser is claimed, naming the snippet, the key, the accepted keys and a "did you mean". A new
-snippet must declare `@params` (a test fails without it).
+snippet should declare `@params` (the sales-navigator suite fails without it; undeclared snippets elsewhere
+are not checked).
 
 Validated before anything is claimed; `--skip-done` resumes from the JSONL. Paged calls default to 100
 pages (200 maximum); `"sample": true` with `pages.max_pages` marks a deliberate partial pull. A cloud plan

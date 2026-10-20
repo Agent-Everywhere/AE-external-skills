@@ -25,6 +25,20 @@ from test_page_snippets import NODE, run_snippet  # noqa: E402
 DUMMY_CDP = "http://127.0.0.1:1/never-contacted"  # a connect attempt here would fail loudly
 
 
+def params_read(body):
+    """Param names a snippet body reads off its params object (`p` or `params`): `p.x`, `p?.x`, `p['x']`,
+    `p["x"]` and `const { a, b: c = 1, ...rest } = p`."""
+    obj = r"\b(?:p|params)\b"
+    names = set(re.findall(obj + r"\s*\??\.\s*([A-Za-z_$][\w$]*)", body))
+    names |= set(re.findall(obj + r"\s*\??\.?\s*\[\s*['\"]([^'\"]+)['\"]\s*\]", body))
+    for group in re.findall(r"\{([^{}]*)\}\s*=\s*(?:p|params)\b(?!\s*[.\[])", body):
+        for part in group.split(","):
+            part = part.strip()
+            if part and not part.startswith("..."):
+                names.add(re.split(r"[:=\s]", part, maxsplit=1)[0])
+    return names
+
+
 def plan_with(snippet, params, **extra):
     call = {"id": "c1", "snippet": snippet, "params": params}
     call.update(extra)
@@ -52,8 +66,15 @@ class Declarations(unittest.TestCase):
                 source = path.read_text(encoding="utf-8")
                 accepted, _ = session.snippet_contract(source)
                 body = "\n".join(l for l in source.splitlines() if not l.lstrip().startswith("//"))
-                read = set(re.findall(r"\bp\.([A-Za-z_]\w*)", body))
-                self.assertEqual(sorted(read - set(accepted)), [], "read but not declared")
+                self.assertEqual(sorted(params_read(body) - set(accepted)), [], "read but not declared")
+
+    def test_params_read_detector_covers_every_access_form(self):
+        body = ("const a = p.one; const b = params.two; const c = p['three']; const d = params[\"four\"];\n"
+                "const { five, six: renamed, seven = 7, ...rest } = p;\n"
+                "let { eight } = params;\n"
+                "const e = p?.nine;")
+        self.assertEqual(params_read(body), {"one", "two", "three", "four", "five", "six", "seven", "eight", "nine"})
+        self.assertEqual(params_read("const { x } = other; const y = q.z; const w = p || {};"), set())
 
     def test_contract_parser(self):
         src = "// x\n// @params a b\n// @params c\n// @required a b|c\nasync (p) => 1"
@@ -94,6 +115,21 @@ class PlanValidation(unittest.TestCase):
         self.assertEqual(len(bad), 1)
         self.assertIn("ready", bad[0])
         self.assertIn("did you mean 'timeoutMs'", bad[0])
+
+    def test_delayMs_is_always_accepted_as_a_runner_key(self):
+        """session.py reads params.delayMs as plan-wide pacing, so a snippet need not list it in its header."""
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "paced.js").write_text("// @params a\n// @required a\nasync (p) => p.a")
+            dirs = [Path(d)]
+            self.assertEqual(session.validate_plan(plan_with("paced.js", {"a": 1, "delayMs": 3500}), dirs), [])
+            self.assertEqual(session.check_params("x", "paced.js", {"a": 1, "delayMs": 3500}, dirs), [])
+            bad = session.validate_plan(plan_with("paced.js", {"a": 1, "delayMz": 1}), dirs)
+            self.assertEqual(len(bad), 1)
+            self.assertIn("did you mean 'delayMs'", bad[0])
+        # a real snippet whose header does not list delayMs
+        self.assertNotIn("delayMs", session.snippet_contract((PAGE / "lead_search.js").read_text())[0])
+        self.assertEqual(session.validate_plan(plan_with("lead_search.js", {"query": "q", "delayMs": 3500}),
+                                               self.dirs), [])
 
     def test_undeclared_snippets_and_inline_js_are_not_checked(self):
         with tempfile.TemporaryDirectory() as d:

@@ -247,8 +247,13 @@ def snippet_contract(source):
     return (accepted, required) if declared else None
 
 
+# Plan-wide pacing keys the runner itself reads (see delayMs in validate_plan): accepted for any declared snippet.
+RUNNER_PARAMS = ("delayMs",)
+
+
 def check_params(label, snippet, params, dirs):
-    """Problems with the param names `params` hands to `snippet` (empty when fine or undeclared). No network."""
+    """Problems with the param names `params` hands to `snippet` (empty when fine or undeclared). No network.
+    Runner-level keys (RUNNER_PARAMS) are always accepted, whether or not the snippet's header lists them."""
     if not isinstance(params, dict):
         return []
     try:
@@ -258,6 +263,7 @@ def check_params(label, snippet, params, dirs):
     if contract is None:
         return []
     accepted, required = contract
+    accepted = accepted + [k for k in RUNNER_PARAMS if k not in accepted]
     name = Path(snippet).name
     bad = []
     for key in params:
