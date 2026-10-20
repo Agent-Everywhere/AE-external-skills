@@ -2,6 +2,8 @@
 // Standalone (browser JS tool): run it as the async IIFE  (<this function>)({...params})  or build that with
 //   python3 runtime/session.py --emit companies_websites.js --params '{...}' --compact   (add --form return if the tool needs `return`).
 // Run on a loaded, signed-in linkedin.com/sales page, after csrf_ready.js reports ready.
+// @params ids delayMs batch
+// @required ids
 // params: { ids: [company ids or "urn:li:fs_salesCompany:<id>" strings], delayMs?: 3500, batch?: 25 (1..100) }
 // Ids are sent `batch` per call (default 25); more are chunked with a pause. The endpoint accepts up to 100 ids
 // per call (200 and 300 return 400). The decoration must be URL-encoded exactly as below: raw parentheses

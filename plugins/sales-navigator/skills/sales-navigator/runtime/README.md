@@ -34,6 +34,11 @@ need `pip install playwright` (it attaches to an existing browser). `session.py 
 }
 ```
 
+**Param contract.** Each `$ENGINE/page/*.js` declares its params in its header: `// @params a b c`, and
+`// @required a b|c` (`b|c` = either). An unknown or missing key in a plan call or `--emit --params` exits 2
+before any browser is claimed, naming the snippet, the key, the accepted keys and a "did you mean". A new
+snippet must declare `@params` (a test fails without it).
+
 Validated before anything is claimed; `--skip-done` resumes from the JSONL. Paged calls default to 100
 pages (200 maximum); `"sample": true` with `pages.max_pages` marks a deliberate partial pull. A cloud plan
 is fixed up front, so dependent steps are one session each. Exit codes: 0 done; 2 bad plan; 3 not signed

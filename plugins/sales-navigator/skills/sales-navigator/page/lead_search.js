@@ -2,6 +2,8 @@
 // Standalone (browser JS tool): run it as the async IIFE  (<this function>)({...params})  or build that with
 //   python3 runtime/session.py --emit lead_search.js --params '{...}' --compact   (add --form return if the tool needs `return`).
 // Run on a loaded, signed-in linkedin.com/sales page, after csrf_ready.js reports ready.
+// @params query start count decorationId ignoreCap raw timeoutMs budgetMs
+// @required query
 // params: {
 //   query:  Rest.li search query, e.g. "(filters:List((type:CURRENT_TITLE,values:List((text:VP%20Operations,selectionType:INCLUDED)))))"
 //           A query copied from a page URL is cleaned (recentSearchParam stripped, unquoted once).

@@ -2,6 +2,8 @@
 // Standalone (browser JS tool): run it as the async IIFE  (<this function>)({...params})  or build that with
 //   python3 runtime/session.py --emit activity.js --params '{...}' --compact   (add --form return if the tool needs `return`).
 // Run on a loaded, signed-in linkedin.com/sales page, after csrf_ready.js reports ready.
+// @params lead days count
+// @required lead
 // params: {
 //   lead:   a Sales Nav lead URL, an entityUrn "urn:li:fs_salesProfile:(id,authType,authToken)", or
 //           "id,authType,authToken"

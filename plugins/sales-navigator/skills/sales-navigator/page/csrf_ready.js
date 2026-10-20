@@ -3,6 +3,8 @@
 //   python3 runtime/session.py --emit csrf_ready.js --params '{...}' --compact   (add --form return if the tool needs `return`).
 // Run on a loaded linkedin.com/sales page. The API token (JSESSIONID cookie) appears a moment
 // after load; calling the API before that returns 403 in about 100 ms.
+// @params timeoutMs
+// @required
 // params: { timeoutMs?: 10000 }
 // returns: { ready: boolean, path: string }   (the token itself is never returned)
 async (params) => {

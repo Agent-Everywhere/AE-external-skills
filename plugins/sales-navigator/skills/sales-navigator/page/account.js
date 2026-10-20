@@ -2,6 +2,8 @@
 // Standalone (browser JS tool): run it as the async IIFE  (<this function>)({...params})  or build that with
 //   python3 runtime/session.py --emit account.js --params '{...}' --compact   (add --form return if the tool needs `return`).
 // Run on a loaded, signed-in linkedin.com/sales page, after csrf_ready.js reports ready.
+// @params companyId headcount news count delayMs
+// @required companyId
 // params: {
 //   companyId:  the Sales Nav company id (digits) or "urn:li:fs_salesCompany:<id>"
 //   headcount?: true adds employee count and range, decision-maker count, median tenure, monthly headcount (2 more requests)

@@ -3,6 +3,8 @@
 // Standalone (browser JS tool): run it as the async IIFE  (<this function>)({...params})  or build that with
 //   python3 runtime/session.py --emit list_save_accounts.js --params '{...}' --compact   (add --form return if the tool needs `return`).
 // Run on a loaded, signed-in linkedin.com/sales page, after csrf_ready.js reports ready.
+// @params listId ids batch delayMs
+// @required listId ids
 // params: { listId: id of the account list (required), ids: [company ids or "urn:li:fs_salesCompany:<id>" strings;
 //   anything else is counted in `invalid`], batch?: 50 (1..50), delayMs?: 3500 between batches }
 // Verified: POST /sales-api/salesApiCompanies?action=save with JSON {"companyIds":[<int ids>],"lists":["<listId>"]};

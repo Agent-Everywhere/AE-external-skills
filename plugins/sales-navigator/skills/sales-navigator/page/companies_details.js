@@ -2,6 +2,8 @@
 // Standalone (browser JS tool): run it as the async IIFE  (<this function>)({...params})  or build that with
 //   python3 runtime/session.py --emit companies_details.js --params '{...}' --compact   (add --form return if the tool needs `return`).
 // Run on a loaded, signed-in linkedin.com/sales page, after csrf_ready.js reports ready.
+// @params ids fields batch delayMs
+// @required ids
 // params: { ids: [company ids or "urn:li:fs_salesCompany:<id>" strings; anything else is counted in `invalid`],
 //   fields?: [decoration field names] overriding the default set (names only; the rows then carry `id` plus only
 //   those keys), batch?: 100 (1..100), delayMs?: 3500 }

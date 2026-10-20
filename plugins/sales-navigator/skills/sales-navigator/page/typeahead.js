@@ -2,7 +2,10 @@
 // Standalone (browser JS tool): run it as the async IIFE  (<this function>)({...params})  or build that with
 //   python3 runtime/session.py --emit typeahead.js --params '{...}' --compact   (add --form return if the tool needs `return`).
 // Run on a loaded, signed-in linkedin.com/sales page, after csrf_ready.js reports ready.
+// @params type term terms query count delayMs
+// @required type term|terms|query
 // params: { type: 'BING_GEO' | 'INDUSTRY' | ..., term: 'text' (or terms: ['a','b']), count?: 10, delayMs?: 3500 }
+// `query` is accepted as an alias of `term` (it is LinkedIn's own parameter name); `terms` wins over both, `term` over `query`.
 // Geography uses type BING_GEO (the resulting filter type is REGION; United States = 103644278).
 // A wrong type or shape returns HTTP 200 with an EMPTY elements list: that is silent, so this
 // returns empty:true with the term. Treat empty as "no such value" and try another spelling or
@@ -13,7 +16,7 @@ async (params) => {
   const csrfMatch = (() => { try { return document.cookie; } catch (e) { return ''; } })().match(/JSESSIONID="?([^";]+)/);
   if (!csrfMatch) return { status: 0, error: 'csrf_missing' };
   if (!p.type) return { status: 0, error: 'type_required' };
-  const terms = Array.isArray(p.terms) ? p.terms : [p.term];
+  const terms = Array.isArray(p.terms) ? p.terms : [p.term || p.query];
   if (!terms.length || !terms[0]) return { status: 0, error: 'term_required' };
   const count = Math.min(25, Math.max(1, Number.isInteger(p.count) ? p.count : 10));
   const delay = Number.isFinite(p.delayMs) ? p.delayMs : 3500;
