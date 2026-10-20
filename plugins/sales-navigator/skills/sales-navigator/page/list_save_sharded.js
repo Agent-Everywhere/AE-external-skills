@@ -4,6 +4,8 @@
 // Standalone (browser JS tool): run it as the async IIFE  (<this function>)({...params})  or build that with
 //   python3 runtime/session.py --emit list_save_sharded.js --params '{...}' --compact   (add --form return if the tool needs `return`).
 // Run on a loaded, signed-in linkedin.com/sales page, after csrf_ready.js reports ready.
+// @params listId ids name shardAt batch delayMs readDelayMs maxShards
+// @required listId ids
 // params: { listId: id of the confirmed account list (required), ids: [company ids or "urn:li:fs_salesCompany:<id>";
 //   anything else is counted in `invalid`], name?: the confirmed list name (default: read from the list itself),
 //   shardAt?: 1000 (1..1000) the list size that triggers rotation, batch?: 50 (1..50), delayMs?: 3500 between saves,

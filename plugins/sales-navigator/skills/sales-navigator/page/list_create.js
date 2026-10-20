@@ -3,6 +3,8 @@
 // Standalone (browser JS tool): run it as the async IIFE  (<this function>)({...params})  or build that with
 //   python3 runtime/session.py --emit list_create.js --params '{...}' --compact   (add --form return if the tool needs `return`).
 // Run on a loaded, signed-in linkedin.com/sales page, after csrf_ready.js reports ready.
+// @params name listType description reuse delayMs
+// @required name listType
 // params: { name: the confirmed list name, listType: 'ACCOUNT' | 'LEAD', description?: text,
 //   reuse?: true to return the existing list with that name instead of refusing, delayMs?: 1500 between read pages }
 // Verified: POST /sales-api/salesApiLists with JSON {"name", "listType", "role":"OWNER"}; a body WITHOUT role returns 422.

@@ -2,6 +2,8 @@
 // Standalone (browser JS tool): run it as the async IIFE  (<this function>)({...params})  or build that with
 //   python3 runtime/session.py --emit lists.js --params '{...}' --compact   (add --form return if the tool needs `return`).
 // Run on a loaded, signed-in linkedin.com/sales page, after csrf_ready.js reports ready.
+// @params listType start count all delayMs name
+// @required
 // params: { listType?: 'ACCOUNT' (default) | 'LEAD', start?: 0, count?: 25 (1..25), all?: true to page through every
 //   list (delayMs? 1500 between pages, at most 40 pages), name?: only lists whose name equals this (case-insensitive) }
 // Verified: GET /sales-api/salesApiLists?q=listType&listType=ACCOUNT|LEAD&start=0&count=25 -> elements with id, name,

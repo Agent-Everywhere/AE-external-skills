@@ -78,6 +78,7 @@ overlap removed). Add `SENIORITY_LEVEL` and a title or function as usual.
   state by name and take the entry whose `displayValue` is the state itself ("Idaho, United States");
   seen: California `102095887`, Texas `102748797`, New York `105080838`, Florida `101318387`. Confirm a
   new id with `count=1`.
+- Typeahead params: `{type, term}` (`terms` for several; `query` aliases `term`); other keys are rejected.
 - Industry: typeahead `INDUSTRY`. Niche terms often resolve to nothing: use a parent industry plus keywords.
 
 ## Numbers

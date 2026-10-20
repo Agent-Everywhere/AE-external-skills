@@ -2,6 +2,8 @@
 // Standalone (browser JS tool): run it as the async IIFE  (<this function>)({...params})  or build that with
 //   python3 runtime/session.py --emit profiles_batch.js --params '{...}' --compact   (add --form return if the tool needs `return`).
 // Run on a loaded, signed-in linkedin.com/sales page, after csrf_ready.js reports ready.
+// @params leads ids batch delayMs extras urlsOnly
+// @required leads|ids
 // params: { leads: [entityUrn "urn:li:fs_salesProfile:(id,authType,authToken)", "id,authType,authToken", or
 //   { profileId, authType, authToken }], ids?: [bare profile ids "ACoA..."/"ACwAA..."], batch?: 25 (1..100),
 //   delayMs?: 3500, extras?: false, urlsOnly?: false }

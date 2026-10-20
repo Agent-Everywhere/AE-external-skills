@@ -2,6 +2,8 @@
 // Standalone (browser JS tool): run it as the async IIFE  (<this function>)({...params})  or build that with
 //   python3 runtime/session.py --emit account_search.js --params '{...}' --compact   (add --form return if the tool needs `return`).
 // Run on a loaded, signed-in linkedin.com/sales page, after csrf_ready.js reports ready.
+// @params query start count decorationId ignoreCap raw
+// @required query
 // params: {
 //   query:  Rest.li search query. Filters come FIRST, keywords are a top-level key after them:
 //           "(filters:List((type:REGION,values:List((id:103644278,selectionType:INCLUDED)))),keywords:supplement%20OR%20vitamin)"

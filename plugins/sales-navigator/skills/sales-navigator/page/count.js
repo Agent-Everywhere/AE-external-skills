@@ -2,6 +2,8 @@
 // Standalone (browser JS tool): run it as the async IIFE  (<this function>)({...params})  or build that with
 //   python3 runtime/session.py --emit count.js --params '{...}' --compact   (add --form return if the tool needs `return`).
 // Run on a loaded, signed-in linkedin.com/sales page, after csrf_ready.js reports ready.
+// @params kind query queries label delayMs
+// @required query|queries
 // params: {
 //   kind:    'lead' | 'account'
 //   query:   one Rest.li query string      (or)

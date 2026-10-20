@@ -49,6 +49,12 @@ expression taking a params object and returning JSON: `async (params) => { ... }
 page/ folder FIRST, then the plan's own folder, then --snippets-dir folders. Paged calls write one
 record per page with id "<id>#<start>".
 
+Param contract: a snippet declares its top-level param names in its header, `// @params a b c`, and
+the ones a call must carry in `// @required a b|c` (`b|c` = either). A plan call (and `--emit
+--params`) that names an undeclared key, or lacks a required one, is a bad plan (exit 2) reported
+BEFORE any browser is claimed or contacted, with the accepted names and a "did you mean" hint. A
+snippet with no `@params` line is not checked; inline "js" calls are never checked.
+
 Page budget: reference.md allows 100 search pages a day by default and never more than
 200 (search reads are generous, paced 3 to 5 s). A paged call stops after "max_pages" pages (default 100,
 at most 200) and a run executes at most "max_pages_total" pages of paged calls (default 100, or the
@@ -80,6 +86,7 @@ printed or written, together with any ws(s):// URL and cookie-shaped text (sessi
 token and similar). Snippets must never return cookies or tokens; this runner never reads them.
 """
 import argparse
+import difflib
 import hashlib
 import json
 import os
@@ -217,6 +224,58 @@ def load_snippet(ref, dirs):
         if path.is_file():
             return path.read_text(encoding="utf-8")
     raise FileNotFoundError("snippet %r not found in: %s" % (ref, ", ".join(str(d) for d in dirs)))
+
+
+def snippet_contract(source):
+    """Read a snippet's param contract from its leading `//` header: `// @params a b c` lists every accepted
+    top-level param name, `// @required a b|c` the ones a call must carry (`b|c` = either). Returns
+    (accepted, required) or None when the snippet declares no `@params` (then nothing is checked)."""
+    accepted, required, declared = [], [], False
+    for line in source.splitlines():
+        text = line.strip()
+        if text and not text.startswith("//"):
+            break
+        m = re.match(r"//\s*@(params|required)\b(.*)$", text)
+        if not m:
+            continue
+        names = m.group(2).split()
+        if m.group(1) == "params":
+            declared = True
+            accepted += names
+        else:
+            required += [alt.split("|") for alt in names]
+    return (accepted, required) if declared else None
+
+
+# Plan-wide pacing keys the runner itself reads (see delayMs in validate_plan): accepted for any declared snippet.
+RUNNER_PARAMS = ("delayMs",)
+
+
+def check_params(label, snippet, params, dirs):
+    """Problems with the param names `params` hands to `snippet` (empty when fine or undeclared). No network.
+    Runner-level keys (RUNNER_PARAMS) are always accepted, whether or not the snippet's header lists them."""
+    if not isinstance(params, dict):
+        return []
+    try:
+        contract = snippet_contract(load_snippet(snippet, dirs))
+    except (OSError, ValueError):
+        return []  # a missing snippet is reported by validate_plan
+    if contract is None:
+        return []
+    accepted, required = contract
+    accepted = accepted + [k for k in RUNNER_PARAMS if k not in accepted]
+    name = Path(snippet).name
+    bad = []
+    for key in params:
+        if key not in accepted:
+            near = difflib.get_close_matches(key, accepted, n=2, cutoff=0.6)
+            hint = " (did you mean %s?)" % " or ".join(repr(n) for n in near) if near else ""
+            bad.append("%s: %s does not accept param %r%s; accepted: %s"
+                       % (label, name, key, hint, ", ".join(accepted) or "(none)"))
+    for alts in required:
+        if not any(a in params for a in alts):
+            bad.append("%s: %s needs param %s" % (label, name, " or ".join(repr(a) for a in alts)))
+    return bad
 
 
 def call_hash(call, params):
@@ -406,7 +465,7 @@ def validate_plan(plan, dirs=None):
         if not isinstance(ready, dict) or bool(ready.get("snippet")) == bool(ready.get("js")):
             bad.append("ready needs exactly one of snippet / js")
         else:
-            refs.append(ready)
+            refs.append(("ready", ready))
             if "retries" in ready and not _is_int(ready["retries"], 1, 30):
                 bad.append("ready.retries must be 1..30")
             if "interval_ms" in ready and not _is_int(ready["interval_ms"], 500, 60000):
@@ -431,7 +490,7 @@ def validate_plan(plan, dirs=None):
             label = "call %r" % cid
         if bool(call.get("snippet")) == bool(call.get("js")):
             bad.append("%s needs exactly one of snippet / js" % label)
-        refs.append(call)
+        refs.append((label, call))
         params = call.get("params", {})
         if not isinstance(params, dict):
             bad.append("%s: params must be an object" % label)
@@ -450,12 +509,14 @@ def validate_plan(plan, dirs=None):
             if key in pages and not _is_int(pages[key], lo, hi):
                 bad.append("%s: pages.%s must be a whole number %d..%d" % (label, key, lo, hi))
     if dirs is not None:
-        for ref in refs:
+        for label, ref in refs:
             if ref.get("snippet"):
                 try:
                     load_snippet(ref["snippet"], dirs)
                 except (OSError, ValueError) as exc:
                     bad.append(str(exc))
+                else:
+                    bad += check_params(label, ref["snippet"], ref.get("params", {}), dirs)
     return bad
 
 
@@ -1061,8 +1122,19 @@ def make_auth_reporter(base, sid, token, log, post=None):
 def main(argv=None):
     args = build_parser().parse_args(argv)
     if args.emit:
-        print(emit_expression(args.emit, args.params, default_snippet_dirs(args.snippets_dir, args.plan),
-                              compact=args.compact, form=args.form))
+        emit_dirs = default_snippet_dirs(args.snippets_dir, args.plan)
+        try:
+            emit_params = json.loads(args.params)
+        except ValueError as exc:
+            print("error: --params is not valid JSON: %s" % str(exc)[:200], file=sys.stderr)
+            return EXIT_USAGE
+        problems = check_params("--emit", args.emit, emit_params, emit_dirs)
+        if problems:
+            print("error: the params do not fit the snippet (nothing was emitted):", file=sys.stderr)
+            for problem in problems:
+                print("  - " + problem, file=sys.stderr)
+            return EXIT_USAGE
+        print(emit_expression(args.emit, args.params, emit_dirs, compact=args.compact, form=args.form))
         return EXIT_OK
     if not (args.runtime and args.plan and args.out):
         print("error: --runtime, --plan and --out are required (or use --emit)", file=sys.stderr)
