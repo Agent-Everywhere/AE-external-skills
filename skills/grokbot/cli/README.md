@@ -143,7 +143,9 @@ session sources that matter there.
   `GROKBOT_POLICY=agent` off-box too) — a Grok Bot agent is driving itself. It may organize the
   sidebar (create/rename/hide/**delete** agents, sections move/create/**delete**, pins add/remove,
   send, tail, list). Destructive deletes still need `--yes` / `--confirm-count`. It may **not**
-  duplicate, interrupt, import sections, clear all pins, patch raw settings, or reach the
+  duplicate, interrupt, import sections, clear all pins, patch raw settings (`settings set`; use
+  `grokbot auto-review get|set|append` instead, which writes only `autoReviewInstructions`, rejects
+  empty values without `--clear`, and audits each write by sha256 + length under every policy), or reach the
   lower-level `gw`/`cursor`/`cdp`/`app`/`automations` surfaces (including
   `doctor`'s Cursor section, which is skipped under agent policy). A denied command exits **77**
   and is never run.

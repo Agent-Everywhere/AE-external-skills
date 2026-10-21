@@ -4594,6 +4594,9 @@ function agentState(a) {
   return "idle";
 }
 
+// src/cli.js
+import { createHash } from "node:crypto";
+
 // src/policy.js
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join as join3 } from "node:path";
@@ -4651,7 +4654,7 @@ function enforce(cmd, argv, env = process.env) {
   if (isDenied(path, policy)) {
     audit({ policy, path, argv, decision: "denied" }, env);
     const err = new UsageError(
-      `"${path}" is not available under the agent policy. Agents may organize and delete agents/sections (with --yes gates) but not reach below the host gateway (gw/cursor/cdp/app). A human runs denied commands from the Mac with GROKBOT_POLICY=operator.`
+      `"${path}" is not available under the agent policy. Agents may organize and delete agents/sections (with --yes gates) but not reach below the host gateway (gw/cursor/cdp/app); use "grokbot auto-review" for auto-review rules. A human runs denied commands from the Mac with GROKBOT_POLICY=operator.`
     );
     err.exitCode = 77;
     throw err;
@@ -5209,6 +5212,44 @@ Re-run with --yes.`);
     const value = JSON.parse(json);
     const r = await gw.setHostSettings({ [key]: value });
     printJson(r?.[key] ?? r);
+  });
+  const autoReview = program2.command("auto-review").description("Grok Bot auto-review rules (host setting autoReviewInstructions); allowed for agents");
+  const autoReviewValue = (s) => typeof s?.autoReviewInstructions === "string" ? s.autoReviewInstructions : "";
+  const auditAutoReviewWrite = (path, value) => audit({ policy: resolvePolicy(), path, event: "auto-review-write", sha256: createHash("sha256").update(value).digest("hex"), length: value.length });
+  const autoReviewOut = (cmd, value) => out(cmd, { autoReviewInstructions: value }, value === "" ? "(empty)\n" : value.endsWith("\n") ? value : value + "\n");
+  autoReview.command("get").description("Print the current auto-review instructions").action(async (_, cmd) => {
+    const gw = await gateway(cmd.optsWithGlobals());
+    autoReviewOut(cmd, autoReviewValue(await gw.getHostSettings()));
+  });
+  autoReview.command("set [text]").description("Replace the auto-review instructions (text argument, --file <path>, or --stdin; exactly one). Empty values need --clear").option("--file <path>", "read the instructions from a file").option("--stdin", "read the instructions from stdin").option("--clear", "set the instructions to empty (takes no other source)").action(async (text, o, cmd) => {
+    const sources = [text !== void 0, o.file !== void 0, Boolean(o.stdin)].filter(Boolean).length;
+    let value;
+    if (o.clear) {
+      if (sources !== 0) throw new UsageError("--clear takes no text, --file, or --stdin source.");
+      value = "";
+    } else {
+      if (sources !== 1) throw new UsageError("Give exactly one source: a [text] argument, --file <path>, or --stdin (or --clear to empty the rules).");
+      value = o.file !== void 0 ? readFileSync3(o.file, "utf8") : o.stdin ? readFileSync3(0, "utf8") : text;
+      if (value.trim() === "") throw new UsageError("Refusing to set empty auto-review instructions. Pass --clear to empty them deliberately.");
+    }
+    const gw = await gateway(cmd.optsWithGlobals());
+    const previous = autoReviewValue(await gw.getHostSettings());
+    process.stderr.write(`previous auto-review instructions length: ${previous.length}
+`);
+    const r = await gw.setHostSettings({ autoReviewInstructions: value });
+    auditAutoReviewWrite("auto-review set", value);
+    autoReviewOut(cmd, typeof r?.autoReviewInstructions === "string" ? r.autoReviewInstructions : value);
+  });
+  autoReview.command("append <text>").description("Append a line to the existing auto-review instructions; no-op if it is already the last line. Single-writer: read-modify-write, not atomic").action(async (text, _, cmd) => {
+    if (text.trim() === "") throw new UsageError("Refusing to append an empty line.");
+    const gw = await gateway(cmd.optsWithGlobals());
+    const cur2 = autoReviewValue(await gw.getHostSettings()).replace(/\n+$/, "");
+    if (cur2.split("\n").pop() === text && cur2 !== "") return autoReviewOut(cmd, cur2);
+    const value = cur2 ? `${cur2}
+${text}` : text;
+    const r = await gw.setHostSettings({ autoReviewInstructions: value });
+    auditAutoReviewWrite("auto-review append", value);
+    autoReviewOut(cmd, typeof r?.autoReviewInstructions === "string" ? r.autoReviewInstructions : value);
   });
   const groups = program2.command("groups").description("Group chats (rooms of agents)");
   groups.command("create <name> <members...>").option("-d, --description <text>").action(async (name, members, o, cmd) => {

@@ -51,6 +51,22 @@ Argument shapes marked ✓ were confirmed live by this CLI.
 | `getHostSettings` | – ✓ → `{sidebarSections, pinnedAgentIds, agentDefaultModel?, computerUseModel?, notifications, mcp*, autoReviewInstructions, localToolPermission, messagesEnabled, userTimeZone, webauthnProxyEnabled, hasSeenOnboarding}` |
 | `setHostSettings` | partial patch, e.g. `{sidebarSections:[{id,name,agentIds}]}` ✓ → merged settings |
 
+`autoReviewInstructions` is a free-form string. The CLI exposes it through a narrow command that is
+allowed under agent policy (raw `settings set` stays denied); `set` and `append` send exactly
+`{autoReviewInstructions: <string>}` to `setHostSettings`:
+
+```
+grokbot auto-review get
+grokbot auto-review set "<text>"          # or: --file rules.md | --stdin (exactly one source)
+grokbot auto-review set --clear           # the only way to set an empty value
+grokbot auto-review append "<line>"       # appends a line; no-op if it is already the last line
+```
+
+`set` rejects empty/whitespace-only values (any source) without `--clear`, and prints the previous
+value's length to stderr. `append` is a single-writer read-modify-write (get then set), not atomic:
+concurrent writers can lose each other's lines. Each write appends an audit record `{path, sha256,
+length}` of the new value to the audit log under every policy, including operator.
+
 ## Automations / workflows / skills / MCP / channels
 `listAllAutomations`, `getAgentAutomations`, `createAgentAutomation`, `updateAgentAutomation`, `deleteAgentAutomation`, `runAgentAutomationNow`, `setAgentAutomationEnabled`, `getAutomationWebhookCredential`;
 `getAgentWorkflows`, `createAgentWorkflow`, `updateAgentWorkflow`, `deleteAgentWorkflow`, `runAgentWorkflowNow`, `importAgentWorkflowText`, `importAgentWorkflowUrl`, `portAgentLocalSkills`;
