@@ -56,6 +56,22 @@ test("commandPath + enforce deny with exit 77 and audit both outcomes", () => {
   assert.equal(auditPath({ GROKBOT_AUDIT_LOG: "/x/y.jsonl" }), "/x/y.jsonl");
 });
 
+test("auto-review is allowed under agent policy while raw settings set stays denied", () => {
+  const dir = mkdtempSync(join(tmpdir(), "grokbot-policy-"));
+  const env = { GROKBOT_POLICY: "agent", GROKBOT_AUDIT_LOG: join(dir, "audit.jsonl") };
+  const p = buildProgram();
+  for (const name of ["get", "set", "append"]) {
+    const c = sub(p, "auto-review", name);
+    assert.equal(commandPath(c), `auto-review ${name}`);
+    assert.equal(isDenied(commandPath(c), "agent"), false);
+    assert.equal(enforce(c, ["auto-review", name], env), "agent");
+  }
+  assert.equal(isDenied("settings set", "agent"), true);
+  assert.throws(() => enforce(sub(p, "settings", "set"), ["settings", "set", "k", "1"], env), (e) => e.exitCode === 77);
+  const lines = readFileSync(env.GROKBOT_AUDIT_LOG, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  assert.deepEqual(lines.map((l) => [l.path, l.decision]), [["auto-review get", "allowed"], ["auto-review set", "allowed"], ["auto-review append", "allowed"], ["settings set", "denied"]]);
+});
+
 test("boxGatewaySession reads the host's gateway.json and talks to loopback", () => {
   const dir = mkdtempSync(join(tmpdir(), "grokbot-box-"));
   const p = join(dir, "gateway.json");

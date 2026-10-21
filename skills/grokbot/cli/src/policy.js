@@ -4,6 +4,8 @@
 //            organize (create/rename/hide/delete agents, sections, pins, send, tail, list) but may
 //            not reach below the host gateway (gw/cursor/cdp/app). Deletes still need --yes /
 //            --confirm-count. Group membership replace is allowed. Audited.
+//            `auto-review get|set|append` is allowed (Andi 2026-10-21): it writes only the
+//            autoReviewInstructions host setting, while raw `settings set` stays denied.
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
@@ -83,7 +85,7 @@ export function enforce(cmd, argv, env = process.env) {
   if (isDenied(path, policy)) {
     audit({ policy, path, argv, decision: "denied" }, env);
     const err = new UsageError(
-      `"${path}" is not available under the agent policy. Agents may organize and delete agents/sections (with --yes gates) but not reach below the host gateway (gw/cursor/cdp/app). A human runs denied commands from the Mac with GROKBOT_POLICY=operator.`,
+      `"${path}" is not available under the agent policy. Agents may organize and delete agents/sections (with --yes gates) but not reach below the host gateway (gw/cursor/cdp/app); use "grokbot auto-review" for auto-review rules. A human runs denied commands from the Mac with GROKBOT_POLICY=operator.`,
     );
     err.exitCode = 77;
     throw err;

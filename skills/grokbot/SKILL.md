@@ -30,6 +30,8 @@ Not the same as **grokbot-box**: use that skill if you are a Grok Bot agent runn
 - **Groups:** create a group chat of agents (`grokbot groups create`)
 - **Sections:** list, create, rename, move agents between sections, delete, import
 - **Pins:** list, add, remove, clear
+- **Auto-review rules:** `grokbot auto-review get|set|append` reads and updates only the
+  `autoReviewInstructions` host setting (allowed under the agent policy too; see below)
 - **Transcripts:** `agents tail`, `agents thread`, `agents outline`, `agents memories`
 - **Talking to agents:** `agents send <ref> "..." --wait` sends a prompt and prints the reply
 - **App lifecycle:** `grokbot app restart` (add `--debug` to expose the DevTools port), `app quit`, `app open`
@@ -84,8 +86,18 @@ grokbot pins list
 grokbot pins add <ref...>
 grokbot pins remove <ref...>
 
+grokbot auto-review get                              # current auto-review instructions
+grokbot auto-review set "<text>"                     # or --file <path> | --stdin (exactly one); --clear to empty
+grokbot auto-review append "<line>"                  # no-op if already the last line
+
 grokbot app restart --debug                          # relaunch the app with DevTools exposed
 ```
+
+`auto-review` is a narrow, agent-allowed alternative to the denied raw `settings set`: it writes
+only `autoReviewInstructions`. `set` rejects empty or whitespace-only values unless `--clear` is
+passed (alone), and prints the previous length to stderr. `append` is a single-writer
+read-modify-write, not atomic. Each write adds an audit record (`sha256` and `length` of the new
+value, never the value) under every policy, operator included.
 
 Deleting never runs blind: `grokbot agents delete --name "test-*" --created-before 7d --dry-run`
 prints the exact targets first; the real run needs `--yes` plus `--confirm-count N` equal to the
