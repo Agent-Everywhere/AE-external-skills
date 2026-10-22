@@ -91,6 +91,20 @@ app
 automations
 ```
 
+**Auto-review rules are allowed** (Andi 2026-10-21) through the narrow `auto-review` command,
+which writes only `autoReviewInstructions`; raw `settings set` stays denied:
+
+```sh
+grokbot auto-review get
+grokbot auto-review set "<rules>"        # or --file <path> / --stdin; empty refused unless --clear
+grokbot auto-review append "<one rule>"  # no-op if already the last line; single-writer
+```
+
+Each write adds an audit record with the new value's sha256 and length.
+
+**Update an existing clone** before relying on a newer command:
+`cd AE-external-skills && git pull --ff-only && (cd skills/grokbot/cli && npm install --omit=dev)`.
+
 (`doctor` still runs, but its Cursor section is skipped.) Removing pins one at a time reaches the
 same end state as the denied `pins clear`; it is allowed, so do not treat "not denied" as "off the
 record."
