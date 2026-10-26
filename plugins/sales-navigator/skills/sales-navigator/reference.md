@@ -76,8 +76,10 @@ overlap removed). Add `SENIORITY_LEVEL` and a title or function as usual.
   Bands do not sum to the total: include A and F+ when sharding.
 - Geography: `REGION` filter, ids from typeahead `BING_GEO`. United States `103644278`. Resolve a
   state by name and take the entry whose `displayValue` is the state itself ("Idaho, United States");
-  seen: California `102095887`, Texas `102748797`, New York `105080838`, Florida `101318387`. Confirm a
-  new id with `count=1`.
+  seen: California `102095887`, Texas `102748797`, New York `105080838`, Florida `101318387`, Utah `104102239`,
+  Colorado `105763813`, Illinois `101949407`, New Jersey `101651951`, Arizona `106032500`, Georgia `103950076`,
+  Washington `103977389`, Pennsylvania `102986501`, North Carolina `103255397`, Massachusetts `101098412`,
+  Ohio `106981407` (typeahead 2026-10-12). Confirm a new id with `count=1`.
 - Typeahead params: `{type, term}` (`terms` for several; `query` aliases `term`); other keys are rejected.
 - Industry: typeahead `INDUSTRY`. Niche terms often resolve to nothing: use a parent industry plus keywords.
 

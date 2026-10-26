@@ -87,10 +87,10 @@ class HardRulesAndBudget(unittest.TestCase):
 
     def test_word_budgets(self):
         self.assertLessEqual(words(SKILL / "SKILL.md"), 1045)      # 0.8.0: +35 bulk-pulls/posts pointers and company_chunks; 0.7.1: +10 batch-scrape pointer; 0.6.1: +100 for the 4-step ENGINE block; 0.7.0: +100 lists, segments
-        self.assertLessEqual(words(SKILL / "reference.md"), 3000)  # 0.8.1: +15 typeahead param line; 0.7.1: +40 batch limits, strict decoration; 0.6.1: +150 for the 4-step ENGINE block; 0.6.2: +150 count mode, intake; 0.7.0: +700 lists, ACCOUNT_LIST, segments, rubric
+        self.assertLessEqual(words(SKILL / "reference.md"), 3030)  # 0.8.1: +15 typeahead param line, +30 US state ids; 0.7.1: +40 batch limits, strict decoration; 0.6.1: +150 for the 4-step ENGINE block; 0.6.2: +150 count mode, intake; 0.7.0: +700 lists, ACCOUNT_LIST, segments, rubric
         self.assertLessEqual(words(SKILL / "recipes.md"), 950)   # 0.6.2: count mode; 0.7.0: multi-segment recipe
         total = sum(words(p) for p in SKILL.rglob("*.md") if KB not in p.parents)   # the KB is a separate shipped reference
-        self.assertLessEqual(total, 5990, total)  # 0.8.1: +90 param-contract paragraph and typeahead line; 0.7.1: +50 batch-scrape pointers and limits; 0.7.0: +50 loosened caps, saved-accounts guard, list sharding; +960 lists, segments, rubric, ACCOUNT_LIST; 0.6.2: +150 count mode; 0.6.1: +250 for the 4-step ENGINE block (x2 docs) and the reorder
+        self.assertLessEqual(total, 6020, total)  # 0.8.1: +90 param-contract paragraph and typeahead line, +30 US state ids; 0.7.1: +50 batch-scrape pointers and limits; 0.7.0: +50 loosened caps, saved-accounts guard, list sharding; +960 lists, segments, rubric, ACCOUNT_LIST; 0.6.2: +150 count mode; 0.6.1: +250 for the 4-step ENGINE block (x2 docs) and the reorder
 
     def test_only_the_slim_docs_remain(self):
         names = sorted(str(p.relative_to(SKILL)) for p in SKILL.rglob("*.md") if KB not in p.parents)

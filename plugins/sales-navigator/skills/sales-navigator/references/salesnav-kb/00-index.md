@@ -23,11 +23,11 @@ Acme final: 537 accounts (T1 95 / T2 442) in one list, 517 contacts across 323 a
 
 | File | Topic |
 |---|---|
-| [01-navigation-basics.md](01-navigation-basics.md) | Runtimes, ready gate, read-only API, workspace |
+| [01-navigation-basics.md](01-navigation-basics.md) | Runtimes, ready gate, read-only API, workspace, page-reading runners |
 | [02-filters-and-ids.md](02-filters-and-ids.md) | Query encoding, region, headcount, industry ids, lead filters |
 | [03-view-cap-and-slicing.md](03-view-cap-and-slicing.md) | 1,000 / 2,500 viewable caps, slicing order, overlap |
-| [04-industry-quirks.md](04-industry-quirks.md) | LinkedIn industry is not the ICP |
-| [05-rate-caps-and-pacing.md](05-rate-caps-and-pacing.md) | Pacing guards and execution quotas, logging, stop rules, budgets |
+| [04-industry-quirks.md](04-industry-quirks.md) | LinkedIn industry is not the ICP; keyword and API quirks |
+| [05-rate-caps-and-pacing.md](05-rate-caps-and-pacing.md) | Pacing guards and execution quotas, per-seat limits from outside sources, pacing tiers, seat cost, logging, stop rules, budgets |
 | [10-approach-segmented-merge.md](10-approach-segmented-merge.md) | A: niche ICP spread over many industries |
 | [11-approach-broad-net-slicing.md](11-approach-broad-net-slicing.md) | B: ICP matches 1 to 3 industries |
 | [12-approach-lookalike-plus-lanes.md](12-approach-lookalike-plus-lanes.md) | C: calibrate from real customers, keyword lanes |
