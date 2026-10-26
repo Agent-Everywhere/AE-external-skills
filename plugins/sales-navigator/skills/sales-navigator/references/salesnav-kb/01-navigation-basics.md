@@ -30,3 +30,29 @@ on every script call when it is not the default.
 
 One `count.js` call with about 24 queries hit `evaluate_timeout` in Agent Browser. Chunk to about 6 queries per call
 (`segments.py plan` does this). A timed-out call tells you nothing about the counts it was still running.
+
+## Runners that read rendered result pages
+
+The engine reads the API, not the page. A runner that loads Sales Nav search URLs and reads the rendered results
+(no clicks, no profile opens) learned these live on 2026-10-12:
+
+- **Never headless.** LinkedIn flags a `HeadlessChrome` user agent. Check the UA before the first search and refuse to
+  run headless.
+- **One run per seat.** Lock the seat (a lock file per machine) and do not use Sales Nav anywhere else while it runs.
+- **Human pacing.** 4 to 9 seconds (random) between result pages, a 30 to 60 second pause every 5 pages, and scroll like
+  a person so lazy rows load. Write output after every page so a stop loses nothing; rerun into the same folder to
+  dedupe.
+- **Auth probe first.** Load `/sales/home` and stop if the page title is not Sales Navigator.
+- **Page URLs double-encode free text** (space `%2520`, quote `%2522`); single-encoded keywords make the page hang on load.
+  The API takes them encoded once (page 02).
+- Selectors that held on the live UI:
+
+| What | Selector |
+|---|---|
+| Result count | `[class*="search-count-container"] span` (rounded above 1K: "2.5K+"; the API total is exact) |
+| Result rows | `li.artdeco-list__item` |
+| Full About text | `[data-anonymize="person-blurb"]` `title` attribute (the visible text is clamped) |
+| View cap | page text "view up to N results per search" |
+| Results page check | the filter panel shows "Company headcount" and "Headquarters location" |
+
+- Stop on the banner phrases listed in page 05, on a non-results page, and on sign-out. Do not retry.
