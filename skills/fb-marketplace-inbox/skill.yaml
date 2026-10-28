@@ -1,0 +1,6 @@
+# Per-skill manifest. Keep in step with .claude-plugin/marketplace.json (checked by tests).
+name: fb-marketplace-inbox
+version: 0.1.0
+category: productivity
+# Runs against the user's own signed-in Chrome over CDP (Node >= 22 for global WebSocket).
+runtimes: []
