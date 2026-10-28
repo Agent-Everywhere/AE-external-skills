@@ -7,7 +7,7 @@ another agent with shell or browser access, as noted per plugin below).
 
 ## What's in here
 
-Five plugins. Install only the ones you need.
+Six plugins. Install only the ones you need.
 
 | Plugin | What it is | Who it's for | Where it runs | Needs | Install |
 |---|---|---|---|---|---|
@@ -16,6 +16,7 @@ Five plugins. Install only the ones you need.
 | [`desktop-cowork`](skills/claude-desktop/SKILL.md) | Skill + helper script (`desktop.py`, using Peekaboo). The skill folder is `claude-desktop`; the plugin name avoids the `claude-` prefix, which the marketplace reserves | Claude Code on a Mac driving the Claude Desktop app: Cowork tasks, replies, approvals, projects, skills, connectors, plugins, scheduled tasks | Claude Code on your Mac, controlling the Desktop app by screenshots and clicks | macOS 15+, Peekaboo, Screen Recording / Accessibility / Automation permission | `/plugin install desktop-cowork@ae-external-skills` |
 | [`sales-navigator`](plugins/sales-navigator/skills/sales-navigator/SKILL.md) | One plugin bundling 6 skills: the `sales-navigator` toolkit plus `salesnav-tam-accounts`, `salesnav-tam-people`, `salesnav-tam-tracker`, `salesnav-outreach` and `salesnav-diy-linkedin` | Anyone with a LinkedIn Sales Navigator seat who sizes markets, builds lists and runs outreach | Claude Desktop / Cowork's built-in browser, your own Chrome, or Agent Browser | A signed-in Sales Navigator seat; Agent Browser only: the connector `https://browser-mcp-production-6535.up.railway.app/mcp` (Google sign-in) | `/plugin install sales-navigator@ae-external-skills` |
 | [`quickbooks`](plugins/quickbooks/skills/quickbooks/SKILL.md) | CLI + skill. The `qbo` command (bundled single-file Node CLI) plus a skill: doctor, lists, search, reports (P&L, balance sheet, aging, general ledger...), and approval-gated create / void / delete. Calls QuickBooks Online's own API from inside your signed-in tab, with page reading as a fallback | Anyone with a QuickBooks Online company who wants Claude to read the books and do small, approved bookkeeping steps | Claude Code (or any agent with shell access) attached to your own Chrome over CDP, or Agent Browser | Node 20+, a browser signed in to QuickBooks Online; Agent Browser only: the connector `https://browser-mcp-production-6535.up.railway.app/mcp` | `/plugin install quickbooks@ae-external-skills` |
+| [`fb-marketplace-inbox`](skills/fb-marketplace-inbox/SKILL.md) | Skill. Polls your Facebook Marketplace Selling inbox from signed-in Chrome over CDP, drafts replies from a per-listing answer bank, and sends only after you approve the exact text. GraphQL reads after the endpoint map is verified; the page reader until then | Someone selling on Marketplace who wants buyer questions surfaced and answered from facts they already approved | Claude Code (or any agent with shell access) attached to your own Chrome over CDP | Node 22+, Chrome remote debugging on port 9224, signed in to Facebook | `/plugin install fb-marketplace-inbox@ae-external-skills` |
 
 `grokbot` and `grokbot-box` are not the same thing: `grokbot` is for a human on a Mac, `grokbot-box`
 is for an agent inside a box. Each skill points to the other.
@@ -34,6 +35,8 @@ The `sales-navigator` plugin's six skills:
 > **Unofficial.** `quickbooks` is not affiliated with or endorsed by Intuit. It uses QuickBooks Online's web-app interfaces from your signed-in browser, which may change. Writes change real books and run only with `--yes` after you approve them.
 >
 > **Unofficial.** `grokbot` and `grokbot-box` are not affiliated with or endorsed by Cursor or xAI. They use Grok Bot's private, undocumented interfaces, which may change or break at any time. Use at your own risk: some commands can delete agents and sections.
+>
+> **Unofficial.** `fb-marketplace-inbox` is not affiliated with or endorsed by Meta. It reads Marketplace from your own signed-in Chrome. Facebook's private page calls change without notice. Sends run only after you approve the exact text.
 
 ## Install
 
@@ -46,6 +49,7 @@ The `sales-navigator` plugin's six skills:
 /plugin install desktop-cowork@ae-external-skills
 /plugin install sales-navigator@ae-external-skills
 /plugin install quickbooks@ae-external-skills
+/plugin install fb-marketplace-inbox@ae-external-skills
 ```
 
 ### Install in Claude Desktop (no GitHub)
@@ -144,7 +148,7 @@ packages/
 build/
   sync_runtime.py   # vendors packages/browser-runtime into each skill that lists a runtime (only the
                     # engine does); --check fails on drift
-skills/<skill-name>/    # the standalone plugins: grokbot, grokbot-box, claude-desktop
+skills/<skill-name>/    # the standalone plugins: grokbot, grokbot-box, claude-desktop, fb-marketplace-inbox
   SKILL.md          # entry point: frontmatter (name, description) + procedure
   skill.yaml        # manifest: name, version, category, runtimes ([] or [local, agent-browser])
   reference.md, recipes.md, references/   # optional on-demand docs, kept small

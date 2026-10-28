@@ -73,6 +73,20 @@
       ]
     },
     {
+      "name": "fb-marketplace-inbox",
+      "source": "./skills/fb-marketplace-inbox",
+      "description": "Skill: watch your Facebook Marketplace Selling inbox from your own signed-in Chrome, draft buyer replies from an answer bank, and send only after you approve the exact text. Reads use the page's own GraphQL once the endpoint map is verified; otherwise the page. Unofficial.",
+      "skills": [
+        "."
+      ],
+      "category": "productivity",
+      "tags": [
+        "facebook",
+        "marketplace",
+        "inbox"
+      ]
+    },
+    {
       "name": "quickbooks",
       "source": "./plugins/quickbooks",
       "version": "0.1.0",
