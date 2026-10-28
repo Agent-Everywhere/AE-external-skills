@@ -1,0 +1,7 @@
+# Per-skill manifest. Keep in step with .claude-plugin/marketplace.json (checked by tests).
+name: procurement-intel
+version: 0.1.0
+category: research
+# No page snippets or vendored browser runtime yet; capture is manual same-origin fetch in a signed-in tab.
+# When snippets land, set runtimes: [local] (and optionally agent-browser) like sales-navigator / quickbooks.
+runtimes: []

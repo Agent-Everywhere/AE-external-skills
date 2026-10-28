@@ -88,6 +88,26 @@
         "intuit",
         "browser"
       ]
+    },
+    {
+      "name": "procurement-intel",
+      "source": "./plugins/procurement-intel",
+      "version": "0.1.0",
+      "description": "2 skills: procurement-intel engine plus procurement-diy-endpoints for Sourcewell, Dodge One, and Apollo.io same-origin endpoint capture (SSO preferred, Bitwarden for passwords). Scaffold: UNTESTED placeholders until live capture.",
+      "strict": false,
+      "skills": [
+        "./skills/procurement-intel",
+        "./skills/procurement-diy-endpoints"
+      ],
+      "category": "research",
+      "tags": [
+        "procurement",
+        "sourcewell",
+        "dodge",
+        "apollo",
+        "endpoints",
+        "diy"
+      ]
     }
   ]
 }

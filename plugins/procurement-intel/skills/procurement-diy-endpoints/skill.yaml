@@ -1,0 +1,8 @@
+# Per-skill manifest. Keep in step with .claude-plugin/marketplace.json (checked by tests).
+name: procurement-diy-endpoints
+version: 0.1.0
+category: research
+# No files of its own: endpoint KB and hard rules live in the engine skill next to this folder
+# ($CLAUDE_PLUGIN_ROOT/skills/procurement-intel, or ../procurement-intel).
+engine: procurement-intel
+runtimes: []
