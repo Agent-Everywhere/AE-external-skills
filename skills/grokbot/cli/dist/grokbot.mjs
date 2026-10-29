@@ -4337,7 +4337,7 @@ var Gateway = class {
       const base = this._sectionsBase !== void 0 ? this._sectionsBase : await this.runtime.getSidebarSections();
       const stored = await this.runtime.setSidebarSections(sections, base);
       this._sectionsBase = stored;
-      await this._mirrorSections(sections, base);
+      await this._mirrorSections(Array.isArray(stored) ? stored : sections, base);
       return normalizeSections(stored);
     }
     const r = await this.setHostSettings({ sidebarSections: sections });

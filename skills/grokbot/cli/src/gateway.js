@@ -250,7 +250,9 @@ export class Gateway {
       const base = this._sectionsBase !== undefined ? this._sectionsBase : await this.runtime.getSidebarSections();
       const stored = await this.runtime.setSidebarSections(sections, base);
       this._sectionsBase = stored;
-      await this._mirrorSections(sections, base);
+      // Mirror what the server actually stored (it may amend the request), not what we asked for, so host and
+      // server never diverge after a server-side amendment.
+      await this._mirrorSections(Array.isArray(stored) ? stored : sections, base);
       return normalizeSections(stored);
     }
     const r = await this.setHostSettings({ sidebarSections: sections });
