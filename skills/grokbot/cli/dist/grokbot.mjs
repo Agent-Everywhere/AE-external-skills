@@ -3726,6 +3726,21 @@ var CursorClient = class {
   listUserComputers() {
     return this.rpc("ListGrokBotUserComputers", {});
   }
+  // Sidebar sections live in the per-user runtime settings on the control plane (the app no longer reads host settings).
+  async getSidebarSections() {
+    const r = await this.rpc("GetGrokBotUserRuntimeSettings", {});
+    const sections = r?.settings?.sidebarSections?.sections;
+    return Array.isArray(sections) ? sections : [];
+  }
+  // `base` is the optimistic-concurrency check (the sections we read before editing); omitted when not provided.
+  async setSidebarSections(sections, base) {
+    const body = { sidebarSections: { sections } };
+    if (base !== void 0 && base !== null) body.sidebarSectionsBase = { sections: base };
+    const r = await this.rpc("UpdateGrokBotUserRuntimeSettings", body);
+    const stored = r?.settings?.sidebarSections?.sections;
+    if (!Array.isArray(stored)) throw new CursorRpcError("UpdateGrokBotUserRuntimeSettings returned no sidebarSections", { method: "UpdateGrokBotUserRuntimeSettings", data: r });
+    return stored;
+  }
   runtimeCapabilities() {
     return this.rpc("GetGrokBotRuntimeCapabilities", {});
   }
@@ -3934,6 +3949,188 @@ function sleep(ms) {
 
 // src/gateway.js
 import { randomUUID } from "node:crypto";
+
+// src/output.js
+function printJson(value, { redactSecrets = true } = {}) {
+  const text = JSON.stringify(value, null, 2);
+  process.stdout.write((redactSecrets ? redact(text) : text) + "\n");
+}
+function table(rows, columns, { maxWidth = process.stdout.columns || 160 } = {}) {
+  if (rows.length === 0) return "(none)\n";
+  const cols = columns.map((c) => typeof c === "string" ? { key: c, label: c } : c);
+  const cells = rows.map((r) => cols.map((c) => fmtCell(c.get ? c.get(r) : r[c.key], c)));
+  const widths = cols.map((c, i) => Math.min(c.max ?? 60, Math.max(c.label.length, ...cells.map((row) => row[i].length))));
+  const line = (arr) => arr.map((v, i) => pad(v, widths[i])).join("  ").trimEnd();
+  const out2 = [line(cols.map((c) => c.label)), line(widths.map((w) => "-".repeat(w)))];
+  for (const row of cells) out2.push(line(row));
+  return out2.map((l) => l.length > maxWidth ? l.slice(0, maxWidth - 1) + "\u2026" : l).join("\n") + "\n";
+}
+function pad(v, w) {
+  if (v.length > w) return v.slice(0, Math.max(0, w - 1)) + "\u2026";
+  return v.padEnd(w);
+}
+function fmtCell(v, col) {
+  if (v == null) return "";
+  if (col.format) return String(col.format(v));
+  if (typeof v === "boolean") return v ? "yes" : "";
+  if (Array.isArray(v)) return v.join(",");
+  return String(v).replace(/\s+/g, " ");
+}
+function relTime(ms) {
+  if (!ms) return "";
+  const diff = Date.now() - Number(ms);
+  const abs = Math.abs(diff);
+  const units = [
+    [6e4, "s", 1e3],
+    [36e5, "m", 6e4],
+    [864e5, "h", 36e5],
+    [7 * 864e5, "d", 864e5],
+    [Infinity, "w", 7 * 864e5]
+  ];
+  for (const [limit, label, div] of units) {
+    if (abs < limit) return `${Math.floor(abs / div)}${label}${diff < 0 ? " ahead" : ""}`;
+  }
+  return "";
+}
+function shortId(id, n = 8) {
+  return id ? String(id).slice(0, n) : "";
+}
+function pluralize(n, word) {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+var UsageError = class extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "UsageError";
+    this.exitCode = 64;
+  }
+};
+
+// src/sections.js
+function normalizeSections(raw) {
+  if (!Array.isArray(raw)) return [];
+  const seen = /* @__PURE__ */ new Set();
+  const out2 = [];
+  for (const s of raw) {
+    if (!s || typeof s !== "object" || typeof s.id !== "string" || typeof s.name !== "string") continue;
+    const agentIds = [];
+    for (const id of Array.isArray(s.agentIds) ? s.agentIds : []) {
+      if (typeof id === "string" && !seen.has(id)) {
+        seen.add(id);
+        agentIds.push(id);
+      }
+    }
+    const section = { ...s, id: s.id, name: s.name, agentIds };
+    if (typeof s.isCollapsed !== "boolean") delete section.isCollapsed;
+    out2.push(section);
+  }
+  return out2;
+}
+function newSectionId(now = Date.now(), n = Math.floor(Math.random() * 90) + 10) {
+  return `section-${now.toString(36)}-${n}`;
+}
+function findSection(sections, ref) {
+  if (!ref) return null;
+  const exact = sections.find((s) => s.id === ref);
+  if (exact) return exact;
+  const byName = sections.filter((s) => s.name.toLowerCase() === String(ref).toLowerCase());
+  if (byName.length === 1) return byName[0];
+  if (byName.length > 1) throw new UsageError(`Section name "${ref}" is ambiguous (${byName.map((s) => s.id).join(", ")}); use the id.`);
+  const partial = sections.filter((s) => s.name.toLowerCase().includes(String(ref).toLowerCase()));
+  if (partial.length === 1) return partial[0];
+  if (partial.length > 1) throw new UsageError(`Section "${ref}" matches ${partial.length} sections: ${partial.map((s) => s.name).join(", ")}`);
+  return null;
+}
+function requireSection(sections, ref) {
+  const s = findSection(sections, ref);
+  if (!s) throw new UsageError(`No section matches "${ref}". Known: ${sections.map((s2) => s2.name).join(", ") || "(none)"}`);
+  return s;
+}
+function createSection(sections, name, agentIds = [], { id = newSectionId(), position = null } = {}) {
+  const clean = String(name).trim();
+  if (!clean) throw new UsageError("Section name cannot be blank.");
+  if (sections.some((s) => s.name.toLowerCase() === clean.toLowerCase())) throw new UsageError(`Section "${clean}" already exists.`);
+  const next = assignAgents(sections, null, agentIds);
+  const section = { id, name: clean, agentIds: [...new Set(agentIds)] };
+  if (position == null || position >= next.length) next.push(section);
+  else next.splice(Math.max(0, position), 0, section);
+  return { sections: next, section };
+}
+function renameSection(sections, ref, name) {
+  const target = requireSection(sections, ref);
+  if (BUILTIN_SECTION_IDS.has(target.id)) throw new UsageError(`"${target.name}" is the app's built-in bucket and cannot be renamed.`);
+  const clean = String(name).trim();
+  if (!clean) throw new UsageError("Section name cannot be blank.");
+  if (sections.some((s) => s.id !== target.id && s.name.toLowerCase() === clean.toLowerCase())) throw new UsageError(`Section "${clean}" already exists.`);
+  return { sections: sections.map((s) => s.id === target.id ? { ...s, name: clean } : s), section: { ...target, name: clean } };
+}
+var BUILTIN_SECTION_IDS = /* @__PURE__ */ new Set(["__agents__"]);
+function deleteSection(sections, ref) {
+  const target = requireSection(sections, ref);
+  if (BUILTIN_SECTION_IDS.has(target.id)) throw new UsageError(`"${target.name}" is the app's built-in bucket and cannot be deleted.`);
+  return { sections: sections.filter((s) => s.id !== target.id), section: target, released: target.agentIds };
+}
+function assignAgents(sections, ref, agentIds) {
+  const target = ref == null ? null : requireSection(sections, ref);
+  const ids = new Set(agentIds);
+  return sections.map((s) => {
+    const kept = s.agentIds.filter((id) => !ids.has(id));
+    if (target && s.id === target.id) return { ...s, agentIds: [...kept, ...agentIds.filter((id, i, arr) => arr.indexOf(id) === i)] };
+    return { ...s, agentIds: kept };
+  });
+}
+function moveSection(sections, ref, position) {
+  const target = requireSection(sections, ref);
+  const rest = sections.filter((s) => s.id !== target.id);
+  const idx = Math.min(Math.max(0, position), rest.length);
+  rest.splice(idx, 0, target);
+  return rest;
+}
+function sortSections(sections, { by = "name" } = {}) {
+  const copy = [...sections];
+  if (by === "name") copy.sort((a, b) => a.name.localeCompare(b.name));
+  else if (by === "size") copy.sort((a, b) => b.agentIds.length - a.agentIds.length);
+  return copy;
+}
+function pruneSections(sections, liveAgentIds, { dropEmpty = false } = {}) {
+  const live = new Set(liveAgentIds);
+  let removed = 0;
+  let next = sections.map((s) => {
+    const agentIds = s.agentIds.filter((id) => live.has(id));
+    removed += s.agentIds.length - agentIds.length;
+    return { ...s, agentIds };
+  });
+  let droppedSections = [];
+  if (dropEmpty) {
+    droppedSections = next.filter((s) => s.agentIds.length === 0 && !BUILTIN_SECTION_IDS.has(s.id));
+    next = next.filter((s) => s.agentIds.length > 0 || BUILTIN_SECTION_IDS.has(s.id));
+  }
+  return { sections: next, removed, droppedSections };
+}
+function sectionIdByAgent(sections) {
+  const map = /* @__PURE__ */ new Map();
+  for (const s of sections) for (const id of s.agentIds) if (!map.has(id)) map.set(id, s.id);
+  return map;
+}
+function sectionsDiff(before, after) {
+  const b = new Map(before.map((s) => [s.id, s]));
+  const a = new Map(after.map((s) => [s.id, s]));
+  const changes = [];
+  for (const s of after) {
+    const prev = b.get(s.id);
+    if (!prev) changes.push(`+ section "${s.name}" (${s.agentIds.length} agents)`);
+    else {
+      if (prev.name !== s.name) changes.push(`~ rename "${prev.name}" \u2192 "${s.name}"`);
+      const added = s.agentIds.filter((id) => !prev.agentIds.includes(id)).length;
+      const removed = prev.agentIds.filter((id) => !s.agentIds.includes(id)).length;
+      if (added || removed) changes.push(`~ "${s.name}": +${added} \u2212${removed} agents`);
+    }
+  }
+  for (const s of before) if (!a.has(s.id)) changes.push(`\u2212 section "${s.name}" (${s.agentIds.length} agents released)`);
+  return changes;
+}
+
+// src/gateway.js
 var GatewayError = class extends Error {
   constructor(message, extra = {}) {
     super(redact(message));
@@ -3943,11 +4140,15 @@ var GatewayError = class extends Error {
   }
 };
 var Gateway = class {
-  constructor(session, { fetchImpl = fetch, timeoutMs = 6e4 } = {}) {
+  // `runtime` (optional CursorClient-like): when set, sidebar sections are read/written on the Cursor control plane.
+  constructor(session, { fetchImpl = fetch, timeoutMs = 6e4, runtime = null } = {}) {
     if (!session?.baseUrl || !session?.token) throw new GatewayError("Gateway session is missing baseUrl or token.");
     this.session = { ...session, baseUrl: String(session.baseUrl).replace(/\/+$/, "") };
     this.fetch = fetchImpl;
     this.timeoutMs = timeoutMs;
+    this.runtime = runtime;
+    this._sectionsBase = void 0;
+    this.lastSectionsMirror = null;
     this._roster = null;
   }
   get baseUrl() {
@@ -4123,12 +4324,46 @@ var Gateway = class {
     return this.call("setHostSettings", patch);
   }
   async getSections() {
+    if (this.runtime) {
+      const raw = await this.runtime.getSidebarSections();
+      this._sectionsBase = raw;
+      return normalizeSections(raw);
+    }
     const s = await this.getHostSettings();
-    return Array.isArray(s?.sidebarSections) ? s.sidebarSections : [];
+    return normalizeSections(s?.sidebarSections);
   }
   async setSections(sections) {
+    if (this.runtime) {
+      const base = this._sectionsBase !== void 0 ? this._sectionsBase : await this.runtime.getSidebarSections();
+      const stored = await this.runtime.setSidebarSections(sections, base);
+      this._sectionsBase = stored;
+      await this._mirrorSections(sections, base);
+      return normalizeSections(stored);
+    }
     const r = await this.setHostSettings({ sidebarSections: sections });
-    return Array.isArray(r?.sidebarSections) ? r.sidebarSections : sections;
+    return normalizeSections(Array.isArray(r?.sidebarSections) ? r.sidebarSections : sections);
+  }
+  // Best-effort mirror for older hosts/apps that still read host settings. Never fails setSections, but never
+  // silent either: the outcome is recorded in this.lastSectionsMirror and failures warn on stderr. Skipped when the
+  // server layout was empty (only built-in buckets) while the host already has a layout, so we do not clobber it.
+  async _mirrorSections(sections, base) {
+    try {
+      const serverEmpty = normalizeSections(base).every((x) => BUILTIN_SECTION_IDS.has(x.id));
+      if (serverEmpty) {
+        const host = await this.getHostSettings();
+        if (Array.isArray(host?.sidebarSections) && host.sidebarSections.length > 0) {
+          this.lastSectionsMirror = { ok: false, skipped: true, reason: "server sections empty while host sections are non-empty" };
+          return;
+        }
+      }
+      await this.setHostSettings({ sidebarSections: sections });
+      this.lastSectionsMirror = { ok: true };
+    } catch (e) {
+      const reason = e?.message ?? String(e);
+      this.lastSectionsMirror = { ok: false, reason };
+      process.stderr.write(`grokbot: warning: host sections mirror failed: ${reason}
+`);
+    }
   }
   async getPinned() {
     const s = await this.getHostSettings();
@@ -4312,184 +4547,6 @@ function desktopStatus() {
   }
 }
 
-// src/output.js
-function printJson(value, { redactSecrets = true } = {}) {
-  const text = JSON.stringify(value, null, 2);
-  process.stdout.write((redactSecrets ? redact(text) : text) + "\n");
-}
-function table(rows, columns, { maxWidth = process.stdout.columns || 160 } = {}) {
-  if (rows.length === 0) return "(none)\n";
-  const cols = columns.map((c) => typeof c === "string" ? { key: c, label: c } : c);
-  const cells = rows.map((r) => cols.map((c) => fmtCell(c.get ? c.get(r) : r[c.key], c)));
-  const widths = cols.map((c, i) => Math.min(c.max ?? 60, Math.max(c.label.length, ...cells.map((row) => row[i].length))));
-  const line = (arr) => arr.map((v, i) => pad(v, widths[i])).join("  ").trimEnd();
-  const out2 = [line(cols.map((c) => c.label)), line(widths.map((w) => "-".repeat(w)))];
-  for (const row of cells) out2.push(line(row));
-  return out2.map((l) => l.length > maxWidth ? l.slice(0, maxWidth - 1) + "\u2026" : l).join("\n") + "\n";
-}
-function pad(v, w) {
-  if (v.length > w) return v.slice(0, Math.max(0, w - 1)) + "\u2026";
-  return v.padEnd(w);
-}
-function fmtCell(v, col) {
-  if (v == null) return "";
-  if (col.format) return String(col.format(v));
-  if (typeof v === "boolean") return v ? "yes" : "";
-  if (Array.isArray(v)) return v.join(",");
-  return String(v).replace(/\s+/g, " ");
-}
-function relTime(ms) {
-  if (!ms) return "";
-  const diff = Date.now() - Number(ms);
-  const abs = Math.abs(diff);
-  const units = [
-    [6e4, "s", 1e3],
-    [36e5, "m", 6e4],
-    [864e5, "h", 36e5],
-    [7 * 864e5, "d", 864e5],
-    [Infinity, "w", 7 * 864e5]
-  ];
-  for (const [limit, label, div] of units) {
-    if (abs < limit) return `${Math.floor(abs / div)}${label}${diff < 0 ? " ahead" : ""}`;
-  }
-  return "";
-}
-function shortId(id, n = 8) {
-  return id ? String(id).slice(0, n) : "";
-}
-function pluralize(n, word) {
-  return `${n} ${word}${n === 1 ? "" : "s"}`;
-}
-var UsageError = class extends Error {
-  constructor(message) {
-    super(message);
-    this.name = "UsageError";
-    this.exitCode = 64;
-  }
-};
-
-// src/sections.js
-function normalizeSections(raw) {
-  if (!Array.isArray(raw)) return [];
-  const seen = /* @__PURE__ */ new Set();
-  const out2 = [];
-  for (const s of raw) {
-    if (!s || typeof s !== "object" || typeof s.id !== "string" || typeof s.name !== "string") continue;
-    const agentIds = [];
-    for (const id of Array.isArray(s.agentIds) ? s.agentIds : []) {
-      if (typeof id === "string" && !seen.has(id)) {
-        seen.add(id);
-        agentIds.push(id);
-      }
-    }
-    out2.push({ id: s.id, name: s.name, agentIds });
-  }
-  return out2;
-}
-function newSectionId(now = Date.now(), n = Math.floor(Math.random() * 90) + 10) {
-  return `section-${now.toString(36)}-${n}`;
-}
-function findSection(sections, ref) {
-  if (!ref) return null;
-  const exact = sections.find((s) => s.id === ref);
-  if (exact) return exact;
-  const byName = sections.filter((s) => s.name.toLowerCase() === String(ref).toLowerCase());
-  if (byName.length === 1) return byName[0];
-  if (byName.length > 1) throw new UsageError(`Section name "${ref}" is ambiguous (${byName.map((s) => s.id).join(", ")}); use the id.`);
-  const partial = sections.filter((s) => s.name.toLowerCase().includes(String(ref).toLowerCase()));
-  if (partial.length === 1) return partial[0];
-  if (partial.length > 1) throw new UsageError(`Section "${ref}" matches ${partial.length} sections: ${partial.map((s) => s.name).join(", ")}`);
-  return null;
-}
-function requireSection(sections, ref) {
-  const s = findSection(sections, ref);
-  if (!s) throw new UsageError(`No section matches "${ref}". Known: ${sections.map((s2) => s2.name).join(", ") || "(none)"}`);
-  return s;
-}
-function createSection(sections, name, agentIds = [], { id = newSectionId(), position = null } = {}) {
-  const clean = String(name).trim();
-  if (!clean) throw new UsageError("Section name cannot be blank.");
-  if (sections.some((s) => s.name.toLowerCase() === clean.toLowerCase())) throw new UsageError(`Section "${clean}" already exists.`);
-  const next = assignAgents(sections, null, agentIds);
-  const section = { id, name: clean, agentIds: [...new Set(agentIds)] };
-  if (position == null || position >= next.length) next.push(section);
-  else next.splice(Math.max(0, position), 0, section);
-  return { sections: next, section };
-}
-function renameSection(sections, ref, name) {
-  const target = requireSection(sections, ref);
-  if (BUILTIN_SECTION_IDS.has(target.id)) throw new UsageError(`"${target.name}" is the app's built-in bucket and cannot be renamed.`);
-  const clean = String(name).trim();
-  if (!clean) throw new UsageError("Section name cannot be blank.");
-  if (sections.some((s) => s.id !== target.id && s.name.toLowerCase() === clean.toLowerCase())) throw new UsageError(`Section "${clean}" already exists.`);
-  return { sections: sections.map((s) => s.id === target.id ? { ...s, name: clean } : s), section: { ...target, name: clean } };
-}
-var BUILTIN_SECTION_IDS = /* @__PURE__ */ new Set(["__agents__"]);
-function deleteSection(sections, ref) {
-  const target = requireSection(sections, ref);
-  if (BUILTIN_SECTION_IDS.has(target.id)) throw new UsageError(`"${target.name}" is the app's built-in bucket and cannot be deleted.`);
-  return { sections: sections.filter((s) => s.id !== target.id), section: target, released: target.agentIds };
-}
-function assignAgents(sections, ref, agentIds) {
-  const target = ref == null ? null : requireSection(sections, ref);
-  const ids = new Set(agentIds);
-  return sections.map((s) => {
-    const kept = s.agentIds.filter((id) => !ids.has(id));
-    if (target && s.id === target.id) return { ...s, agentIds: [...kept, ...agentIds.filter((id, i, arr) => arr.indexOf(id) === i)] };
-    return { ...s, agentIds: kept };
-  });
-}
-function moveSection(sections, ref, position) {
-  const target = requireSection(sections, ref);
-  const rest = sections.filter((s) => s.id !== target.id);
-  const idx = Math.min(Math.max(0, position), rest.length);
-  rest.splice(idx, 0, target);
-  return rest;
-}
-function sortSections(sections, { by = "name" } = {}) {
-  const copy = [...sections];
-  if (by === "name") copy.sort((a, b) => a.name.localeCompare(b.name));
-  else if (by === "size") copy.sort((a, b) => b.agentIds.length - a.agentIds.length);
-  return copy;
-}
-function pruneSections(sections, liveAgentIds, { dropEmpty = false } = {}) {
-  const live = new Set(liveAgentIds);
-  let removed = 0;
-  let next = sections.map((s) => {
-    const agentIds = s.agentIds.filter((id) => live.has(id));
-    removed += s.agentIds.length - agentIds.length;
-    return { ...s, agentIds };
-  });
-  let droppedSections = [];
-  if (dropEmpty) {
-    droppedSections = next.filter((s) => s.agentIds.length === 0 && !BUILTIN_SECTION_IDS.has(s.id));
-    next = next.filter((s) => s.agentIds.length > 0 || BUILTIN_SECTION_IDS.has(s.id));
-  }
-  return { sections: next, removed, droppedSections };
-}
-function sectionIdByAgent(sections) {
-  const map = /* @__PURE__ */ new Map();
-  for (const s of sections) for (const id of s.agentIds) if (!map.has(id)) map.set(id, s.id);
-  return map;
-}
-function sectionsDiff(before, after) {
-  const b = new Map(before.map((s) => [s.id, s]));
-  const a = new Map(after.map((s) => [s.id, s]));
-  const changes = [];
-  for (const s of after) {
-    const prev = b.get(s.id);
-    if (!prev) changes.push(`+ section "${s.name}" (${s.agentIds.length} agents)`);
-    else {
-      if (prev.name !== s.name) changes.push(`~ rename "${prev.name}" \u2192 "${s.name}"`);
-      const added = s.agentIds.filter((id) => !prev.agentIds.includes(id)).length;
-      const removed = prev.agentIds.filter((id) => !s.agentIds.includes(id)).length;
-      if (added || removed) changes.push(`~ "${s.name}": +${added} \u2212${removed} agents`);
-    }
-  }
-  for (const s of before) if (!a.has(s.id)) changes.push(`\u2212 section "${s.name}" (${s.agentIds.length} agents released)`);
-  return changes;
-}
-
 // src/agents.js
 var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function resolveAgent(roster, ref, { strict = false } = {}) {
@@ -4669,7 +4726,13 @@ var _gw = null;
 async function gateway(opts) {
   if (_gw) return _gw;
   const session = await resolveGatewaySession({ accountScope: opts.account ?? null, prefer: opts.ensure ? "ensure" : "auto" });
-  _gw = new Gateway(session);
+  let runtime = null;
+  try {
+    const auth = loadCursorAuth({ accountScope: opts.account ?? null });
+    if (auth) runtime = new CursorClient(auth);
+  } catch {
+  }
+  _gw = new Gateway(session, { runtime });
   return _gw;
 }
 var nudgeDeps = { appState, connect: (o) => Cdp.connect(o) };
@@ -5073,7 +5136,7 @@ ${running.map((a) => `  running: ${a.name} (${shortId(a.id)})`).join("\n")}${run
     const a = resolveAgent(await gw.listAgents({ fresh: true }), ref);
     printJson(await gw.memories(a.id));
   });
-  const sections = program2.command("sections").alias("s").description("Sidebar sections (stored in host settings; the app refreshes on focus)");
+  const sections = program2.command("sections").alias("s").description("Sidebar sections (stored in Cursor runtime settings, mirrored to host settings; the app refreshes on focus)");
   sections.command("list").alias("ls").description("List sections with member counts").option("--members", "list member agents under each section").action(async (o, cmd) => {
     const gw = await gateway(cmd.optsWithGlobals());
     const [secs, roster] = await Promise.all([gw.getSections(), o.members || globalOpts(cmd).json ? gw.listAgents({ fresh: true }) : []]);

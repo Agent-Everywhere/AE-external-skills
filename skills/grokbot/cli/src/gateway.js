@@ -4,6 +4,7 @@
 //   GET  {baseUrl}/events          (server-sent events)
 // Command names and shapes come from the desktop app's own bridge schemas (see ../../references/host-commands.md).
 import { randomUUID } from "node:crypto";
+import { BUILTIN_SECTION_IDS, normalizeSections } from "./sections.js";
 import { redact, redactValue } from "./session.js";
 
 export class GatewayError extends Error {
@@ -16,11 +17,15 @@ export class GatewayError extends Error {
 }
 
 export class Gateway {
-  constructor(session, { fetchImpl = fetch, timeoutMs = 60_000 } = {}) {
+  // `runtime` (optional CursorClient-like): when set, sidebar sections are read/written on the Cursor control plane.
+  constructor(session, { fetchImpl = fetch, timeoutMs = 60_000, runtime = null } = {}) {
     if (!session?.baseUrl || !session?.token) throw new GatewayError("Gateway session is missing baseUrl or token.");
     this.session = { ...session, baseUrl: String(session.baseUrl).replace(/\/+$/, "") };
     this.fetch = fetchImpl;
     this.timeoutMs = timeoutMs;
+    this.runtime = runtime;
+    this._sectionsBase = undefined; // raw server sections from the last getSections(); CAS base for setSections()
+    this.lastSectionsMirror = null; // outcome of the last host-settings mirror: { ok } | { ok:false, skipped?, reason }
     this._roster = null;
   }
 
@@ -230,13 +235,48 @@ export class Gateway {
   }
 
   async getSections() {
+    if (this.runtime) {
+      // Remember the raw server list: it is the optimistic-concurrency base for the next setSections().
+      const raw = await this.runtime.getSidebarSections();
+      this._sectionsBase = raw;
+      return normalizeSections(raw);
+    }
     const s = await this.getHostSettings();
-    return Array.isArray(s?.sidebarSections) ? s.sidebarSections : [];
+    return normalizeSections(s?.sidebarSections);
   }
 
   async setSections(sections) {
+    if (this.runtime) {
+      const base = this._sectionsBase !== undefined ? this._sectionsBase : await this.runtime.getSidebarSections();
+      const stored = await this.runtime.setSidebarSections(sections, base);
+      this._sectionsBase = stored;
+      await this._mirrorSections(sections, base);
+      return normalizeSections(stored);
+    }
     const r = await this.setHostSettings({ sidebarSections: sections });
-    return Array.isArray(r?.sidebarSections) ? r.sidebarSections : sections;
+    return normalizeSections(Array.isArray(r?.sidebarSections) ? r.sidebarSections : sections);
+  }
+
+  // Best-effort mirror for older hosts/apps that still read host settings. Never fails setSections, but never
+  // silent either: the outcome is recorded in this.lastSectionsMirror and failures warn on stderr. Skipped when the
+  // server layout was empty (only built-in buckets) while the host already has a layout, so we do not clobber it.
+  async _mirrorSections(sections, base) {
+    try {
+      const serverEmpty = normalizeSections(base).every((x) => BUILTIN_SECTION_IDS.has(x.id));
+      if (serverEmpty) {
+        const host = await this.getHostSettings();
+        if (Array.isArray(host?.sidebarSections) && host.sidebarSections.length > 0) {
+          this.lastSectionsMirror = { ok: false, skipped: true, reason: "server sections empty while host sections are non-empty" };
+          return;
+        }
+      }
+      await this.setHostSettings({ sidebarSections: sections });
+      this.lastSectionsMirror = { ok: true };
+    } catch (e) {
+      const reason = e?.message ?? String(e);
+      this.lastSectionsMirror = { ok: false, reason };
+      process.stderr.write(`grokbot: warning: host sections mirror failed: ${reason}\n`);
+    }
   }
 
   async getPinned() {

@@ -12,6 +12,17 @@ test("normalize drops malformed entries and duplicate agent ids", () => {
   assert.deepEqual(s, [{ id: "x", name: "X", agentIds: ["1"] }, { id: "y", name: "Y", agentIds: [] }]);
 });
 
+test("normalize preserves unknown fields on each section", () => {
+  const s = normalizeSections([{ id: "x", name: "X", agentIds: ["1", "1"], color: "red", extra: { n: 1 }, isCollapsed: "no" }]);
+  assert.deepEqual(s, [{ id: "x", name: "X", agentIds: ["1"], color: "red", extra: { n: 1 } }]);
+});
+
+test("normalize keeps boolean isCollapsed and the __agents__ pseudo-section in place", () => {
+  const s = normalizeSections([{ id: "__agents__", name: "Unassigned" }, { id: "x", name: "X", agentIds: ["1"], isCollapsed: true }, { id: "y", name: "Y", isCollapsed: "yes" }]);
+  assert.deepEqual(s, [{ id: "__agents__", name: "Unassigned", agentIds: [] }, { id: "x", name: "X", agentIds: ["1"], isCollapsed: true }, { id: "y", name: "Y", agentIds: [] }]);
+  assert.equal("isCollapsed" in s[2], false);
+});
+
 test("create detaches agents from other sections and appends", () => {
   const { sections, section } = createSection(base(), "New", ["a2", "c9"], { id: "section-c-3" });
   assert.equal(section.id, "section-c-3");

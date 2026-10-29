@@ -103,6 +103,23 @@ export class CursorClient {
     return this.rpc("ListGrokBotUserComputers", {});
   }
 
+  // Sidebar sections live in the per-user runtime settings on the control plane (the app no longer reads host settings).
+  async getSidebarSections() {
+    const r = await this.rpc("GetGrokBotUserRuntimeSettings", {});
+    const sections = r?.settings?.sidebarSections?.sections;
+    return Array.isArray(sections) ? sections : [];
+  }
+
+  // `base` is the optimistic-concurrency check (the sections we read before editing); omitted when not provided.
+  async setSidebarSections(sections, base) {
+    const body = { sidebarSections: { sections } };
+    if (base !== undefined && base !== null) body.sidebarSectionsBase = { sections: base };
+    const r = await this.rpc("UpdateGrokBotUserRuntimeSettings", body);
+    const stored = r?.settings?.sidebarSections?.sections;
+    if (!Array.isArray(stored)) throw new CursorRpcError("UpdateGrokBotUserRuntimeSettings returned no sidebarSections", { method: "UpdateGrokBotUserRuntimeSettings", data: r });
+    return stored;
+  }
+
   runtimeCapabilities() {
     return this.rpc("GetGrokBotRuntimeCapabilities", {});
   }

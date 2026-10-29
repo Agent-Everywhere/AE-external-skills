@@ -59,3 +59,171 @@ test("parseSse", () => {
   assert.deepEqual(e.json, { a: 1 });
   assert.equal(parseSse(": keepalive"), null);
 });
+
+function fakeRuntime(initial) {
+  const calls = [];
+  let stored = initial;
+  return {
+    calls,
+    async getSidebarSections() {
+      calls.push(["get"]);
+      return stored;
+    },
+    async setSidebarSections(sections, base) {
+      calls.push(["set", sections, base]);
+      stored = sections;
+      return sections;
+    },
+  };
+}
+
+test("getSections prefers the Cursor runtime over host settings", async () => {
+  const { fetchImpl, calls } = fakeFetch(() => ({ status: 200, body: { sidebarSections: [{ id: "host", name: "Host", agentIds: [] }] } }));
+  const runtime = fakeRuntime([{ id: "__agents__", name: "Unassigned" }, { id: "s1", name: "One", agentIds: ["a"], isCollapsed: true }]);
+  const gw = new Gateway({ baseUrl: "https://host", token: "T", headers: {} }, { fetchImpl, runtime });
+  const got = await gw.getSections();
+  assert.deepEqual(got, [{ id: "__agents__", name: "Unassigned", agentIds: [] }, { id: "s1", name: "One", agentIds: ["a"], isCollapsed: true }]);
+  assert.equal(calls.length, 0, "host settings untouched on read");
+});
+
+test("setSections sends the previous runtime sections as base and mirrors host settings", async () => {
+  const { fetchImpl, calls } = fakeFetch((url, init) => ({ status: 200, body: JSON.parse(init.body) }));
+  const prev = [{ id: "__agents__", name: "Unassigned" }, { id: "s1", name: "One", agentIds: ["a"] }];
+  const runtime = fakeRuntime(prev);
+  const gw = new Gateway({ baseUrl: "https://host", token: "T", headers: {} }, { fetchImpl, runtime });
+  const next = [{ id: "__agents__", name: "Unassigned", agentIds: [] }, { id: "s1", name: "Renamed", agentIds: ["a"] }];
+  const saved = await gw.setSections(next);
+  assert.deepEqual(saved, next);
+  const set = runtime.calls.find((c) => c[0] === "set");
+  assert.deepEqual(set[1], next);
+  assert.deepEqual(set[2], prev);
+  assert.equal(calls.at(-1).url, "https://host/api/setHostSettings");
+  assert.deepEqual(calls.at(-1).body, { sidebarSections: next });
+});
+
+test("host mirror failure does not fail setSections", async () => {
+  const { fetchImpl } = fakeFetch(() => ({ status: 500, body: { message: "boom" } }));
+  const runtime = fakeRuntime([]);
+  const gw = new Gateway({ baseUrl: "https://host", token: "T", headers: {} }, { fetchImpl, runtime });
+  const next = [{ id: "s1", name: "One", agentIds: [] }];
+  assert.deepEqual(await gw.setSections(next), next);
+});
+
+test("CursorClient get/setSidebarSections speak the runtime-settings RPC", async () => {
+  const { CursorClient, CursorRpcError } = await import("../src/cursor.js");
+  const { fetchImpl, calls } = fakeFetch((url, init) => {
+    if (url.endsWith("/GetGrokBotUserRuntimeSettings")) return { status: 200, body: { settings: { sidebarSections: { sections: [{ id: "__agents__", name: "Unassigned" }] } } } };
+    if (url.endsWith("/UpdateGrokBotUserRuntimeSettings")) {
+      const b = JSON.parse(init.body);
+      return { status: 200, body: b.sidebarSections.sections.length ? { settings: { sidebarSections: b.sidebarSections } } : { settings: {} } };
+    }
+    return { status: 404, body: {} };
+  });
+  const c = new CursorClient({ accessToken: "tok" }, { fetchImpl });
+  const base = await c.getSidebarSections();
+  assert.deepEqual(base, [{ id: "__agents__", name: "Unassigned" }]);
+  const next = [{ id: "__agents__", name: "Unassigned" }, { id: "s", name: "S", agentIds: ["a"] }];
+  assert.deepEqual(await c.setSidebarSections(next, base), next);
+  assert.deepEqual(calls.at(-1).body, { sidebarSections: { sections: next }, sidebarSectionsBase: { sections: base } });
+  await c.setSidebarSections(next);
+  assert.equal("sidebarSectionsBase" in calls.at(-1).body, false);
+  await assert.rejects(c.setSidebarSections([]), (e) => e instanceof CursorRpcError);
+});
+
+function captureStderr() {
+  const orig = process.stderr.write;
+  const lines = [];
+  process.stderr.write = (chunk) => {
+    lines.push(String(chunk));
+    return true;
+  };
+  return { lines, restore: () => (process.stderr.write = orig) };
+}
+
+test("setSections skips the host mirror when server sections are empty but host sections are not", async () => {
+  const hostLayout = [{ id: "h", name: "Host", agentIds: ["a"] }];
+  const { fetchImpl, calls } = fakeFetch((url, init) => {
+    if (url.endsWith("/api/getHostSettings")) return { status: 200, body: { sidebarSections: hostLayout } };
+    return { status: 200, body: JSON.parse(init.body) };
+  });
+  const runtime = fakeRuntime([]);
+  const gw = new Gateway({ baseUrl: "https://host", token: "T", headers: {} }, { fetchImpl, runtime });
+  await gw.getSections();
+  const next = [{ id: "s1", name: "One", agentIds: [] }];
+  assert.deepEqual(await gw.setSections(next), next);
+  assert.equal(calls.filter((c) => c.url.endsWith("/api/setHostSettings")).length, 0);
+  assert.equal(gw.lastSectionsMirror.ok, false);
+  assert.equal(gw.lastSectionsMirror.skipped, true);
+  assert.match(gw.lastSectionsMirror.reason, /empty/);
+});
+
+test("setSections still mirrors when server and host sections are both empty", async () => {
+  const { fetchImpl, calls } = fakeFetch((url, init) => (url.endsWith("/api/getHostSettings") ? { status: 200, body: {} } : { status: 200, body: JSON.parse(init.body) }));
+  const gw = new Gateway({ baseUrl: "https://host", token: "T", headers: {} }, { fetchImpl, runtime: fakeRuntime([]) });
+  await gw.getSections();
+  await gw.setSections([{ id: "s1", name: "One", agentIds: [] }]);
+  assert.equal(calls.filter((c) => c.url.endsWith("/api/setHostSettings")).length, 1);
+  assert.deepEqual(gw.lastSectionsMirror, { ok: true });
+});
+
+test("mirror failure warns on stderr, records lastSectionsMirror, and setSections still resolves", async () => {
+  const { fetchImpl } = fakeFetch(() => ({ status: 500, body: { message: "boom" } }));
+  const gw = new Gateway({ baseUrl: "https://host", token: "T", headers: {} }, { fetchImpl, runtime: fakeRuntime([{ id: "x", name: "X", agentIds: ["a"] }]) });
+  await gw.getSections();
+  const next = [{ id: "s1", name: "One", agentIds: [] }];
+  const cap = captureStderr();
+  let saved;
+  try {
+    saved = await gw.setSections(next);
+  } finally {
+    cap.restore();
+  }
+  assert.deepEqual(saved, next);
+  assert.equal(gw.lastSectionsMirror.ok, false);
+  assert.ok(!gw.lastSectionsMirror.skipped);
+  assert.ok(gw.lastSectionsMirror.reason.length > 0);
+  assert.equal(cap.lines.length, 1);
+  assert.match(cap.lines[0], /^grokbot: warning: host sections mirror failed: .+\n$/);
+});
+
+test("setSections uses the base getSections read, even if the server changed since", async () => {
+  const first = [{ id: "s1", name: "First", agentIds: [] }];
+  const second = [{ id: "s1", name: "Changed elsewhere", agentIds: [] }];
+  const reads = [first, second];
+  const sets = [];
+  const runtime = {
+    async getSidebarSections() {
+      return reads.shift() ?? second;
+    },
+    async setSidebarSections(sections, base) {
+      sets.push({ sections, base });
+      return sections;
+    },
+  };
+  const { fetchImpl } = fakeFetch((url, init) => ({ status: 200, body: init?.body ? JSON.parse(init.body) : {} }));
+  const gw = new Gateway({ baseUrl: "https://host", token: "T", headers: {} }, { fetchImpl, runtime });
+  await gw.getSections();
+  await gw.setSections([{ id: "s1", name: "Mine", agentIds: [] }]);
+  assert.equal(sets.length, 1);
+  assert.deepEqual(sets[0].base, first);
+  assert.equal(reads.length, 1, "exactly one Get call was made");
+});
+
+test("setSections falls back to a fresh read when getSections was never called", async () => {
+  const prev = [{ id: "s1", name: "One", agentIds: [] }];
+  const runtime = fakeRuntime(prev);
+  const { fetchImpl } = fakeFetch((url, init) => ({ status: 200, body: init?.body ? JSON.parse(init.body) : {} }));
+  const gw = new Gateway({ baseUrl: "https://host", token: "T", headers: {} }, { fetchImpl, runtime });
+  await gw.setSections([{ id: "s1", name: "Two", agentIds: [] }]);
+  assert.deepEqual(runtime.calls.find((c) => c[0] === "set")[2], prev);
+});
+
+test("host-branch getSections and setSections return normalized sections", async () => {
+  const { fetchImpl } = fakeFetch((url, init) => {
+    if (url.endsWith("/api/getHostSettings")) return { status: 200, body: { sidebarSections: [{ id: "s", name: "S", agentIds: ["a", "a", 3] }, { bogus: true }] } };
+    return { status: 200, body: { sidebarSections: [{ id: "t", name: "T", agentIds: ["b", "b"] }, null] } };
+  });
+  const gw = new Gateway({ baseUrl: "https://host", token: "T", headers: {} }, { fetchImpl });
+  assert.deepEqual(await gw.getSections(), [{ id: "s", name: "S", agentIds: ["a"] }]);
+  assert.deepEqual(await gw.setSections([]), [{ id: "t", name: "T", agentIds: ["b"] }]);
+});

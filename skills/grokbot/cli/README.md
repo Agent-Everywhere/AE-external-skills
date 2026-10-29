@@ -84,11 +84,14 @@ in batches of 25 and dead section memberships are pruned afterwards.
 
 ## How sections work
 
-Sections are **not** a field on the agent. They are `sidebarSections` inside host settings:
-`[{ id, name, agentIds }]`, one section per agent (first wins). `__agents__` is the app's
-built-in "Unassigned" bucket and is protected. The CLI writes them with `setHostSettings`; the app
-re-reads host settings on window focus or reconnect, so the sidebar catches up when you click into
-it (`grokbot cdp focus` nudges it when the app runs with the debug port).
+Sections are **not** a field on the agent. The primary store is Cursor's per-user runtime settings
+(`GetGrokBotUserRuntimeSettings` / `UpdateGrokBotUserRuntimeSettings`, `settings.sidebarSections.sections`):
+`[{ id, name, agentIds }]`, one section per agent (first wins). Writes carry `sidebarSectionsBase`, the
+list read just before editing, for optimistic concurrency. `__agents__` is the app's built-in
+"Unassigned" bucket and is protected. Host settings (`sidebarSections`) are a best-effort mirror for
+older apps; the mirror is skipped (and reported) when the server list is empty but the host list is not,
+and a mirror failure only warns on stderr. The app picks changes up on window focus or reconnect
+(`grokbot cdp focus` nudges it when the app runs with the debug port).
 
 ## Selection flags
 
