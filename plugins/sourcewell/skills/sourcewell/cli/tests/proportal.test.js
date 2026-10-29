@@ -246,3 +246,16 @@ test("planned bids (upcoming RFPs): 'RFP - TBD - name' title, estimated issue da
   assert.equal(rows[0].planned_issue, "2026-11-05T11:00:00.000Z");
   assert.equal(rows[0].days_to_issue, 7);
 });
+
+test("parseAwards: an empty year page is fine, but a substantial page with no headings means the layout changed", () => {
+  const shell = '<html><body><h1>2027 CONTRACT AWARDS</h1><div style="clear:both;"></div></body></html>';
+  assert.deepEqual(parseAwards(shell, 2027), []);
+  assert.throws(() => parseAwards("<html><body>" + "<p>report</p>".repeat(400) + "</body></html>", 2026), /portal page changed/);
+  assert.throws(() => parseAwards("<html><table><tr><td>Award is to</td></tr></table></html>", 2026), /portal page changed/);
+});
+
+test("listBids treats a search response without `total` as an error", async () => {
+  const all = JSON.parse(fx("tenders-search.json"));
+  const { portal } = portalWith((url, init) => (init.method === "GET" ? jsonRes(fx("tenders-page.html")) : jsonRes({ success: true, data: all.data })));
+  await assert.rejects(() => portal.listBids({ status: "Open" }), /no total/);
+});

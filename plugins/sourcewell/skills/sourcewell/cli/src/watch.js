@@ -101,6 +101,7 @@ const contractKey = (c) => clean(c.contract_number).toUpperCase() || `${c.vendor
 export async function collect({ commands, cfg, today, prev }) {
   const bids = {};
   const seenIds = new Set();
+  const awardRows = {};
   const cutoff = addDays(today, -RECENT_DAYS);
   for (const status of BID_STATUSES) {
     const { rows } = await commands.bidsList({ status, full: true });
@@ -119,6 +120,7 @@ export async function collect({ commands, cfg, today, prev }) {
   const awards = {};
   for (const year of cfg.award_years) {
     const { rows } = await commands.awardsList({ year });
+    awardRows[year] = rows.length;
     for (const a of rows) {
       const { number, name } = awardIdentity(a);
       if (!a.awardees.length) continue;
@@ -150,18 +152,39 @@ export async function collect({ commands, cfg, today, prev }) {
       brand, matched: kw,
     };
   }
-  return { bids, awards, contracts };
+  return { bids, awards, contracts, fetchedIds: seenIds, meta: { bids_fetched: seenIds.size, award_rows: awardRows } };
+}
+
+/** A section that had rows last time and none now is a degraded upstream, not "everything went away". */
+export function assertNotDegraded(prev, cur) {
+  const pm = prev && prev.meta;
+  if (!pm) return;
+  if (pm.bids_fetched > 0 && cur.meta.bids_fetched === 0) throw new Error(`degraded upstream: the bid lists came back empty (the previous run saw ${pm.bids_fetched}); nothing was recorded`);
+  for (const [year, n] of Object.entries(pm.award_rows || {})) {
+    if (n > 0 && cur.meta.award_rows[year] === 0) throw new Error(`degraded upstream: the ${year} awards report came back empty (the previous run saw ${n} RFPs); nothing was recorded`);
+  }
 }
 
 /** Compare a fresh pull with the previous snapshot. Fills in alert state on `cur`; returns the change list. */
-export function diff({ prev, cur, cfg, today }) {
+export function diff({ prev, cur, cfg, today, fetchedIds = new Set() }) {
   const baseline = !prev;
   const changes = [];
+  if (prev) {
+    // A tracked bid that is no longer in the fetched statuses is carried forward with its state (alerts, counts), reported
+    // once as "no longer listed", and forgotten after a year. A bid still fetched but no longer matching the config is dropped quietly.
+    for (const p of Object.values(prev.bids)) {
+      if (cur.bids[p.id] || fetchedIds.has(p.id)) continue;
+      if (p.missing_since && daysBetween(p.missing_since, today) > 365) continue;
+      cur.bids[p.id] = p.missing_since ? p : { ...p, missing_since: today };
+      if (!p.missing_since) changes.push({ type: "STATUS_CHANGE", number: p.number, name: p.name, status: p.status, closing: p.closing_local || p.closing, days_left: p.days_left, planned_issue: p.planned_issue, url: p.url, id: p.id, from: p.status, to: "no longer listed" });
+    }
+  }
   const horizon = addMonths(today, cfg.contract_expiring_months);
   const thresholds = uniq([cfg.closing_soon_days, FINAL_DAYS]).sort((a, b) => b - a);
   const bidFields = (b) => ({ number: b.number, name: b.name, status: b.status, closing: b.closing_local || b.closing, days_left: b.days_left, planned_issue: b.planned_issue, url: b.url, id: b.id });
 
   for (const b of Object.values(cur.bids)) {
+    if (b.missing_since) continue; // carried forward above
     const p = prev && prev.bids[b.id];
     const isOpen = b.status === "Open" || b.status === "Planned";
     const crossed = b.status === "Open" && b.days_left !== null && b.days_left >= 0 ? thresholds.filter((t) => b.days_left <= t) : [];
@@ -298,18 +321,21 @@ export async function loadConfig(path, todayIso) {
 }
 
 /** One daily run. Writes the snapshot only after a complete, successful pull. */
-export async function runWatch({ commands, today, configPath, stateDir, format = "md" }) {
+export async function runWatch({ commands, today, configPath, stateDir, format = "md", deliver }) {
   if (!configPath) throw new WatchConfigError("watch run needs --config <watch.json>");
   if (!stateDir) throw new WatchConfigError("watch run needs --state-dir <dir>");
   if (format !== "md" && format !== "json") throw new WatchConfigError(`watch --format must be md or json (got ${JSON.stringify(format)})`);
   const date = today();
   const cfg = await loadConfig(configPath, date);
   const prev = await loadLatest(stateDir);
-  const cur = await collect({ commands, cfg, today: date, prev });
-  const changes = diff({ prev, cur, cfg, today: date });
+  const { fetchedIds, ...cur } = await collect({ commands, cfg, today: date, prev });
+  assertNotDegraded(prev, cur);
+  const changes = diff({ prev, cur, cfg, today: date, fetchedIds });
   const snapshot = { version: SNAPSHOT_VERSION, date, ...cur };
   const result = { date, baseline: !prev, changes, summary: summarize(changes) };
   const text = render(result, cfg, format);
+  // Deliver first (write and verify --out, print), commit state last: a digest that could not be delivered is reported again next run.
+  if (deliver) await deliver(text);
   await mkdir(stateDir, { recursive: true });
   const body = JSON.stringify(snapshot, null, 1) + "\n";
   await atomicWrite(join(stateDir, `snapshot-${date}.json`), body);

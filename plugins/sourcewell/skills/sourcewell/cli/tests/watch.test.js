@@ -288,21 +288,73 @@ test("config validation", () => {
   assert.deepEqual(normalizeConfig({ keywords: ["a"] }, "2026-10-28").award_years, [2026, 2025]);
 });
 
-test("example config is valid, embedded copy matches watch.example.json, and carries no company or person names", () => {
+test("example config is valid, matches the embedded copy, and holds no emails, URLs or legal-entity names", () => {
   const file = JSON.parse(readFileSync(join(here, "..", "..", "watch.example.json"), "utf8"));
   assert.deepEqual(file, EXAMPLE_CONFIG);
   assert.equal(file.profile, "work-truck upfitter (example)");
   assert.ok(normalizeConfig(file, TODAY).keywords.includes("truck bod"));
+  // Competitor brands are public industry brands and stay. Anything that looks like a person, a client or a legal entity must not.
+  const everything = JSON.stringify(file).toLowerCase();
+  for (const bad of ["@", "http", "www.", ".com", " llc", " inc", " ltd", " corp", " company", "(c)"]) assert.ok(!everything.includes(bad), `example config contains ${JSON.stringify(bad)}`);
+  const brands = new Set(file.competitor_brands);
+  for (const b of ["Stellar", "Knapheide", "Reading", "Auto Crane", "IMT", "Maintainer", "Miller", "Ranger Design", "Bedrock", "Altec", "Terex", "Elliott"]) assert.ok(brands.has(b), b);
+  assert.equal(brands.size, 12, "no brands beyond the known public industry list");
+});
+
+test("a tracked bid that leaves the fetched statuses is reported once, keeps its state, and reappearing as Awarded gives a STATUS_CHANGE (no NEW_BID, no re-fired CLOSING_SOON)", async () => {
+  const w = world();
+  const s = session(w);
+  const b1 = w.bids.find((x) => x.id === "b1");
+  b1.days_left = 10;
+  await s.run("2026-10-28"); // baseline: inside the 14-day window, marked as alerted
+  b1.days_left = 9;
+  assert.equal(byType(await s.run("2026-10-29"), "CLOSING_SOON").length, 0);
+  const gone = w.bids.splice(w.bids.indexOf(b1), 1)[0];
+  const r1 = await s.run("2026-10-30");
+  assert.deepEqual(byType(r1, "STATUS_CHANGE").map((c) => [c.id, c.from, c.to]), [["b1", "Open", "no longer listed"]]);
+  assert.equal(r1.result.changes.length, 1);
+  assert.ok(JSON.parse(s.latest()).bids.b1, "state carried forward");
+  assert.deepEqual((await s.run("2026-10-31")).result.changes, [], "reported only once");
+  w.bids.push({ ...gone, status: "Awarded", days_left: -3 });
+  const r2 = await s.run("2026-11-02");
+  assert.deepEqual(r2.result.changes.map((c) => [c.type, c.id, c.from, c.to]), [["STATUS_CHANGE", "b1", "Open", "Awarded"]]);
+  assert.deepEqual((await s.run("2026-11-03")).result.changes, []);
+});
+
+test("a bid still fetched but no longer matching the config is dropped quietly, not reported as gone", async () => {
+  const w = world();
+  const s = session(w);
+  await s.run(TODAY);
+  const cfgPath = s.configPath;
+  writeFileSync(cfgPath, JSON.stringify({ ...CFG, keywords: ["chassis"] }));
+  const r = await s.run("2026-10-29");
+  assert.ok(!r.result.changes.some((c) => c.to === "no longer listed"));
+});
+
+test("degraded upstream is refused, not recorded: awards year or all bids coming back empty when they were not", async () => {
+  const w = world();
+  const s = session(w);
+  await s.run(TODAY);
+  const before = s.latest();
+  const saved = w.awards[2026]; w.awards[2026] = [];
+  await assert.rejects(s.run("2026-10-29"), /degraded upstream: the 2026 awards report came back empty/);
+  assert.equal(s.latest(), before);
+  w.awards[2026] = saved;
+  const bids = w.bids; w.bids = [];
+  await assert.rejects(s.run("2026-10-29"), /degraded upstream: the bid lists came back empty/);
+  assert.equal(s.latest(), before);
+  w.bids = bids;
+  assert.equal((await s.run("2026-10-29")).result.baseline, false);
 });
 
 // ---- CLI wiring ----
 
-async function cli(argv, handler) {
+async function cli(argv, handler, cacheDir) {
   const clock = fakeClock();
   clock.t = Date.parse("2026-10-28T12:00:00Z");
   const f = mockFetch(handler || (() => jsonRes(doc("x", []))));
   const out = []; const err = [];
-  Object.assign(deps, { fetch: f, sleep: clock.sleep, now: clock.now, stdout: (x) => out.push(x), stderr: (x) => err.push(x), cacheDir: tmpDir() });
+  Object.assign(deps, { fetch: f, sleep: clock.sleep, now: clock.now, stdout: (x) => out.push(x), stderr: (x) => err.push(x), cacheDir: cacheDir || tmpDir() });
   process.exitCode = 0;
   await main(argv);
   const code = process.exitCode; process.exitCode = 0;
@@ -371,4 +423,41 @@ test("watch run usage errors exit 2", async () => {
   assert.equal((await cli(["watch", "run", "--config", join(dir, "missing.json"), "--state-dir", dir])).code, 2);
   const cfg = join(dir, "c.json"); writeFileSync(cfg, JSON.stringify({ keywords: ["x"] }));
   assert.equal((await cli(["watch", "run", "--config", cfg, "--state-dir", dir, "--format", "csv"])).code, 2);
+});
+
+test("watch run: an undeliverable --out aborts before any state is committed", async () => {
+  const dir = tmpDir();
+  const config = join(dir, "watch.json");
+  writeFileSync(config, JSON.stringify({ keywords: ["construction equipment"], award_years: [2023] }));
+  const state = join(dir, "state");
+  const badOut = join(dir, "no-such-dir", "digest.md");
+  const first = await cli(["watch", "run", "--config", config, "--state-dir", state, "--out", badOut], portalHandler);
+  assert.notEqual(first.code, 0);
+  assert.equal(first.out, "", "nothing printed either");
+  assert.ok(!existsSync(join(state, "latest.json")), "no baseline recorded");
+  const ok = await cli(["watch", "run", "--config", config, "--state-dir", state], portalHandler);
+  assert.equal(ok.code, 0, ok.err);
+  const before = readFileSync(join(state, "latest.json"), "utf8");
+  const files = readdirSync(state).sort();
+  const again = await cli(["watch", "run", "--config", config, "--state-dir", state, "--out", badOut], portalHandler);
+  assert.notEqual(again.code, 0);
+  assert.equal(readFileSync(join(state, "latest.json"), "utf8"), before);
+  assert.deepEqual(readdirSync(state).sort(), files);
+});
+
+test("watch run bypasses the local cache unless --cache is passed", async () => {
+  const dir = tmpDir();
+  const config = join(dir, "watch.json");
+  writeFileSync(config, JSON.stringify({ keywords: ["construction equipment"], award_years: [2023] }));
+  const cacheDir = tmpDir();
+  const args = ["watch", "run", "--config", config];
+  const warm = await cli([...args, "--state-dir", join(dir, "s1"), "--cache"], portalHandler, cacheDir);
+  assert.equal(warm.code, 0, warm.err);
+  const fresh = await cli([...args, "--state-dir", join(dir, "s2")], portalHandler, cacheDir);
+  assert.equal(fresh.code, 0, fresh.err);
+  assert.equal(fresh.f.calls.length, warm.f.calls.length, "default run re-fetched everything despite a warm cache");
+  const cached = await cli([...args, "--state-dir", join(dir, "s3"), "--cache"], portalHandler, cacheDir);
+  assert.equal(cached.code, 0, cached.err);
+  assert.ok(cached.f.calls.length < warm.f.calls.length, "--cache reuses the cache");
+  assert.ok(cached.f.calls.every((c) => /\/Module\/Tenders\/en$/.test(c.url)), "only the portal landing page (fetched once per process) is requested");
 });

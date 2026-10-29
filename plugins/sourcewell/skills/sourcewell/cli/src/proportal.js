@@ -125,6 +125,8 @@ export function parseDetail(html) {
 /** Parse the contract awards report: per RFP, every bidder and every awardee. */
 export function parseAwards(html, year) {
   const heads = [...html.matchAll(/<strong>\s*([^<#]*?)#\s*([^<]*?)\s*<\/strong>/gi)];
+  // A year with no report is a short shell page. A substantial page with no recognisable headings means the layout changed.
+  if (!heads.length && (html.length > 3000 || /Award is to|<table/i.test(html))) throw new Error("portal page changed: no awards headings found in the contract awards report");
   return heads.map((h, i) => {
     const seg = html.slice(h.index + h[0].length, i + 1 < heads.length ? heads[i + 1].index : undefined);
     const t = parseTitle(decode(h[2]));
@@ -214,9 +216,10 @@ export function createPortal(http) {
         let payload;
         try { payload = JSON.parse(await res.text()); } catch { throw new Error("portal search did not return JSON (the page may have changed)"); }
         if (!payload.success || !Array.isArray(payload.data)) throw new Error("portal search returned an unexpected response");
+        if (!Number.isFinite(Number(payload.total))) throw new Error("portal page changed: bid search response has no total");
         out.push(payload);
         start += payload.data.length;
-        if (!payload.data.length || start >= (payload.total ?? 0)) break;
+        if (!payload.data.length || start >= Number(payload.total)) break;
       }
       return out;
     }, { ttl: HOUR_MS });

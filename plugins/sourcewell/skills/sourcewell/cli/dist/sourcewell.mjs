@@ -93,10 +93,20 @@ function createHttp({
     }
     return value;
   }
-  async function getJson(url) {
-    const res = await request(url, { method: "GET" });
-    if (!res.ok) throw new HttpError(`HTTP ${res.status} for ${url}`, res.status, url);
-    return res.json();
+  async function getJson(url, { onRedirect } = {}) {
+    let u = url;
+    for (let hop = 0; hop < 4; hop++) {
+      const res = await request(u, { method: "GET", redirect: "manual" });
+      const loc = res.status >= 300 && res.status < 400 && res.headers && res.headers.get && res.headers.get("location");
+      if (loc) {
+        if (!onRedirect) throw new HttpError(`unexpected redirect (HTTP ${res.status}) from ${u}: not followed`, res.status, u);
+        u = onRedirect(new URL(loc, u).toString());
+        continue;
+      }
+      if (!res.ok) throw new HttpError(`HTTP ${res.status} for ${u}`, res.status, u);
+      return res.json();
+    }
+    throw new HttpError(`too many redirects from ${url}`, 0, url);
   }
   return { request, cached, getJson, stats, cacheDir };
 }
@@ -192,6 +202,20 @@ function assertNextLink(href, resource) {
   assertFields(resource, sparse.split(","));
   return u.toString();
 }
+function assertRedirect(href, resource) {
+  const spec = assertResource(resource);
+  let u;
+  try {
+    u = new URL(href);
+  } catch {
+    throw new AllowlistError(`bad redirect target: ${href}`);
+  }
+  if (u.origin !== BASE) throw new AllowlistError(`redirect leaves the allowed origin: ${u.origin}`);
+  if (u.pathname !== `${JSONAPI_PREFIX}/${resource}`) throw new AllowlistError(`redirect points at a different resource: ${u.pathname}`);
+  const sparse = u.searchParams.get(`fields[${spec.type}]`);
+  if (sparse) assertFields(resource, sparse.split(","));
+  return u.toString();
+}
 var PORTAL_ORIGIN = "https://proportal.sourcewell-mn.gov";
 var G = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 var T = "/Module/Tenders/en";
@@ -259,7 +283,7 @@ function createJsonApi(http, { maxPages = 400 } = {}) {
     let pages = 0;
     while (url && rows.length < limit && pages < maxPages) {
       const u = url;
-      const doc = await http.cached(`GET ${u}`, () => http.getJson(u));
+      const doc = await http.cached(`GET ${u}`, () => http.getJson(u, { onRedirect: (loc) => assertRedirect(loc, query.resource) }));
       pages++;
       for (const d of doc.data || []) rows.push({ id: d.id, ...d.attributes });
       const next = doc.links && doc.links.next && doc.links.next.href;
@@ -374,6 +398,7 @@ function parseDetail(html) {
 }
 function parseAwards(html, year) {
   const heads = [...html.matchAll(/<strong>\s*([^<#]*?)#\s*([^<]*?)\s*<\/strong>/gi)];
+  if (!heads.length && (html.length > 3e3 || /Award is to|<table/i.test(html))) throw new Error("portal page changed: no awards headings found in the contract awards report");
   return heads.map((h, i) => {
     const seg = html.slice(h.index + h[0].length, i + 1 < heads.length ? heads[i + 1].index : void 0);
     const t = parseTitle(decode(h[2]));
@@ -462,9 +487,10 @@ function createPortal(http) {
           throw new Error("portal search did not return JSON (the page may have changed)");
         }
         if (!payload.success || !Array.isArray(payload.data)) throw new Error("portal search returned an unexpected response");
+        if (!Number.isFinite(Number(payload.total))) throw new Error("portal page changed: bid search response has no total");
         out.push(payload);
         start += payload.data.length;
-        if (!payload.data.length || start >= (payload.total ?? 0)) break;
+        if (!payload.data.length || start >= Number(payload.total)) break;
       }
       return out;
     }, { ttl: HOUR_MS });
@@ -868,6 +894,7 @@ var contractKey = (c) => clean2(c.contract_number).toUpperCase() || `${c.vendor}
 async function collect({ commands, cfg, today, prev }) {
   const bids = {};
   const seenIds = /* @__PURE__ */ new Set();
+  const awardRows = {};
   const cutoff = addDays(today, -RECENT_DAYS);
   for (const status of BID_STATUSES2) {
     const { rows } = await commands.bidsList({ status, full: true });
@@ -885,6 +912,7 @@ async function collect({ commands, cfg, today, prev }) {
   const awards = {};
   for (const year of cfg.award_years) {
     const { rows } = await commands.awardsList({ year });
+    awardRows[year] = rows.length;
     for (const a of rows) {
       const { number, name } = awardIdentity(a);
       if (!a.awardees.length) continue;
@@ -919,15 +947,32 @@ async function collect({ commands, cfg, today, prev }) {
       matched: kw
     };
   }
-  return { bids, awards, contracts };
+  return { bids, awards, contracts, fetchedIds: seenIds, meta: { bids_fetched: seenIds.size, award_rows: awardRows } };
 }
-function diff({ prev, cur, cfg, today }) {
+function assertNotDegraded(prev, cur) {
+  const pm = prev && prev.meta;
+  if (!pm) return;
+  if (pm.bids_fetched > 0 && cur.meta.bids_fetched === 0) throw new Error(`degraded upstream: the bid lists came back empty (the previous run saw ${pm.bids_fetched}); nothing was recorded`);
+  for (const [year, n] of Object.entries(pm.award_rows || {})) {
+    if (n > 0 && cur.meta.award_rows[year] === 0) throw new Error(`degraded upstream: the ${year} awards report came back empty (the previous run saw ${n} RFPs); nothing was recorded`);
+  }
+}
+function diff({ prev, cur, cfg, today, fetchedIds = /* @__PURE__ */ new Set() }) {
   const baseline = !prev;
   const changes = [];
+  if (prev) {
+    for (const p of Object.values(prev.bids)) {
+      if (cur.bids[p.id] || fetchedIds.has(p.id)) continue;
+      if (p.missing_since && daysBetween(p.missing_since, today) > 365) continue;
+      cur.bids[p.id] = p.missing_since ? p : { ...p, missing_since: today };
+      if (!p.missing_since) changes.push({ type: "STATUS_CHANGE", number: p.number, name: p.name, status: p.status, closing: p.closing_local || p.closing, days_left: p.days_left, planned_issue: p.planned_issue, url: p.url, id: p.id, from: p.status, to: "no longer listed" });
+    }
+  }
   const horizon = addMonths(today, cfg.contract_expiring_months);
   const thresholds = uniq([cfg.closing_soon_days, FINAL_DAYS]).sort((a, b) => b - a);
   const bidFields = (b) => ({ number: b.number, name: b.name, status: b.status, closing: b.closing_local || b.closing, days_left: b.days_left, planned_issue: b.planned_issue, url: b.url, id: b.id });
   for (const b of Object.values(cur.bids)) {
+    if (b.missing_since) continue;
     const p = prev && prev.bids[b.id];
     const isOpen = b.status === "Open" || b.status === "Planned";
     const crossed = b.status === "Open" && b.days_left !== null && b.days_left >= 0 ? thresholds.filter((t) => b.days_left <= t) : [];
@@ -1089,18 +1134,20 @@ async function loadConfig(path, todayIso) {
   }
   return normalizeConfig(raw, todayIso);
 }
-async function runWatch({ commands, today, configPath, stateDir, format = "md" }) {
+async function runWatch({ commands, today, configPath, stateDir, format = "md", deliver }) {
   if (!configPath) throw new WatchConfigError("watch run needs --config <watch.json>");
   if (!stateDir) throw new WatchConfigError("watch run needs --state-dir <dir>");
   if (format !== "md" && format !== "json") throw new WatchConfigError(`watch --format must be md or json (got ${JSON.stringify(format)})`);
   const date = today();
   const cfg = await loadConfig(configPath, date);
   const prev = await loadLatest(stateDir);
-  const cur = await collect({ commands, cfg, today: date, prev });
-  const changes = diff({ prev, cur, cfg, today: date });
+  const { fetchedIds, ...cur } = await collect({ commands, cfg, today: date, prev });
+  assertNotDegraded(prev, cur);
+  const changes = diff({ prev, cur, cfg, today: date, fetchedIds });
   const snapshot = { version: SNAPSHOT_VERSION, date, ...cur };
   const result = { date, baseline: !prev, changes, summary: summarize(changes) };
   const text2 = render2(result, cfg, format);
+  if (deliver) await deliver(text2);
   await mkdir3(stateDir, { recursive: true });
   const body = JSON.stringify(snapshot, null, 1) + "\n";
   await atomicWrite(join3(stateDir, `snapshot-${date}.json`), body);
@@ -1185,7 +1232,7 @@ var EXAMPLE_CONFIG = {
 };
 
 // src/cli.js
-import { writeFile as writeFile5 } from "node:fs/promises";
+import { readFile as readFile3, writeFile as writeFile5 } from "node:fs/promises";
 import { existsSync } from "node:fs";
 var deps = {
   fetch: (...a) => globalThis.fetch(...a),
@@ -1217,7 +1264,7 @@ var COMMANDS = {
   "agencies list": { string: ["state", "type"], bool: [], usage: "agencies list [--state XX] [--type <text>]" },
   "categories list": { string: [], bool: [], usage: "categories list" },
   "states list": { string: [], bool: [], usage: "states list" },
-  "watch run": { string: ["config", "state-dir"], bool: [], usage: "watch run --config <watch.json> --state-dir <dir> [--format md|json] [--out <file>]   (daily alerts: diff against the last snapshot)" },
+  "watch run": { string: ["config", "state-dir"], bool: ["cache"], usage: "watch run --config <watch.json> --state-dir <dir> [--format md|json] [--out <file>] [--cache]   (daily alerts: diff against the last snapshot; bypasses the local cache unless --cache)" },
   "watch init": { string: [], bool: [], usage: "watch init --out <watch.json>   (write the example watch config to edit)" },
   doctor: { string: [], bool: [], usage: "doctor" }
 };
@@ -1331,7 +1378,7 @@ ${helpText()}`);
     }
     const positional = spec.positional || 0;
     if (cmd.args.length !== positional) throw new UsageError(`usage: ${spec.usage}`);
-    const http = createHttp({ fetchImpl: deps.fetch, sleep: deps.sleep, now: deps.now, cacheDir: deps.cacheDir || defaultCacheDir(), noCache: !!flags["no-cache"] });
+    const http = createHttp({ fetchImpl: deps.fetch, sleep: deps.sleep, now: deps.now, cacheDir: deps.cacheDir || defaultCacheDir(), noCache: !!flags["no-cache"] || cmd.name === "watch run" && !flags.cache });
     const api = createJsonApi(http);
     const portal = createPortal(http);
     const today = () => new Date(deps.now()).toISOString().slice(0, 10);
@@ -1354,17 +1401,20 @@ ${helpText()}`);
       const format = flags.format || "md";
       if (format !== "md" && format !== "json") throw new UsageError("watch run --format must be md or json");
       let out;
+      const deliver = async (text2) => {
+        if (flags.out) {
+          await writeFile5(flags.out, text2);
+          if (await readFile3(flags.out, "utf8") !== text2) throw new Error(`could not verify the digest written to ${flags.out}`);
+          deps.stderr(`wrote digest to ${flags.out}
+`);
+        }
+        deps.stdout(text2);
+      };
       try {
-        out = await runWatch({ commands: c, today, configPath: flags.config, stateDir: flags["state-dir"], format });
+        out = await runWatch({ commands: c, today, configPath: flags.config, stateDir: flags["state-dir"], format, deliver });
       } catch (e) {
         if (e instanceof WatchConfigError) throw new UsageError(e.message);
         throw e;
-      }
-      deps.stdout(out.text);
-      if (flags.out) {
-        await writeFile5(flags.out, out.text);
-        deps.stderr(`wrote digest to ${flags.out}
-`);
       }
       return;
     }

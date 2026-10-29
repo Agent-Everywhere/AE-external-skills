@@ -1,5 +1,5 @@
 // Read-only client for the public JSON:API. GET only, allowlisted resources/fields only.
-import { ALLOWED, BASE, JSONAPI_PREFIX, OPERATORS, AllowlistError, assertFields, assertNextLink, assertPath, assertResource } from "./allowlist.js";
+import { ALLOWED, BASE, JSONAPI_PREFIX, OPERATORS, AllowlistError, assertFields, assertNextLink, assertPath, assertRedirect, assertResource } from "./allowlist.js";
 
 /**
  * Build a JSON:API URL.
@@ -41,7 +41,7 @@ export function createJsonApi(http, { maxPages = 400 } = {}) {
     let pages = 0;
     while (url && rows.length < limit && pages < maxPages) {
       const u = url;
-      const doc = await http.cached(`GET ${u}`, () => http.getJson(u));
+      const doc = await http.cached(`GET ${u}`, () => http.getJson(u, { onRedirect: (loc) => assertRedirect(loc, query.resource) }));
       pages++;
       for (const d of doc.data || []) rows.push({ id: d.id, ...d.attributes });
       const next = doc.links && doc.links.next && doc.links.next.href;

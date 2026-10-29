@@ -7,7 +7,7 @@ import { emit } from "./output.js";
 import { AllowlistError } from "./allowlist.js";
 import { runWatch, WatchConfigError } from "./watch.js";
 import { EXAMPLE_CONFIG } from "./watch-example.js";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 
 export { VERSION };
@@ -39,7 +39,7 @@ export const COMMANDS = {
   "agencies list": { string: ["state", "type"], bool: [], usage: "agencies list [--state XX] [--type <text>]" },
   "categories list": { string: [], bool: [], usage: "categories list" },
   "states list": { string: [], bool: [], usage: "states list" },
-  "watch run": { string: ["config", "state-dir"], bool: [], usage: "watch run --config <watch.json> --state-dir <dir> [--format md|json] [--out <file>]   (daily alerts: diff against the last snapshot)" },
+  "watch run": { string: ["config", "state-dir"], bool: ["cache"], usage: "watch run --config <watch.json> --state-dir <dir> [--format md|json] [--out <file>] [--cache]   (daily alerts: diff against the last snapshot; bypasses the local cache unless --cache)" },
   "watch init": { string: [], bool: [], usage: "watch init --out <watch.json>   (write the example watch config to edit)" },
   doctor: { string: [], bool: [], usage: "doctor" },
 };
@@ -141,7 +141,7 @@ export async function main(argv = process.argv.slice(2)) {
     const positional = spec.positional || 0;
     if (cmd.args.length !== positional) throw new UsageError(`usage: ${spec.usage}`);
 
-    const http = createHttp({ fetchImpl: deps.fetch, sleep: deps.sleep, now: deps.now, cacheDir: deps.cacheDir || defaultCacheDir(), noCache: !!flags["no-cache"] });
+    const http = createHttp({ fetchImpl: deps.fetch, sleep: deps.sleep, now: deps.now, cacheDir: deps.cacheDir || defaultCacheDir(), noCache: !!flags["no-cache"] || (cmd.name === "watch run" && !flags.cache) });
     const api = createJsonApi(http);
     const portal = createPortal(http);
     const today = () => new Date(deps.now()).toISOString().slice(0, 10);
@@ -161,10 +161,17 @@ export async function main(argv = process.argv.slice(2)) {
       const format = flags.format || "md";
       if (format !== "md" && format !== "json") throw new UsageError("watch run --format must be md or json");
       let out;
-      try { out = await runWatch({ commands: c, today, configPath: flags.config, stateDir: flags["state-dir"], format }); }
+      // Deliver (write and verify --out, then print) before runWatch records the snapshot: if delivery fails nothing is committed.
+      const deliver = async (text) => {
+        if (flags.out) {
+          await writeFile(flags.out, text);
+          if ((await readFile(flags.out, "utf8")) !== text) throw new Error(`could not verify the digest written to ${flags.out}`);
+          deps.stderr(`wrote digest to ${flags.out}\n`);
+        }
+        deps.stdout(text);
+      };
+      try { out = await runWatch({ commands: c, today, configPath: flags.config, stateDir: flags["state-dir"], format, deliver }); }
       catch (e) { if (e instanceof WatchConfigError) throw new UsageError(e.message); throw e; }
-      deps.stdout(out.text);
-      if (flags.out) { await writeFile(flags.out, out.text); deps.stderr(`wrote digest to ${flags.out}\n`); }
       return;
     }
 

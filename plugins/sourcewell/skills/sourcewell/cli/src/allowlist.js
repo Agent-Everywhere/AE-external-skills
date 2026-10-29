@@ -75,6 +75,18 @@ export function assertNextLink(href, resource) {
   return u.toString();
 }
 
+/** Validate a redirect target for a JSON:API request: same origin and same allowed resource; fields (if any) allowed. */
+export function assertRedirect(href, resource) {
+  const spec = assertResource(resource);
+  let u;
+  try { u = new URL(href); } catch { throw new AllowlistError(`bad redirect target: ${href}`); }
+  if (u.origin !== BASE) throw new AllowlistError(`redirect leaves the allowed origin: ${u.origin}`);
+  if (u.pathname !== `${JSONAPI_PREFIX}/${resource}`) throw new AllowlistError(`redirect points at a different resource: ${u.pathname}`);
+  const sparse = u.searchParams.get(`fields[${spec.type}]`);
+  if (sparse) assertFields(resource, sparse.split(","));
+  return u.toString();
+}
+
 // ---- Bid portal: the only routes this CLI will ever call (everything else, including any
 // register / submit / question route, throws before a request is made).
 export const PORTAL_ORIGIN = "https://proportal.sourcewell-mn.gov";

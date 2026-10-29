@@ -82,3 +82,33 @@ test("only GET is ever used", async () => {
   await api.fetchAll({ resource: "node/account" });
   assert.deepEqual(f.calls.map((c) => c.init.method), ["GET"]);
 });
+
+test("redirects are not followed blindly: off-origin and other-resource Locations are refused, same-resource ones are re-validated", async () => {
+  const mk = (location) => {
+    const clock = fakeClock();
+    const f = mockFetch((url) => (url.includes("contractprofile") && !url.includes("moved")
+      ? jsonRes("", { status: 302, headers: { location } })
+      : jsonRes(doc("node--contractprofile", [{ title: "A" }]))));
+    const http = createHttp({ fetchImpl: f, sleep: clock.sleep, now: clock.now, cacheDir: tmpDir(), noCache: true });
+    return { f, api: createJsonApi(http) };
+  };
+  const query = { resource: "node/contractprofile", fields: ["title"] };
+  const off = mk("https://evil.example/jsonapi/node/contractprofile?fields[node--contractprofile]=title");
+  await assert.rejects(() => off.api.fetchAll(query), /allowed origin/);
+  assert.equal(off.f.calls.length, 1, "the off-origin Location was not requested");
+  assert.equal(off.f.calls[0].init.redirect, "manual");
+  const other = mk("https://www.sourcewell-mn.gov/jsonapi/user/user");
+  await assert.rejects(() => other.api.fetchAll(query), /different resource|not on the allowlist/);
+  const same = mk("https://www.sourcewell-mn.gov/jsonapi/node/contractprofile?fields[node--contractprofile]=title&moved=1");
+  const rows = await same.api.fetchAll(query);
+  assert.equal(rows.length, 1);
+  assert.equal(same.f.calls.length, 2);
+});
+
+test("getJson without a redirect validator fails on a redirect", async () => {
+  const clock = fakeClock();
+  const f = mockFetch(() => jsonRes("", { status: 301, headers: { location: "https://www.sourcewell-mn.gov/jsonapi/node/contractprofile" } }));
+  const http = createHttp({ fetchImpl: f, sleep: clock.sleep, now: clock.now, cacheDir: tmpDir(), noCache: true });
+  await assert.rejects(() => http.getJson("https://www.sourcewell-mn.gov/jsonapi/taxonomy_term/states"), /redirect/);
+  assert.equal(f.calls.length, 1);
+});

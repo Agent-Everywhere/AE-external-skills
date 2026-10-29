@@ -90,11 +90,25 @@ export function createHttp({
     return value;
   }
 
-  /** GET JSON through limiter + retry. */
-  async function getJson(url) {
-    const res = await request(url, { method: "GET" });
-    if (!res.ok) throw new HttpError(`HTTP ${res.status} for ${url}`, res.status, url);
-    return res.json();
+  /**
+   * GET JSON through limiter + retry. Redirects are never followed blindly: with `onRedirect(absoluteUrl)` (which must
+   * return the URL to follow, or throw) up to 3 hops are followed and each Location is re-validated; without it a
+   * redirect is an error.
+   */
+  async function getJson(url, { onRedirect } = {}) {
+    let u = url;
+    for (let hop = 0; hop < 4; hop++) {
+      const res = await request(u, { method: "GET", redirect: "manual" });
+      const loc = res.status >= 300 && res.status < 400 && res.headers && res.headers.get && res.headers.get("location");
+      if (loc) {
+        if (!onRedirect) throw new HttpError(`unexpected redirect (HTTP ${res.status}) from ${u}: not followed`, res.status, u);
+        u = onRedirect(new URL(loc, u).toString());
+        continue;
+      }
+      if (!res.ok) throw new HttpError(`HTTP ${res.status} for ${u}`, res.status, u);
+      return res.json();
+    }
+    throw new HttpError(`too many redirects from ${url}`, 0, url);
   }
 
   return { request, cached, getJson, stats, cacheDir };
