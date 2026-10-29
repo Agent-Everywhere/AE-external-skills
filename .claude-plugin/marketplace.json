@@ -88,6 +88,24 @@
         "intuit",
         "browser"
       ]
+    },
+    {
+      "name": "sourcewell",
+      "source": "./plugins/sourcewell",
+      "version": "0.1.0",
+      "description": "CLI + skill: read-only research of Sourcewell's public cooperative-purchasing data: who holds a contract and when it expires, open and upcoming bids, past awardees, participating agencies. Unofficial; needs Node 20+.",
+      "strict": false,
+      "skills": [
+        "./skills/sourcewell"
+      ],
+      "category": "sales",
+      "tags": [
+        "sourcewell",
+        "cooperative-purchasing",
+        "public-sector",
+        "procurement",
+        "prospecting"
+      ]
     }
   ]
 }

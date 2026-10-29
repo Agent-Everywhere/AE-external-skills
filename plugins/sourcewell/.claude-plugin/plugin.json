@@ -1,0 +1,10 @@
+{
+  "name": "sourcewell",
+  "version": "0.1.0",
+  "description": "CLI + skill: read-only research of Sourcewell's public cooperative-purchasing data (contract holders and expiry dates, open solicitations and bids, participating agencies) for public-sector prospecting. Unofficial; needs Node 20+.",
+  "author": {
+    "name": "Agent Everywhere",
+    "url": "https://github.com/Agent-Everywhere"
+  },
+  "keywords": ["sourcewell", "cooperative-purchasing", "public-sector", "procurement"]
+}
