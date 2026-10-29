@@ -1,0 +1,6 @@
+# Per-skill manifest. Keep in step with .claude-plugin/marketplace.json (checked by tests).
+name: sourcewell
+version: 0.1.0
+category: sales
+# No browser runtime: the CLI calls public, unauthenticated endpoints directly.
+runtimes: []

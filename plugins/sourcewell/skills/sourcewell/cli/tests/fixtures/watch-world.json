@@ -1,0 +1,26 @@
+{
+  "bids": [
+    { "id": "b1", "number": "110726", "type": "RFP", "name": "Truck Bodies, Service Cranes and Upfit Services", "status": "Open", "closing": "2026-11-17T20:30:00.000Z", "closing_local": "Tue Nov 17, 2026 2:30:00 PM", "days_left": 20, "planned_issue": "", "plan_takers": 40, "documents": 3, "addendums": 0, "description": "Service bodies and cranes mounted on a customer-supplied chassis.", "url": "https://portal.example/Tender/Detail/b1" },
+    { "id": "b2", "number": "TBD", "type": "RFP", "name": "Work Truck Chassis and Vans", "status": "Planned", "closing": "", "closing_local": "", "days_left": "", "planned_issue": "2026-12-01T00:00:00.000Z", "plan_takers": 0, "documents": 0, "addendums": 0, "description": "Cab and chassis units, cargo vans.", "url": "https://portal.example/Tender/Detail/b2" },
+    { "id": "b3", "number": "110826", "type": "RFP", "name": "School Food Products and Distribution", "status": "Open", "closing": "2026-12-01T20:30:00.000Z", "closing_local": "Tue Dec 1, 2026 2:30:00 PM", "days_left": 34, "planned_issue": "", "plan_takers": 10, "documents": 2, "addendums": 0, "description": "Food products delivered by distributor fleet vehicles.", "url": "https://portal.example/Tender/Detail/b3" },
+    { "id": "b4", "number": "110926", "type": "RFP", "name": "Parking Management Systems", "status": "Open", "closing": "2026-12-05T20:30:00.000Z", "closing_local": "Sat Dec 5, 2026 2:30:00 PM", "days_left": 38, "planned_issue": "", "plan_takers": 5, "documents": 1, "addendums": 0, "description": "Gates and meters.", "url": "https://portal.example/Tender/Detail/b4" },
+    { "id": "b5", "number": "110126", "type": "RFP", "name": "Fleet Vehicles and Trailers", "status": "Closed", "closing": "2026-09-30T20:30:00.000Z", "closing_local": "Wed Sep 30, 2026 3:30:00 PM", "days_left": -28, "planned_issue": "", "plan_takers": 60, "documents": 5, "addendums": 2, "description": "Vehicles and trailers.", "url": "https://portal.example/Tender/Detail/b5" },
+    { "id": "b6", "number": "111026", "type": "RFP", "name": "Snow Plows and Salt Spreaders", "status": "Open", "closing": "2026-11-13T20:30:00.000Z", "closing_local": "Fri Nov 13, 2026 2:30:00 PM", "days_left": 16, "planned_issue": "", "plan_takers": 22, "documents": 4, "addendums": 1, "description": "Plows for municipal trucks.", "url": "https://portal.example/Tender/Detail/b6" },
+    { "id": "b8", "number": "010120", "type": "RFP", "name": "Fleet Vehicles (old)", "status": "Closed", "closing": "2020-01-01T20:30:00.000Z", "closing_local": "Wed Jan 1, 2020", "days_left": -2000, "planned_issue": "", "plan_takers": 1, "documents": 1, "addendums": 0, "description": "Too old to track.", "url": "https://portal.example/Tender/Detail/b8" }
+  ],
+  "awards": {
+    "2026": [
+      { "year": 2026, "number": "110126", "type": "RFP", "name": "Fleet Vehicles and Trailers", "bidder_count": 7, "awardees": [], "bidders": [] },
+      { "year": 2026, "number": "", "type": "", "name": "042126 - Parking Management Systems", "bidder_count": 3, "awardees": ["Gate Co"], "bidders": [] }
+    ],
+    "2025": []
+  },
+  "contracts": [
+    { "contract_number": "030126-KNP", "vendor": "Knapheide", "end_date": "2027-03-01", "description": "Service bodies and truck bodies", "keywords": "service body, crane", "category": "" },
+    { "contract_number": "030226-ZTB", "vendor": "Zeta Truck Bodies", "end_date": "2029-01-01", "description": "Truck bodies and dump bodies", "keywords": "truck body", "category": "" },
+    { "contract_number": "030326-IMT", "vendor": "Imtech Ltd", "end_date": "2027-02-01", "description": "Office furniture", "keywords": "furniture", "category": "" },
+    { "contract_number": "030426-ABC", "vendor": "Late Expiry Cranes", "end_date": "2028-06-01", "description": "Service cranes", "keywords": "crane", "category": "" },
+    { "contract_number": "030526-SCH", "vendor": "School Food Fleet", "end_date": "2027-02-01", "description": "school food delivery fleet", "keywords": "fleet", "category": "" },
+    { "contract_number": "030626-OLD", "vendor": "Expired Truck Bodies", "end_date": "2026-01-01", "description": "truck bodies", "keywords": "", "category": "" }
+  ]
+}

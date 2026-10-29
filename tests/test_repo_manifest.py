@@ -21,7 +21,7 @@ SEMVER = r"\d+\.\d+\.\d+"
 # skill dir -> marketplace plugin name, where they differ ("claude-" is a reserved plugin prefix)
 PLUGIN_NAMES = {"claude-desktop": "desktop-cowork"}
 # multi-skill plugins under plugins/ besides sales-navigator (checked in their own test files)
-OTHER_PLUGINS = ["quickbooks"]
+OTHER_PLUGINS = ["quickbooks", "sourcewell"]
 
 
 PLUGIN = ROOT / "plugins" / "sales-navigator"
