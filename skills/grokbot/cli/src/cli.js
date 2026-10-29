@@ -18,7 +18,15 @@ let _gw = null;
 async function gateway(opts) {
   if (_gw) return _gw;
   const session = await resolveGatewaySession({ accountScope: opts.account ?? null, prefer: opts.ensure ? "ensure" : "auto" });
-  _gw = new Gateway(session);
+  // Sidebar sections live in Cursor runtime settings; attach the control-plane client when signed in.
+  let runtime = null;
+  try {
+    const auth = loadCursorAuth({ accountScope: opts.account ?? null });
+    if (auth) runtime = new CursorClient(auth);
+  } catch {
+    // unreadable secret store: fall back to host settings
+  }
+  _gw = new Gateway(session, { runtime });
   return _gw;
 }
 /** Test seam: inject a gateway (or null to reset). */
@@ -559,7 +567,7 @@ export function buildProgram() {
     });
 
   // ---- sections
-  const sections = program.command("sections").alias("s").description("Sidebar sections (stored in host settings; the app refreshes on focus)");
+  const sections = program.command("sections").alias("s").description("Sidebar sections (stored in Cursor runtime settings, mirrored to host settings; the app refreshes on focus)");
 
   sections
     .command("list")

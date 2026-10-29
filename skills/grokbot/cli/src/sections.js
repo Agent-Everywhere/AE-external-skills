@@ -1,5 +1,7 @@
-// Pure model operations for sidebar sections. Shape (as stored in host settings.sidebarSections):
-//   [{ id: "section-<base36>-<n>", name: "Agent Swarm", agentIds: ["<uuid>", ...] }, ...]
+// Pure model operations for sidebar sections. Sections live in Cursor's per-user runtime settings
+// (GrokBotService Get/UpdateGrokBotUserRuntimeSettings -> settings.sidebarSections.sections). Shape:
+//   [{ id: "section-<base36>-<n>", name: "Agent Swarm", agentIds: ["<uuid>", ...], isCollapsed?: bool }, ...]
+// The server list includes the pseudo-section { id: "__agents__", name: "Unassigned" }; keep it in place.
 // An agent belongs to at most one section; the app derives sectionIdByAgent from this list, first wins.
 import { UsageError } from "./output.js";
 
@@ -16,7 +18,10 @@ export function normalizeSections(raw) {
         agentIds.push(id);
       }
     }
-    out.push({ id: s.id, name: s.name, agentIds });
+    // Spread first so fields we do not model survive a read-modify-write round trip.
+    const section = { ...s, id: s.id, name: s.name, agentIds };
+    if (typeof s.isCollapsed !== "boolean") delete section.isCollapsed;
+    out.push(section);
   }
   return out;
 }

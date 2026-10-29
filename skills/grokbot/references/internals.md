@@ -22,9 +22,12 @@
   `setSidebarSections(sections)`, `getPinnedAgents()`, `setPinnedAgents(ids)`; account:
   `desktop.cursorAccount.getStatus()`; host: `desktop.getBoxHostPhase()`. Host commands themselves flow
   through a MessagePort to the coordinator, not through `window.desktop`.
-- **Sections storage**: host settings key `sidebarSections` (`desktop` bridge → main
-  `syncHostSettingsToBox` → gateway `setHostSettings`). The renderer slice is `scope:"host-durable"` and
-  reconciles on reconnect / window focus.
+- **Sections storage**: primary store is Cursor runtime settings (`GetGrokBotUserRuntimeSettings` /
+  `UpdateGrokBotUserRuntimeSettings`, `settings.sidebarSections.sections`; updates send `sidebarSectionsBase`
+  for optimistic concurrency, using the list `getSections()` read). Host settings key `sidebarSections`
+  (`desktop` bridge → main `syncHostSettingsToBox` → gateway `setHostSettings`) is a best-effort mirror for
+  older apps, skipped when the server list is empty and the host list is not. The renderer slice is
+  `scope:"host-durable"` and reconciles on reconnect / window focus.
 - **Two agent id spaces**: the box roster id (uuid, used everywhere in this CLI) vs. the Cursor control-plane
   `GrokBotAgent.id` (numeric) whose `agentId` field points back at the roster uuid. Only named/shared/room
   agents exist on the control plane; plain chats are box-only.
