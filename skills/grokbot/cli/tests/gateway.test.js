@@ -227,3 +227,30 @@ test("host-branch getSections and setSections return normalized sections", async
   assert.deepEqual(await gw.getSections(), [{ id: "s", name: "S", agentIds: ["a"] }]);
   assert.deepEqual(await gw.setSections([]), [{ id: "t", name: "T", agentIds: ["b"] }]);
 });
+
+test("setSections mirrors the server-stored list, not the request", async () => {
+  let host = [];
+  const { fetchImpl } = fakeFetch((url, init) => {
+    if (url.endsWith("/api/getHostSettings")) return { status: 200, body: { sidebarSections: host } };
+    host = JSON.parse(init.body).sidebarSections;
+    return { status: 200, body: { sidebarSections: host } };
+  });
+  // Server amends every write: it keeps the protected Unassigned bucket first and trims section names.
+  let stored = [];
+  const runtime = {
+    async getSidebarSections() {
+      return stored;
+    },
+    async setSidebarSections(sections) {
+      stored = [{ id: "__agents__", name: "Unassigned", agentIds: [] }, ...sections.filter((s) => s.id !== "__agents__").map((s) => ({ ...s, name: s.name.trim() }))];
+      return stored;
+    },
+  };
+  const gw = new Gateway({ baseUrl: "https://host", token: "T", headers: {} }, { fetchImpl, runtime });
+  await gw.getSections();
+  await gw.setSections([{ id: "s1", name: "One ", agentIds: [] }]);
+  assert.deepEqual(host, stored, "host mirror holds the server-stored list");
+  await gw.setSections([{ id: "s1", name: "Renamed ", agentIds: [] }]);
+  assert.deepEqual(gw.lastSectionsMirror, { ok: true });
+  assert.deepEqual(host, stored);
+});
