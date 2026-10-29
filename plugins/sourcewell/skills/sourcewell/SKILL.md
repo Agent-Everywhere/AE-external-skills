@@ -25,10 +25,18 @@ public data into JSON or CSV.
 Node 20+. No `npm install`: one bundled file ships with this skill.
 
 ```sh
-SW="<skill-dir>/cli/dist/sourcewell.mjs"   # <skill-dir> = the folder holding this SKILL.md
+# Claude Code sets CLAUDE_PLUGIN_ROOT; Claude Desktop Cowork leaves it empty and mounts the plugin under /mnt/skills/plugin-files.
+SW="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/sourcewell/cli/dist/sourcewell.mjs}"
+[ -f "$SW" ] || SW="/mnt/skills/plugin-files/sourcewell/skills/sourcewell/cli/dist/sourcewell.mjs"
+[ -f "$SW" ] || SW="$(find / -path '*skills/sourcewell/cli/dist/sourcewell.mjs' 2>/dev/null | head -1)"
 node "$SW" doctor                           # reachability of the data API and the bid portal: run this first
 node "$SW" --help
 ```
+
+**Claude Desktop (Cowork).** Works as is: Cowork's sandbox has Node and reaches both Sourcewell hosts
+(verified 2026-10-29). Chat mode has no shell, so use a Cowork task. Cowork's home directory does not survive
+between tasks: keep the watch config and `--state-dir` in a folder the user has added to the task (for example
+`<their folder>/sourcewell/`), never in `~`.
 
 Global flags: `--format json|csv` (default json), `--out <file>`, `--limit <n>`, `--full` (long text
 fields), `--no-cache`. JSON output is `{count, meta?, rows}`. Requests are limited to 2 per second, retried
@@ -142,7 +150,9 @@ closed, closed to awarded), `CLOSING_SOON` (once at the threshold, once more in 
 State is `snapshot-YYYY-MM-DD.json` (last 30) and `latest.json` in `--state-dir`. If any fetch fails the command
 exits non-zero and leaves `latest.json` untouched, so a partial pull is never recorded; run it again.
 
-**Schedule it daily.** Either a Claude Code scheduled task (`/schedule`, e.g. weekday mornings: "run the
+**Schedule it daily.** In Claude Desktop: Scheduled > New task, Cowork, with the user's folder attached, e.g.
+weekday 7am: "Run my Sourcewell watch (config and state in sourcewell/ in this folder) and show me the digest."
+Or a Claude Code scheduled task (`/schedule`, e.g. weekday mornings: "run the
 sourcewell watch and show me the digest"), or plain cron/launchd running
 `node <skill-dir>/cli/dist/sourcewell.mjs watch run --config ~/sourcewell-watch.json --state-dir ~/.sourcewell-watch --format md --out ~/sourcewell-digest.md --no-cache`.
 Use `--no-cache` for scheduled runs so awards and contracts are not a day stale.
