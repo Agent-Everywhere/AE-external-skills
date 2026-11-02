@@ -59,7 +59,7 @@ The last three return `requests` made: log them as small calls, `profile.js` als
 
 **Run a snippet.** Browser JS tool (Cowork, Claude in Chrome): `python3 "$ENGINE/runtime/session.py" --emit
 <snippet>.js --params '{...}' --compact` prints a paste-ready async IIFE; paste it whole, one snippet per
-call, and save results under `results/`. Agent Browser (cloud): one JSON plan in one process
+call, and save results under `results/`. Your own Chrome over CDP: one JSON plan in one process
 (`$ENGINE/runtime/README.md`). Neither: stop and ask the user; never click through the UI.
 
 Scripts in `$ENGINE/scripts/` (stdlib, no network; see `--help`): `doctor.py`, `salesnav_rows.py`

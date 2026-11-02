@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Vendor packages/browser-runtime into every skill that lists a browser runtime.
 
-A skill opts in through skills/<name>/skill.yaml:  runtimes: [local, agent-browser]
+A skill opts in through skills/<name>/skill.yaml:  runtimes: [local]
 (an empty list, `runtimes: []`, means no browser runtime and nothing is copied).
 
   python3 build/sync_runtime.py           copy packages/browser-runtime -> skills/<name>/runtime/

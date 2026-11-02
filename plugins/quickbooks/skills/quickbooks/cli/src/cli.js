@@ -1,8 +1,6 @@
 import { Command, Option } from "commander";
 import { writeFileSync } from "node:fs";
-import { connect, claimAgentBrowser, startHeartbeat, writeSessionFile, ConnectError } from "./connect.js";
-import { unlinkSync } from "node:fs";
-import { startRelay } from "./relay.js";
+import { connect } from "./connect.js";
 import { Qbo, WriteBlocked } from "./qbo.js";
 import { API_REPORTS, ENTITIES } from "./entities.js";
 import { BASE, FORMS, GATED, LISTS, PAGES, REPORTS, resolveOpen } from "./routes.js";
@@ -11,28 +9,21 @@ import { UsageError, printJson, redact, table } from "./output.js";
 import { benchMarkdown, runBench } from "./bench.js";
 import { sleep } from "./cdp.js";
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.2.0";
 
 function root(cmd) { let c = cmd; while (c.parent) c = c.parent; return c.opts(); }
 const log = (...a) => process.stderr.write(a.join(" ") + "\n");
 
 /** Test seam: replace how a session is opened. */
-export const deps = { connect, claimAgentBrowser, startHeartbeat, startRelay };
+export const deps = { connect };
 
-const connOpts = (o) => ({ runtime: o.runtime, cdpUrl: o.cdpUrl, base: o.base, sessionFile: o.sessionFile });
-
-/** Tell the AE connector what the auth probe found (no-op for local CDP). */
-const reportAuth = (session, signedIn) => session.heartbeat?.report ? session.heartbeat.report(signedIn) : undefined;
+const connOpts = (o) => ({ cdpUrl: o.cdpUrl });
 
 async function withQbo(cmd, fn) {
   const o = root(cmd);
   const session = await deps.connect(connOpts(o));
   try {
     const qbo = new Qbo(session.page, { log });
-    if (session.heartbeat) {
-      try { await qbo.ensureReady(); await reportAuth(session, true); }
-      catch (e) { await reportAuth(session, false); throw e; }
-    }
     if (o.realm) {
       await qbo.ensureReady();
       const c = await qbo.company();
@@ -69,14 +60,12 @@ function summary(r) {
 
 export function buildProgram() {
   const program = new Command("qbo")
-    .description("Operate QuickBooks Online through a signed-in browser (AE cloud browser or local Chrome over CDP).\nRead-only by default; writes need --yes.")
+    .description("Operate QuickBooks Online through your own signed-in Chrome (over CDP).\nRead-only by default; writes need --yes.")
     .version(VERSION)
     .option("--json", "machine-readable JSON output")
     .option("--yes", "apply a write (without it, writes only print what they would do)")
-    .addOption(new Option("--runtime <kind>", "browser runtime").choices(["cdp", "agent-browser"]))
+    .addOption(new Option("--runtime <kind>", "browser runtime (only cdp: your own Chrome)").choices(["cdp"]))
     .option("--cdp-url <url>", "Chrome DevTools URL (default $QBO_CDP_URL or http://127.0.0.1:9222)")
-    .option("--base <url>", "AE browser connector base URL for agent-browser (claim from env AB_CLAIM)")
-    .option("--session-file <path>", "agent-browser: reuse the browser held by `qbo hold` (default $QBO_SESSION_FILE)")
     .option("--realm <id>", "refuse to run unless the signed-in company has this realm id");
 
   program.command("doctor").description("check Node, browser connection, sign-in, company and API access")
@@ -92,42 +81,16 @@ export function buildProgram() {
         try {
           const s = await qbo.ensureReady();
           add("signed_in", true, s.url);
-          await reportAuth(session, true);
           const t = performance.now();
           const c = await qbo.company();
           add("api", true, `${Math.round(performance.now() - t)} ms`);
           add("company", true, `${c.name} (realm ${c.realm})`);
-        } catch (e) { add("signed_in", false, e.message); await reportAuth(session, false); }
+        } catch (e) { add("signed_in", false, e.message); }
       } catch (e) { add("browser", false, redact(e.message)); }
       finally { if (session) await session.close(); }
       const ok = checks.every((c) => c.ok);
       out(cmd, { ok, checks }, () => checks.map((c) => `${c.ok ? "ok  " : "FAIL"} ${c.name.padEnd(10)} ${c.detail ?? ""}`).join("\n"));
       if (!ok) process.exitCode = 1;
-    });
-
-  program.command("hold").description("agent-browser: claim AB_CLAIM once, heartbeat, and write a 0600 session file so many qbo runs share one cloud browser; runs until SIGINT/SIGTERM or --max-seconds")
-    .option("--max-seconds <n>", "release after this many seconds", "2400")
-    .action(async (o, cmd) => {
-      const base = root(cmd).base || process.env.AB_BASE;
-      const sessionFile = root(cmd).sessionFile || process.env.QBO_SESSION_FILE;
-      if (!sessionFile) throw new ConnectError("hold needs --session-file <path> (or $QBO_SESSION_FILE)", 2);
-      const c = await deps.claimAgentBrowser({ base, claim: process.env.AB_CLAIM });
-      // The lease ends when the claiming CDP socket closes, so hold it here and relay locally.
-      const relay = await deps.startRelay(c.cdpUrl);
-      const hb = deps.startHeartbeat({ base, ...c });
-      writeSessionFile(sessionFile, { base, ...c, cdpUrl: relay.url });
-      log(`holding agent-browser session ${c.sessionId}; session file ${sessionFile}. Stop with SIGINT/SIGTERM.`);
-      let stopping = false;
-      await new Promise((resolve) => {
-        const t = setTimeout(resolve, Number(o.maxSeconds) * 1000);
-        for (const sig of ["SIGINT", "SIGTERM"]) process.once(sig, () => { clearTimeout(t); resolve(); });
-        relay.closed.then((c) => { if (!stopping) log(`cloud browser disconnected at ${new Date().toISOString()} (code ${c?.code ?? "?"}${c?.reason ? ", " + c.reason : ""}); the lease is gone, open a new session`); clearTimeout(t); resolve(); });
-      });
-      stopping = true;
-      await hb.stop();
-      await relay.close();
-      try { unlinkSync(sessionFile); } catch {}
-      log("released");
     });
 
   program.command("status").description("signed-in state of the QuickBooks tab")

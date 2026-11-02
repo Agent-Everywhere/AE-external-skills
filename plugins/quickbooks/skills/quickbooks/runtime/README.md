@@ -11,11 +11,7 @@ need `pip install playwright` (it attaches to an existing browser). `session.py 
    `python3 "$ENGINE/runtime/session.py" --emit lead_search.js --params '{"query":"...","count":25}' --compact`
    prints a paste-ready async IIFE (add `--form return` if the tool shows nothing). One snippet per tool
    call; save each result before the next. Without code execution, wrap the file as `( <file> )({...})`.
-2. **Agent Browser** (cloud, for schedules and laptop-off runs): check `browser action=status` and
-   `workspace action=list`, `open_session` (the claim lives 60 seconds, so write the plan first), run
-   everything in ONE process, then `close_session`:
-   `AB_CLAIM="<claim>" python3 "$ENGINE/runtime/session.py" --runtime agent-browser --base "<base>" --plan plan.json --out results.jsonl`
-3. **Local Chrome over CDP** (`--remote-debugging-port=9222 --user-data-dir=<dedicated dir>`):
+2. **Your own Chrome over CDP** (`--remote-debugging-port=9222 --user-data-dir=<dedicated dir>`):
    `python3 "$ENGINE/runtime/session.py" --runtime cdp --cdp-url http://127.0.0.1:9222 --plan plan.json --out results.jsonl`
 
 ## Plan
@@ -36,21 +32,20 @@ need `pip install playwright` (it attaches to an existing browser). `session.py 
 
 **Param contract.** Each `$ENGINE/page/*.js` declares its params in its header: `// @params a b c`, and
 `// @required a b|c` (`b|c` = either). An unknown or missing key in a plan call or `--emit --params` exits 2
-before any browser is claimed, naming the snippet, the key, the accepted keys and a "did you mean". A new
+before any browser is connected to, naming the snippet, the key, the accepted keys and a "did you mean". A new
 snippet should declare `@params` (the sales-navigator suite fails without it; undeclared snippets elsewhere
 are not checked).
 
-Validated before anything is claimed; `--skip-done` resumes from the JSONL. Paged calls default to 100
-pages (200 maximum); `"sample": true` with `pages.max_pages` marks a deliberate partial pull. A cloud plan
-is fixed up front, so dependent steps are one session each. Exit codes: 0 done; 2 bad plan; 3 not signed
-in (the user signs in); 4 checkpoint (40-minute ceiling: reopen with `--skip-done`); 5 stopped on 403/429;
+Validated before anything is connected; `--skip-done` resumes from the JSONL. Paged calls default to 100
+pages (200 maximum); `"sample": true` with `pages.max_pages` marks a deliberate partial pull. Exit codes: 0 done; 2 bad plan; 3 not signed
+in (the user signs in); 4 checkpoint (time ceiling or page budget: rerun with `--skip-done`); 5 stopped on 403/429;
 6 browser error; 7 page never ready; 8 finished but incomplete.
 
 ## Rules
 
-- One session per seat; one process per cloud session (the browser dies when it exits).
+- One session per seat.
 - 3 to 5 seconds between calls, none in parallel. Size with `count=1`, sample 50 rows, then scale.
 - Stop on 403/429 after the page was ready, a captcha, sign-out, limit banner, or empty or repeating
   pages. No retry loops.
-- Never print or save cookies, tokens, claims or CDP URLs; never handle a password or 2FA code.
-- A local run uses the user's own seat and IP and needs the machine awake.
+- Never print or save cookies, tokens or CDP URLs; never handle a password or 2FA code.
+- A run uses the user's own seat and IP and needs the machine awake.

@@ -31,6 +31,15 @@ pending, accepted, replied), draft, get typed approval, send by UI click after t
 This skill mirrors, from the user's own machine and browser, many of the actions a hosted LinkedIn API such as Unipile
 provides. Systematic team use belongs on a hosted outreach system.
 
+## Install (for you, the agent)
+
+Get this folder from https://github.com/Agent-Everywhere/AE-external-skills (`plugins/sales-navigator/skills/salesnav-diy-linkedin`) and copy it AND the sibling `sales-navigator` engine folder next to it (the tools live there; this skill alone has none):
+
+- **Grok Bot box:** `/home/box/agent-data/workflows/salesnav-diy-linkedin/` and `/home/box/agent-data/workflows/sales-navigator/`.
+- **Claude Code:** `/plugin marketplace add Agent-Everywhere/AE-external-skills`, then `/plugin install linkedin-replies@ae-external-skills` (ships the engine); or copy both folders to `~/.claude/skills/`.
+- **Codex:** `~/.codex/skills/salesnav-diy-linkedin` and `~/.codex/skills/sales-navigator`.
+- **Claude Desktop / Cowork:** add the marketplace `Agent-Everywhere/AE-external-skills` and add `linkedin-replies`.
+
 ## Flow
 
 0. Run `python3 "$ENGINE/scripts/doctor.py"`. If doctor fails or the engine can't be found, stop and tell the user. Never fall back to driving the Sales Navigator UI by hand (clicking filters, scrolling results, saving lists). Needs a
@@ -60,7 +69,7 @@ provides. Systematic team use belongs on a hosted outreach system.
 
 ## Hard rules
 
-- If you cannot run a page snippet (no browser JS tool, no Agent Browser, no CDP), stop and tell the user; never click through the UI.
+- If you cannot run a page snippet (no browser JS tool, no CDP), stop and tell the user; never click through the UI.
 - Every send or write (invite, message, InMail, withdrawal, reaction, follow, list change) needs the
   user's typed approval of the exact batch. Silence and schedules are never approval; a scheduled run
   reads and drafts only.

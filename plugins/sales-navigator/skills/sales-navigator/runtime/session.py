@@ -5,21 +5,14 @@ Connects to a signed-in browser over CDP, opens (or reuses) a page, waits for it
 runs a JSON plan: an ordered list of JS snippet calls executed inside the page. Every call's result
 is appended to a JSONL file and flushed before the next call, so an interruption loses nothing.
 
-Runtimes
-  agent-browser  AB_CLAIM=<one-use claim> --base <https connector base URL>
-                 Claims the cloud browser (POST <base>/browser/claim), reports the auth probe
-                 (POST <base>/browser/auth), and heartbeats from a thread (<= 60s apart).
-                 Prefer the AB_CLAIM environment variable to --claim: command-line arguments are
-                 visible to other local users in `ps`.
-                 The cloud browser DIES when this process disconnects: run the whole plan, for
-                 one session, in ONE invocation.
+Runtime
   cdp            --cdp-url http://127.0.0.1:9222
                  Attaches to the user's own Chrome (started with --remote-debugging-port). It
                  reuses an open linkedin.com/sales tab; if there is none it opens a NEW tab and
                  never navigates one of the user's other tabs.
 
-This file is the one place in the repo that touches the network (claim/auth/heartbeat, plus
-Playwright's CDP socket). Skill scripts under skills/<name>/scripts stay stdlib and no-network.
+This file's only network use is Playwright's CDP socket to the user's own browser. Skill scripts
+under skills/<name>/scripts stay stdlib and no-network.
 Dependencies: Python 3 standard library and `playwright` (pip install playwright; no browser
 download needed, because it connects to an existing browser).
 
@@ -52,7 +45,7 @@ record per page with id "<id>#<start>".
 Param contract: a snippet declares its top-level param names in its header, `// @params a b c`, and
 the ones a call must carry in `// @required a b|c` (`b|c` = either). A plan call (and `--emit
 --params`) that names an undeclared key, or lacks a required one, is a bad plan (exit 2) reported
-BEFORE any browser is claimed or contacted, with the accepted names and a "did you mean" hint. A
+BEFORE any browser is connected to, with the accepted names and a "did you mean" hint. A
 snippet with no `@params` line is not checked; inline "js" calls are never checked.
 
 Page budget: reference.md allows 100 search pages a day by default and never more than
@@ -77,11 +70,11 @@ record AND the stored hash matches the call about to run (changed params or code
 calls' stored results still drive paging.
 
 Exit codes: 0 done, 2 usage / bad plan / playwright missing, 3 not signed in, 4 checkpoint (time
-ceiling, lost heartbeat or page budget; reopen and resume), 5 stopped on a stop status, 6 browser /
-page / claim error, 7 page never became ready, 8 finished but incomplete (a call failed or a paged
+ceiling or page budget; resume with --skip-done), 5 stopped on a stop status, 6 browser /
+page error, 7 page never became ready, 8 finished but incomplete (a call failed or a paged
 call was truncated; the summary and the JSONL say which).
 
-Secrets: the claim, CDP URL (host and path) and heartbeat token are redacted from everything
+Secrets: the CDP URL (host and path) is redacted from everything
 printed or written, together with any ws(s):// URL and cookie-shaped text (session cookie, csrf
 token and similar). Snippets must never return cookies or tokens; this runner never reads them.
 """
@@ -93,20 +86,15 @@ import os
 import random
 import re
 import sys
-import threading
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 from pathlib import Path
 
 (EXIT_OK, EXIT_USAGE, EXIT_AUTH, EXIT_CHECKPOINT, EXIT_STOPPED, EXIT_BROWSER, EXIT_NOT_READY,
  EXIT_INCOMPLETE) = (0, 2, 3, 4, 5, 6, 7, 8)
 
-# The agent-browser lease is a hard 40 minutes; checkpoint before it, with margin to flush.
+# Wall-clock ceiling per process: the run checkpoints (exit 4) and resumes with --skip-done.
 DEFAULT_MAX_SECONDS = 2280
-HEARTBEAT_EVERY = 25  # seconds; the connector requires <= 60
-HEARTBEAT_MAX_FAILURES = 3  # consecutive failed beats before the run checkpoints and stops
 
 # Pacing and page budget. Source of truth: references/salesnav-kb/05-rate-caps-and-pacing.md (pacing, pages/day) and reference.md ("Daily volume defaults"; a test compares the page counts).
 MIN_DELAY_MS = 2000
@@ -185,16 +173,6 @@ def safe_path(url):
 
 
 # ----------------------------------------------------------------------------- helpers
-
-def post_json(base, path, body, timeout=30):
-    """POST a JSON body to base+path; return the decoded JSON object ({} when empty)."""
-    req = urllib.request.Request(
-        base.rstrip("/") + path, data=json.dumps(body).encode("utf-8"),
-        headers={"content-type": "application/json"}, method="POST")
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        raw = resp.read()
-    return json.loads(raw) if raw else {}
-
 
 def wrap_js(source):
     """Turn a snippet file's text into a single JS expression Playwright can evaluate."""
@@ -353,61 +331,6 @@ def signed_in(url, auth):
     return not any(_has_run(segs, _segments(b)) for b in bad)
 
 
-class Heartbeat(threading.Thread):
-    """Posts a heartbeat every `interval` seconds until stopped (agent-browser only).
-
-    A 4xx answer (the connector no longer accepts this session) or `max_failures` failed beats in a
-    row set `lost`; the runner then checkpoints and exits instead of working on a reclaimed browser.
-    """
-
-    def __init__(self, post, interval=HEARTBEAT_EVERY, log=None, max_failures=HEARTBEAT_MAX_FAILURES):
-        super().__init__(daemon=True)
-        self._post = post
-        self._interval = interval
-        self._log = log or (lambda msg: None)
-        self._halt = threading.Event()
-        self._max_failures = max_failures
-        self.stage = "starting"
-        self.rows = 0
-        self.beats = 0
-        self.errors = 0
-        self.consecutive = 0
-        self.lost = False
-        self.lost_reason = ""
-
-    def _lose(self, reason):
-        if not self.lost:
-            self.lost, self.lost_reason = True, reason
-            self._log("heartbeat lost: %s" % reason)
-
-    def beat(self):
-        try:
-            self._post(self.stage, self.rows)
-            self.beats += 1
-            self.consecutive = 0
-        except urllib.error.HTTPError as exc:
-            self.errors += 1
-            self.consecutive += 1
-            self._log("heartbeat error: HTTP %s" % exc.code)
-            if 400 <= exc.code < 500:
-                self._lose("HTTP %s" % exc.code)
-            elif self.consecutive >= self._max_failures:
-                self._lose("%d failed beats in a row" % self.consecutive)
-        except Exception as exc:  # network blip: keep going, the next beat may succeed
-            self.errors += 1
-            self.consecutive += 1
-            self._log("heartbeat error: %s" % str(exc)[:120])
-            if self.consecutive >= self._max_failures:
-                self._lose("%d failed beats in a row" % self.consecutive)
-
-    def run(self):
-        while not self._halt.wait(self._interval):
-            self.beat()
-
-    def stop(self):
-        self._halt.set()
-
-
 # ----------------------------------------------------------------------------- plan validation
 
 def _is_int(value, lo=None, hi=None):
@@ -533,21 +456,19 @@ class _Checkpoint(Exception):
 class Runner:
     """Runs a plan against `page` (anything with evaluate/goto/wait_for_*), streaming JSONL."""
 
-    def __init__(self, page, plan, out_path, snippet_dirs, secrets=(), heartbeat=None,
+    def __init__(self, page, plan, out_path, snippet_dirs, secrets=(),
                  max_seconds=DEFAULT_MAX_SECONDS, skip_done=False, sleep=time.sleep,
-                 clock=time.monotonic, rng=None, log=None, on_auth=None):
+                 clock=time.monotonic, rng=None, log=None):
         self.page = page
         self.plan = plan
         self.out_path = out_path
         self.snippet_dirs = [Path(d) for d in snippet_dirs]
         self.secrets = list(secrets)
-        self.heartbeat = heartbeat
         self.max_seconds = max_seconds
         self.sleep = sleep
         self.clock = clock
         self.rng = rng or random.Random()
         self.log = log or (lambda msg: print(redact(msg, self.secrets), file=sys.stderr))
-        self.on_auth = on_auth
         self.done = read_done(out_path) if skip_done else {}
         self.stop_status = set(plan.get("stop_on_status") or [403, 429])
         self.eval_timeout_ms = int(plan.get("evaluate_timeout_ms", DEFAULT_EVAL_TIMEOUT_MS))
@@ -578,16 +499,10 @@ class Runner:
         self._out.write(text + "\n")
         self._out.flush()
 
-    def stage(self, name):
-        if self.heartbeat:
-            self.heartbeat.stage = name
-            self.heartbeat.rows = self.rows
-
     # -- steps
     def settle(self, goto=True):
         page = self.page
         if goto and self.plan.get("start_url"):
-            self.stage("goto")
             page.goto(self.plan["start_url"], wait_until="domcontentloaded")
         try:
             page.wait_for_load_state("networkidle", timeout=20000)
@@ -596,23 +511,17 @@ class Runner:
         page.wait_for_timeout(int(self.plan.get("settle_ms", 3000)))
 
     def probe_auth(self):
-        """True when the landed URL looks signed in (and the connector accepts it); emits an event when not."""
+        """True when the landed URL looks signed in; emits an event when not."""
         url = self.page.url
         ok = signed_in(url, self.plan.get("auth"))
         if not ok:
             self.emit({"event": "not_signed_in", "path": safe_path(url)})
-        if self.on_auth:
-            accepted = self.on_auth(ok)
-            if ok and not accepted:
-                self.emit({"event": "auth_rejected", "note": "the connector did not accept the session"})
-            ok = ok and accepted
         return ok
 
     def wait_ready(self):
         spec = self.plan.get("ready")
         if not spec:
             return True
-        self.stage("ready")
         for attempt in range(int(spec.get("retries", 5))):
             result = self.evaluate(spec.get("snippet"), spec.get("js"), spec.get("params", {}))
             if isinstance(result, dict) and result.get("ready"):
@@ -640,8 +549,6 @@ class Runner:
         """Why the run must stop before the next call (None to carry on)."""
         if self.over_budget():
             return "time ceiling"
-        if self.heartbeat is not None and getattr(self.heartbeat, "lost", False):
-            return "heartbeat lost (%s)" % self.heartbeat.lost_reason
         return None
 
     def check_stop(self, next_id):
@@ -669,7 +576,6 @@ class Runner:
             raise _Checkpoint(call_id, "page budget reached (%d pages; KB 05 pages/day)" % self.page_budget)
         self.pause()
         self.check_stop(call_id)  # the pause counts against the time budget too
-        self.stage(call_id)
         started = self.clock()
         result = self.evaluate(call.get("snippet"), call.get("js"), params)
         ms = int((self.clock() - started) * 1000)
@@ -808,8 +714,8 @@ def _page_is_target(url, prefer):
 def pick_page(browser, prefer="linkedin.com/sales", reuse_first=False):
     """Reuse an open tab on the target site, else open a NEW tab.
 
-    The user's other tabs are never navigated. `reuse_first` is for a cloud browser we own: its
-    first (blank) tab is ours to use.
+    The user's other tabs are never navigated. `reuse_first` (default off) would take the first
+    tab of a browser dedicated to this run; the CLI never sets it.
     """
     ctx = browser.contexts[0] if browser.contexts else browser.new_context()
     for page in ctx.pages:
@@ -826,14 +732,7 @@ EMIT_FORMS = ("expression", "return")
 def build_parser():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--runtime", choices=["agent-browser", "cdp"])
-    ap.add_argument("--claim", default=os.environ.get("AB_CLAIM"),
-                    help="one-use 60s claim from open_session. Prefer the env var AB_CLAIM: "
-                         "command-line arguments are visible to other users in `ps`")
-    ap.add_argument("--base", default=os.environ.get("AB_BASE"),
-                    help="connector https base URL returned by open_session (or env AB_BASE)")
-    ap.add_argument("--session-id", default=os.environ.get("AB_SESSION_ID"),
-                    help="only needed if the claim response omits session_id")
+    ap.add_argument("--runtime", choices=["cdp"], help="the only runtime: attach to your own Chrome over CDP")
     ap.add_argument("--cdp-url", help="CDP endpoint of the user's own Chrome (runtime cdp)")
     ap.add_argument("--plan", help="plan JSON file")
     ap.add_argument("--out", help="JSONL results file (appended)")
@@ -1059,64 +958,10 @@ def emit_expression(snippet, params_json, dirs, compact=False, form="expression"
     return "return await " + expr if form == "return" else expr
 
 
-class RunnerExit(Exception):
-    """A startup failure with the documented exit code to return."""
-
-    def __init__(self, code, message):
-        super().__init__(message)
-        self.code, self.message = code, message
-
-
 def import_playwright():
     """Import Playwright late (tests and --emit need no browser). Raises ImportError when missing."""
     from playwright.sync_api import sync_playwright
     return sync_playwright
-
-
-def _error_body(exc, limit=300):
-    try:
-        return exc.read(limit).decode("utf-8", "replace")
-    except Exception:
-        return ""
-
-
-def connect_agent_browser(args, log, secrets=()):
-    """Claim the cloud browser. Return (cdp_url, session_id, hb_token); raise RunnerExit on any failure."""
-    try:
-        claimed = post_json(args.base, "/browser/claim", {"claim": args.claim})
-    except urllib.error.HTTPError as exc:
-        raise RunnerExit(EXIT_BROWSER, "claim rejected (HTTP %s): claims are one-use and expire in 60s; "
-                                       "open a fresh session" % exc.code)
-    except (urllib.error.URLError, OSError, ValueError) as exc:
-        raise RunnerExit(EXIT_BROWSER, "claim request failed: %s" % clip(exc, secrets, 160))
-    if not isinstance(claimed, dict):
-        raise RunnerExit(EXIT_BROWSER, "claim response was not a JSON object")
-    cdp_url = claimed.get("cdp_url")
-    hb_token = claimed.get("heartbeat_token")
-    session_id = claimed.get("session_id") or args.session_id
-    if not (cdp_url and hb_token and session_id):
-        raise RunnerExit(EXIT_BROWSER, "claim response missing cdp_url / heartbeat_token / session_id "
-                                       "(claims are one-use and expire in 60s: open a fresh session)")
-    log("claimed browser session")
-    return cdp_url, session_id, hb_token
-
-
-def make_auth_reporter(base, sid, token, log, post=None):
-    """Callback for Runner.on_auth: report the probe to the connector; False when it refuses the session."""
-    post = post or post_json
-
-    def report(ok):
-        try:
-            post(base, "/browser/auth", {"session_id": sid, "heartbeat_token": token, "signed_in": ok})
-        except urllib.error.HTTPError as exc:
-            body = _error_body(exc)
-            log("auth report rejected: HTTP %s%s" % (exc.code, " (auth_required)" if "auth_required" in body else ""))
-            return not (400 <= exc.code < 500 or "auth_required" in body) and ok
-        except (urllib.error.URLError, OSError, ValueError) as exc:
-            log("auth report failed: %s" % clip(exc, [token], 120))
-        return ok
-
-    return report
 
 
 def main(argv=None):
@@ -1139,15 +984,7 @@ def main(argv=None):
     if not (args.runtime and args.plan and args.out):
         print("error: --runtime, --plan and --out are required (or use --emit)", file=sys.stderr)
         return EXIT_USAGE
-    if args.runtime == "agent-browser":
-        if not (args.claim and args.base):
-            print("error: agent-browser runtime needs --claim and --base (or AB_CLAIM / AB_BASE)", file=sys.stderr)
-            return EXIT_USAGE
-        parts = urllib.parse.urlsplit(args.base)
-        if parts.scheme != "https" or not parts.hostname:
-            print("error: --base must be an https URL", file=sys.stderr)
-            return EXIT_USAGE
-    elif not args.cdp_url:
+    if not args.cdp_url:
         print("error: --cdp-url is required for runtime cdp", file=sys.stderr)
         return EXIT_USAGE
     try:
@@ -1158,58 +995,31 @@ def main(argv=None):
     dirs = default_snippet_dirs(args.snippets_dir, args.plan)
     problems = validate_plan(plan, dirs)
     if problems:
-        print("error: the plan is not valid (nothing was claimed or run):", file=sys.stderr)
+        print("error: the plan is not valid (nothing was connected or run):", file=sys.stderr)
         for problem in problems:
             print("  - " + problem, file=sys.stderr)
         return EXIT_USAGE
-    try:  # before the claim: a claim is one-use and expires in 60s, so never burn it on a missing dependency
+    try:
         sync_playwright = import_playwright()
     except ImportError:
         print("error: the 'playwright' package is not installed: python3 -m pip install playwright "
               "(no `playwright install` needed: it attaches to an existing browser)", file=sys.stderr)
         return EXIT_USAGE
 
-    secrets = [args.claim] + url_secrets(args.cdp_url)
+    secrets = url_secrets(args.cdp_url)
     log = lambda msg: print(redact(msg, secrets), file=sys.stderr, flush=True)  # noqa: E731
-    cli_args = list(argv if argv is not None else sys.argv[1:])
-    if args.claim and any(a == "--claim" or a.startswith("--claim=") for a in cli_args):
-        log("note: --claim on the command line is visible to other users in `ps`; prefer the env var AB_CLAIM")
-
-    heartbeat = None
-    sid = token = None
-    base = args.base
-    if args.runtime == "agent-browser":
-        try:
-            cdp_url, sid, token = connect_agent_browser(args, log, secrets)
-        except RunnerExit as exc:
-            print("error: " + redact(exc.message, secrets), file=sys.stderr)
-            return exc.code
-        secrets += [token] + url_secrets(cdp_url)
-    else:
-        cdp_url = args.cdp_url
-        log("local runtime: this uses your own browser session, seat and IP")
+    cdp_url = args.cdp_url
+    log("local runtime: this uses your own browser session, seat and IP")
 
     pw = None
     code = EXIT_BROWSER
     try:
         pw = sync_playwright().start()
         browser = pw.chromium.connect_over_cdp(cdp_url)
-        page = pick_page(browser, reuse_first=args.runtime == "agent-browser")
-        on_auth = None
-        if args.runtime == "agent-browser":
-            heartbeat = Heartbeat(
-                lambda stage, rows: post_json(base, "/browser/heartbeat", {
-                    "session_id": sid, "heartbeat_token": token, "stage": stage, "rows": rows}),
-                log=log)
-            heartbeat.start()
-            on_auth = make_auth_reporter(base, sid, token, log)
-        runner = Runner(page, plan, args.out, dirs, secrets=secrets, heartbeat=heartbeat,
-                        max_seconds=args.max_seconds, skip_done=args.skip_done, log=log, on_auth=on_auth)
+        page = pick_page(browser)
+        runner = Runner(page, plan, args.out, dirs, secrets=secrets,
+                        max_seconds=args.max_seconds, skip_done=args.skip_done, log=log)
         code = runner.run(goto=not args.no_goto)
-        if heartbeat:
-            heartbeat.stage = "done"
-            heartbeat.rows = runner.rows
-            heartbeat.beat()
         summary = {"code": code, "executed": runner.executed, "ok": runner.ok_count,
                    "failed": runner.fail_count, "truncated": len(runner.truncated),
                    "sampled": len(runner.sampled), "rows": runner.rows}
@@ -1220,8 +1030,6 @@ def main(argv=None):
         log("fatal: %s" % clip(exc, secrets, 200))
         code = EXIT_BROWSER
     finally:
-        if heartbeat:
-            heartbeat.stop()
         try:
             if pw is not None:
                 pw.stop()  # disconnects; never browser.close() on a CDP attach

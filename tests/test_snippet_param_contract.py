@@ -195,23 +195,12 @@ class CommandLine(unittest.TestCase):
             plan.write_text(json.dumps(plan_with("typeahead.js", {"type": "INDUSTRY", "qury": "x"})))
             proc = self.run_cli("--runtime", "cdp", "--cdp-url", DUMMY_CDP, "--plan", str(plan), "--out", str(out))
             self.assertEqual(proc.returncode, session.EXIT_USAGE, proc.stderr)
-            self.assertIn("nothing was claimed or run", proc.stderr)
+            self.assertIn("nothing was connected or run", proc.stderr)
             self.assertIn("'qury'", proc.stderr)
             self.assertIn("did you mean 'query'", proc.stderr)
             self.assertNotIn("local runtime", proc.stderr)  # the connect step never started
             self.assertNotIn("fatal", proc.stderr)
             self.assertFalse(out.exists())
-
-    def test_agent_browser_plan_with_a_bad_key_fails_before_claiming(self):
-        with tempfile.TemporaryDirectory() as d:
-            plan = Path(d) / "plan.json"
-            plan.write_text(json.dumps(plan_with("lead_search.js", {"query": "q", "cnt": 5})))
-            proc = self.run_cli("--runtime", "agent-browser", "--claim", "never-used-claim-123456",
-                                "--base", "https://127.0.0.1:1", "--plan", str(plan),
-                                "--out", str(Path(d) / "out.jsonl"))
-            self.assertEqual(proc.returncode, session.EXIT_USAGE, proc.stderr)
-            self.assertIn("did you mean 'count'", proc.stderr)
-            self.assertIn("nothing was claimed or run", proc.stderr)
 
 
 @unittest.skipUnless(NODE, "node not installed")

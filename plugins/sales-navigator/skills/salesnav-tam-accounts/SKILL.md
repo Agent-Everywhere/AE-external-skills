@@ -32,6 +32,15 @@ Field-notes KB: `$ENGINE/references/salesnav-kb/` (from this skill's folder: `..
 read each company's own description, keep the fits, and report how many qualify. Over the 1,000 viewable
 cap? Cut it into sub-lists with `salesnav-tam-tracker`.
 
+## Install (for you, the agent)
+
+Get this folder from https://github.com/Agent-Everywhere/AE-external-skills (`plugins/sales-navigator/skills/salesnav-tam-accounts`) and copy it AND the sibling `sales-navigator` engine folder next to it (the tools live there; this skill alone has none):
+
+- **Grok Bot box:** `/home/box/agent-data/workflows/salesnav-tam-accounts/` and `/home/box/agent-data/workflows/sales-navigator/`.
+- **Claude Code:** `/plugin marketplace add Agent-Everywhere/AE-external-skills`, then `/plugin install linkedin-find-companies@ae-external-skills` (ships the engine); or copy both folders to `~/.claude/skills/`.
+- **Codex:** `~/.codex/skills/salesnav-tam-accounts` and `~/.codex/skills/sales-navigator`.
+- **Claude Desktop / Cowork:** add the marketplace `Agent-Everywhere/AE-external-skills` and add `linkedin-find-companies`.
+
 ## Flow
 
 0. **Seller research first, before any question; no engine needed.** If the user named their company or site, read the
@@ -52,7 +61,7 @@ cap? Cut it into sub-lists with `salesnav-tam-tracker`.
    (clicking filters, scrolling results, saving lists).** Only the browser steps below need the engine.
 3. **Browser gate.** In a signed-in `linkedin.com/sales` tab run `csrf_ready.js`. No browser connected or no JS
    tool: the profile is written, so stop and tell the user how to connect (a signed-in Sales Nav tab with a
-   browser JS tool, or Agent Browser); resume at step 4.
+   browser JS tool, or your own Chrome over CDP); resume at step 4.
 4. **Calibrate from the examples.** Before this step, read `$ENGINE/references/salesnav-kb/04-industry-quirks.md`. `typeahead.js` for geography (`BING_GEO`) and industry ids, and each example
    customer's company id (nothing found: `account_search.js` with its name as keywords); then `companies_details.js`
    for industry, headcount, description, specialties. Derive the broad net's industry ids and the scoring
@@ -104,7 +113,7 @@ count only); over 1,000, stratify into non-overlapping sub-nets. Method: `$ENGIN
 
 ## Hard rules
 
-- If you cannot run a page snippet (no browser JS tool, no Agent Browser, no CDP), stop and tell the user; never click through the UI.
+- If you cannot run a page snippet (no browser JS tool, no CDP), stop and tell the user; never click through the UI.
 - Read-only except list saves: create a Sales Nav list (account type) and save accounts to it only after the user confirms the exact
   list name once per run; never modify, rename or delete a list the user did not name. Saved accounts are paced, not
   quota-capped. No saved searches, no lead saves, never send.

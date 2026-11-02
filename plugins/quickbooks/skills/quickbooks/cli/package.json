@@ -1,7 +1,7 @@
 {
   "name": "qbo",
-  "version": "0.1.0",
-  "description": "Operate QuickBooks Online through a signed-in browser (AE cloud browser or local Chrome over CDP).",
+  "version": "0.2.0",
+  "description": "Operate QuickBooks Online through a signed-in browser (your own Chrome over CDP).",
   "type": "module",
   "private": true,
   "bin": { "qbo": "./bin/qbo.js" },

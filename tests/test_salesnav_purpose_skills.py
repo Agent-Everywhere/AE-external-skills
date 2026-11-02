@@ -45,8 +45,9 @@ NAMES = sorted(REQUIRED)
 # 0.7.x: KB read-before lines: accounts (1500, 124), tracker (870, 80), people stays (900, 76).
 # 0.7.2: outreach KB read-before lines (820, 76).
 # 0.8.0: DIY LinkedIn skill (880, 80; mirror framing sentence).
-BUDGET = {"salesnav-tam-accounts": (1500, 124), "salesnav-tam-people": (900, 76), "salesnav-tam-tracker": (870, 80),
-          "salesnav-outreach": (820, 76), "salesnav-diy-linkedin": (880, 80)}
+# 0.9.0: "Install (for you, the agent)" block in each (+9 lines, +160 words).
+BUDGET = {"salesnav-tam-accounts": (1700, 133), "salesnav-tam-people": (1080, 85), "salesnav-tam-tracker": (1050, 89),
+          "salesnav-outreach": (1000, 85), "salesnav-diy-linkedin": (1060, 89)}
 # Who reads what: references/salesnav-kb/00-index.md. Each SKILL.md names its pages as references/salesnav-kb/<file>.
 KB = TOOLKIT / "references" / "salesnav-kb"
 KB_READERS = {
@@ -167,7 +168,7 @@ class KnowledgeBaseReferences(unittest.TestCase):
 class PurposeSkillDocs(unittest.TestCase):
     def test_word_and_line_budgets(self):
         for name in NAMES:
-            words, lines = BUDGET.get(name, (800, 76))
+            words, lines = BUDGET.get(name, (960, 85))
             with self.subTest(skill=name):
                 self.assertLessEqual(len(text(name).split()), words)
                 self.assertLessEqual(len(text(name).splitlines()), lines)

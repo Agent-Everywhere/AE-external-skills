@@ -727,7 +727,7 @@ class PluginPackaging(unittest.TestCase):
         md = (SKILL / "SKILL.md").read_text()
         self.assertRegex(md, r"(?m)^name: linkedin-emails$")
         self.assertLessEqual(len(md.splitlines()), 130)
-        for needle in ("120", "40", "429", "decoration", "Unipile", "liEmailsLastRun", "--abandon-issue", "20"):
+        for needle in ("120", "40", "429", "decoration", "liEmailsLastRun", "--abandon-issue", "20"):
             self.assertIn(needle, md)
         self.assertIn("never interpolate", md.lower())
 
@@ -755,7 +755,7 @@ class PluginPackaging(unittest.TestCase):
                 with self.subTest(file=path.name):
                     self.assertNotIn("li_at", text)
                     self.assertNotIn("api.unipile", text)
-                    self.assertNotIn("lireach.", text.lower().replace("lireach-", ""))
+                    self.assertNotIn("lireach", text.lower())
 
     @unittest.skipUnless(shutil.which("zip") and shutil.which("bash"), "zip or bash not installed")
     def test_builds_an_upload_zip(self):

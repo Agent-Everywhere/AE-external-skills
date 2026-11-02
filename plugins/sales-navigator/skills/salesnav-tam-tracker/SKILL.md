@@ -30,6 +30,15 @@ Field-notes KB: `$ENGINE/references/salesnav-kb/` (from this skill's folder: `..
 **Job.** Cover a market bigger than one search can show (1,000 accounts, 2,500 leads) with sub-lists
 that each fit under the cap, and keep a checklist so any later task knows what is counted, pulled and next.
 
+## Install (for you, the agent)
+
+Get this folder from https://github.com/Agent-Everywhere/AE-external-skills (`plugins/sales-navigator/skills/salesnav-tam-tracker`) and copy it AND the sibling `sales-navigator` engine folder next to it (the tools live there; this skill alone has none):
+
+- **Grok Bot box:** `/home/box/agent-data/workflows/salesnav-tam-tracker/` and `/home/box/agent-data/workflows/sales-navigator/`.
+- **Claude Code:** `/plugin marketplace add Agent-Everywhere/AE-external-skills`, then `/plugin install linkedin-track-new-leads@ae-external-skills` (ships the engine); or copy both folders to `~/.claude/skills/`.
+- **Codex:** `~/.codex/skills/salesnav-tam-tracker` and `~/.codex/skills/sales-navigator`.
+- **Claude Desktop / Cowork:** add the marketplace `Agent-Everywhere/AE-external-skills` and add `linkedin-track-new-leads`.
+
 ## Flow
 
 0. Run `python3 "$ENGINE/scripts/doctor.py"`. **If doctor fails or the engine can't be found, stop and tell
@@ -60,7 +69,7 @@ that each fit under the cap, and keep a checklist so any later task knows what i
 
 ## Hard rules
 
-- If you cannot run a page snippet (no browser JS tool, no Agent Browser, no CDP), stop and tell the user; never click through the UI.
+- If you cannot run a page snippet (no browser JS tool, no CDP), stop and tell the user; never click through the UI.
 - Never substitute another data source (other MCP datasets, web estimates) for the Sales Nav count without asking the user.
 - Read-only by default; never send from here. A Sales Nav list is the master of record across segments: save to it
   only through `salesnav-tam-accounts` (exact list name confirmed once per run, never modify a list the user did not

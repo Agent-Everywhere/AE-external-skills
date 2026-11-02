@@ -1,5 +1,5 @@
 // Minimal Chrome DevTools Protocol client (browser-level websocket, flattened target sessions).
-// Works against local Chrome (--remote-debugging-port) and the AE cloud browser's cdp_url.
+// Works against your own Chrome (--remote-debugging-port).
 import WebSocket from "ws";
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
