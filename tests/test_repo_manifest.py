@@ -16,12 +16,16 @@ sys.path.insert(0, str(ROOT / "build"))
 
 import sync_runtime  # noqa: E402
 
-KNOWN_RUNTIMES = {"local", "agent-browser"}
+KNOWN_RUNTIMES = {"local"}
 SEMVER = r"\d+\.\d+\.\d+"
 # skill dir -> marketplace plugin name, where they differ ("claude-" is a reserved plugin prefix)
 PLUGIN_NAMES = {"claude-desktop": "desktop-cowork"}
 # multi-skill plugins under plugins/ besides sales-navigator (checked in their own test files)
 OTHER_PLUGINS = ["quickbooks", "sourcewell", "linkedin-emails"]
+# install-by-intent plugins: one job each, all sharing the sales-navigator source folder (plugin name -> skill folder)
+INTENT_PLUGINS = {"linkedin-find-people": "salesnav-tam-people", "linkedin-find-companies": "salesnav-tam-accounts",
+                  "linkedin-split-big-search": "salesnav-tam-tracker", "linkedin-outreach": "salesnav-outreach",
+                  "linkedin-replies": "salesnav-diy-linkedin"}
 
 
 PLUGIN = ROOT / "plugins" / "sales-navigator"
@@ -56,7 +60,7 @@ class SkillManifests(unittest.TestCase):
     def test_runtime_expectations(self):
         self.assertEqual(sync_runtime.load_manifest(ROOT / "skills" / "grokbot")["runtimes"], [])
         self.assertEqual(sync_runtime.load_manifest(ROOT / "skills" / "grokbot-box")["runtimes"], [])
-        self.assertEqual(sync_runtime.load_manifest(ENGINE)["runtimes"], ["local", "agent-browser"])
+        self.assertEqual(sync_runtime.load_manifest(ENGINE)["runtimes"], ["local"])
         for name in PURPOSE:   # purpose skills carry no runtime of their own: they run the engine's
             m = sync_runtime.load_manifest(PLUGIN_SKILLS / name)
             self.assertEqual(m["runtimes"], [], name)
@@ -97,7 +101,7 @@ class SkillManifests(unittest.TestCase):
         self.assertEqual(sorted(entries), sorted(
             [PLUGIN_NAMES.get(d.name, d.name) for d in skill_dirs()
              if sync_runtime.load_manifest(d)["category"] != "sales"]
-            + ["sales-navigator"] + OTHER_PLUGINS))
+            + ["sales-navigator"] + list(INTENT_PLUGINS) + OTHER_PLUGINS))
 
     def test_sales_navigator_plugin_ships_only_its_skills(self):
         """The marketplace source folder is what installs: it must not drag in tests, build scripts or packages."""
@@ -135,11 +139,11 @@ class SkillManifests(unittest.TestCase):
                 self.assertIn(name, plugins)
         self.assertEqual(sorted(installs), sorted(plugins), "README must install every plugin once")
 
-    def test_marketplace_describes_both_sales_navigator_runtimes(self):
+    def test_marketplace_describes_the_sales_navigator_runtime(self):
         market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text())
         desc = {p["name"]: p["description"] for p in market["plugins"]}["sales-navigator"].lower()
         self.assertIn("your own browser", desc)
-        self.assertIn("agent browser", desc)
+        self.assertNotIn("agent browser", desc)
 
     def test_parser_rejects_malformed_yaml(self):
         for bad in ("just text", "  indented: x", "runtimes: [a, b"):
@@ -147,6 +151,77 @@ class SkillManifests(unittest.TestCase):
                 sync_runtime.parse_skill_yaml(bad)
         self.assertEqual(sync_runtime.parse_skill_yaml("a: 1  # c\n# full\nb: []\nc: [x, 'y']"),
                          {"a": "1", "b": [], "c": ["x", "y"]})
+
+
+class IntentPlugins(unittest.TestCase):
+    """Install by intent: one marketplace plugin per job, every one pointing at the SAME sales-navigator source."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text())
+        cls.entries = {p["name"]: p for p in cls.market["plugins"]}
+        cls.readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    def test_names_are_unique_and_plugins_may_share_a_source(self):
+        names = [p["name"] for p in self.market["plugins"]]
+        self.assertEqual(len(names), len(set(names)))
+        sharing = [p["name"] for p in self.market["plugins"] if p["source"] == "./plugins/sales-navigator"]
+        self.assertEqual(sorted(sharing), sorted(["sales-navigator"] + list(INTENT_PLUGINS)))
+
+    def test_each_intent_plugin_lists_exactly_its_one_skill(self):
+        engine_version = sync_runtime.load_manifest(ENGINE)["version"]
+        for name, skill in INTENT_PLUGINS.items():
+            with self.subTest(plugin=name):
+                e = self.entries[name]
+                self.assertEqual(e["source"], "./plugins/sales-navigator")
+                self.assertIs(e["strict"], False)
+                self.assertEqual(e["skills"], ["./skills/" + skill])
+                self.assertEqual(e["category"], "sales")
+                self.assertEqual(e["version"], engine_version, "bump with the engine so clients see an update")
+                self.assertTrue(e["description"])
+                self.assertTrue((PLUGIN_SKILLS / skill / "SKILL.md").is_file())
+                self.assertEqual(self.entries["sales-navigator"]["skills"].count("./skills/" + skill), 1)
+
+    def test_the_engine_ships_in_every_intent_install(self):
+        """The install is the whole source folder, so ${CLAUDE_PLUGIN_ROOT}/skills/sales-navigator resolves."""
+        for name in INTENT_PLUGINS:
+            with self.subTest(plugin=name):
+                source = (ROOT / self.entries[name]["source"]).resolve()
+                self.assertTrue((source / "skills" / "sales-navigator" / "scripts" / "doctor.py").is_file())
+                self.assertTrue((source / "skills" / "sales-navigator" / "runtime" / "session.py").is_file())
+                self.assertNotIn("sales-navigator", self.entries[name]["skills"][0])
+
+    def test_each_intent_skill_tells_a_copying_agent_to_bring_the_engine(self):
+        for name, skill in INTENT_PLUGINS.items():
+            text = (PLUGIN_SKILLS / skill / "SKILL.md").read_text(encoding="utf-8")
+            with self.subTest(plugin=name):
+                self.assertIn("## Install (for you, the agent)", text)
+                block = text.split("## Install (for you, the agent)", 1)[1].split("\n## ", 1)[0]
+                self.assertIn("AND the sibling `sales-navigator` engine folder", block)
+                self.assertIn("/home/box/agent-data/workflows/%s/" % skill, block)
+                self.assertIn("/home/box/agent-data/workflows/sales-navigator/", block)
+                self.assertIn("~/.codex/skills/%s" % skill, block)
+                self.assertIn("~/.codex/skills/sales-navigator", block)
+                self.assertIn("~/.claude/skills/", block)
+                self.assertIn("/plugin install %s@ae-external-skills" % name, block)
+
+    def test_readme_has_a_what_do_you_want_to_do_table(self):
+        head = self.readme.split("## What's in here", 1)[0]
+        self.assertIn("## What do you want to do?", head)
+        for name in list(INTENT_PLUGINS) + ["linkedin-emails", "quickbooks", "sourcewell"]:
+            with self.subTest(plugin=name):
+                self.assertIn("Install the %s skill from https://github.com/Agent-Everywhere/AE-external-skills "
+                              "and set it up for me." % name, head)
+        power = head.split("### For developers / power users", 1)[1]
+        main_part = head.split("### For developers / power users", 1)[0]
+        for name in ("grokbot", "grokbot-box", "desktop-cowork"):
+            with self.subTest(power_user=name):
+                self.assertIn("`%s`" % name, power)
+                self.assertNotIn("Install the %s skill" % name, main_part)
+
+    def test_the_readme_maps_each_plugin_to_its_skill_folder_for_copying_agents(self):
+        for name, skill in INTENT_PLUGINS.items():
+            self.assertIn("| `%s` | `%s` |" % (name, skill), self.readme)
 
 
 class RuntimeVendoring(unittest.TestCase):

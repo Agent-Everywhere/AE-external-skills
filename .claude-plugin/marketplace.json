@@ -52,8 +52,8 @@
     {
       "name": "sales-navigator",
       "source": "./plugins/sales-navigator",
-      "version": "0.8.1",
-      "description": "6 skills: LinkedIn Sales Navigator toolkit plus TAM accounts, TAM people, TAM tracker, outreach and DIY LinkedIn (no Unipile) skills. Runs in your own browser or Agent Browser.",
+      "version": "0.9.0",
+      "description": "6 skills: LinkedIn Sales Navigator toolkit plus TAM accounts, TAM people, TAM tracker, outreach and DIY LinkedIn (no hosted API) skills. Runs in your own browser.",
       "strict": false,
       "skills": [
         "./skills/sales-navigator",
@@ -73,10 +73,94 @@
       ]
     },
     {
+      "name": "linkedin-find-people",
+      "source": "./plugins/sales-navigator",
+      "version": "0.9.0",
+      "description": "One job: find decision-makers at a list of companies on your own LinkedIn Sales Navigator seat, with exact counts. Read-only. Runs in your own browser.",
+      "strict": false,
+      "skills": [
+        "./skills/salesnav-tam-people"
+      ],
+      "category": "sales",
+      "tags": [
+        "linkedin",
+        "sales-navigator",
+        "people",
+        "tam"
+      ]
+    },
+    {
+      "name": "linkedin-find-companies",
+      "source": "./plugins/sales-navigator",
+      "version": "0.9.0",
+      "description": "One job: find and qualify the companies that match your ideal customer on your own LinkedIn Sales Navigator seat. Read-only. Runs in your own browser.",
+      "strict": false,
+      "skills": [
+        "./skills/salesnav-tam-accounts"
+      ],
+      "category": "sales",
+      "tags": [
+        "linkedin",
+        "sales-navigator",
+        "accounts",
+        "tam"
+      ]
+    },
+    {
+      "name": "linkedin-split-big-search",
+      "source": "./plugins/sales-navigator",
+      "version": "0.9.0",
+      "description": "One job: split a Sales Navigator search that is over the viewable cap into pieces, pull each one and track what is covered. Runs in your own browser.",
+      "strict": false,
+      "skills": [
+        "./skills/salesnav-tam-tracker"
+      ],
+      "category": "sales",
+      "tags": [
+        "linkedin",
+        "sales-navigator",
+        "split",
+        "tam"
+      ]
+    },
+    {
+      "name": "linkedin-outreach",
+      "source": "./plugins/sales-navigator",
+      "version": "0.9.0",
+      "description": "One job: draft daily LinkedIn connection requests, InMails and follow-ups from your Sales Navigator seat; sends only after you approve the exact batch. Runs in your own browser.",
+      "strict": false,
+      "skills": [
+        "./skills/salesnav-outreach"
+      ],
+      "category": "sales",
+      "tags": [
+        "linkedin",
+        "sales-navigator",
+        "outreach"
+      ]
+    },
+    {
+      "name": "linkedin-replies",
+      "source": "./plugins/sales-navigator",
+      "version": "0.9.0",
+      "description": "One job: see who accepted and who replied on LinkedIn, from your own signed-in browser, with no hosted API (the Sales Nav inbox and InMail checks need a Sales Navigator seat); sends only after you approve the exact batch.",
+      "strict": false,
+      "skills": [
+        "./skills/salesnav-diy-linkedin"
+      ],
+      "category": "sales",
+      "tags": [
+        "linkedin",
+        "sales-navigator",
+        "replies",
+        "diy"
+      ]
+    },
+    {
       "name": "quickbooks",
       "source": "./plugins/quickbooks",
-      "version": "0.1.0",
-      "description": "CLI + skill: operate QuickBooks Online through a signed-in browser (your own Chrome or Agent Browser): lists, search, reports, and approval-gated creates/voids. Unofficial; needs Node 20+.",
+      "version": "0.2.0",
+      "description": "CLI + skill: operate QuickBooks Online through your own signed-in Chrome: lists, search, reports, and approval-gated creates/voids. Unofficial; needs Node 20+.",
       "strict": false,
       "skills": [
         "./skills/quickbooks"
@@ -111,7 +195,7 @@
       "name": "linkedin-emails",
       "source": "./plugins/linkedin-emails",
       "version": "0.1.0",
-      "description": "Skill + scripts: fill the missing emails in your LinkedIn connections CSV by reading each person's Contact info from your own logged-in LinkedIn browser, paced and read-only. No Unipile or hosted service. Unofficial.",
+      "description": "Skill + scripts: fill the missing emails in your LinkedIn connections CSV by reading each person's Contact info from your own logged-in LinkedIn browser, paced and read-only. No hosted service. Unofficial.",
       "strict": false,
       "skills": [
         "./skills/linkedin-emails"

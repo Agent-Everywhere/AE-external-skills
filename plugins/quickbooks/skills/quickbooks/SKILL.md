@@ -6,7 +6,7 @@ description: >-
   invoices, estimates, bills, expenses, payments, the chart of accounts, run reports (Profit and Loss,
   Balance Sheet, cash flow, trial balance, general ledger, A/R and A/P aging, sales and expense reports),
   search their books, open a QuickBooks page, or (only with explicit approval) create a customer, invoice
-  or expense and void or delete one. Runs on Agent Everywhere's cloud browser or the user's own Chrome.
+  or expense and void or delete one. Runs in the user's own Chrome, signed in to QuickBooks.
 ---
 
 # quickbooks
@@ -31,34 +31,18 @@ QBO="<skill-dir>/cli/dist/qbo.mjs"     # <skill-dir> = the folder holding this S
 node "$QBO" doctor                      # browser, sign-in, company, API: run this first
 ```
 
-Pick the browser:
+Your own Chrome: start a dedicated profile with
+`--remote-debugging-port=9222 --user-data-dir=<dedicated dir>`, sign in to QuickBooks in it once, then
+run `qbo` (`--cdp-url http://127.0.0.1:9222` or env `QBO_CDP_URL`). With no CDP-capable Chrome, use a
+browser JS tool in your own signed-in tab and `qbo emit` (below).
 
-- **Your own Chrome** (default, `--runtime cdp`): start a dedicated profile with
-  `--remote-debugging-port=9222 --user-data-dir=<dedicated dir>`, sign in to QuickBooks in it once, then
-  run `qbo` (`--cdp-url http://127.0.0.1:9222` or env `QBO_CDP_URL`).
-- **AE cloud browser** (`--runtime agent-browser`): with the browser connector
-  `https://browser-mcp-production-6535.up.railway.app/mcp`, check `browser action=status`, `open_session`
-  (the claim lives 60 seconds), then
-  `AB_CLAIM="<claim>" node "$QBO" --runtime agent-browser --base "<connector base>" doctor`.
-  `qbo` claims the browser (`POST <base>/browser/claim`), heartbeats every 25 s, and releases on exit.
-  The lease ends when the claiming CDP socket closes, so a bare claim serves ONE `qbo` run. For several
-  commands, hold it: `AB_CLAIM="<claim>" node "$QBO" --base "<base>" --session-file "$S" hold &`
-  (S = a private path; the file is 0600 and holds only a local relay URL), then run any number of
-  `node "$QBO" --session-file "$S" <command>`; stop with `kill -INT` and `close_session`.
-  The cloud browser can drop its connection before the lease ceiling (seen at ~80 s and ~15 min); `hold`
-  then logs the close code and exits. Open a new session and resume (`bench --only a,b,...`). Cold
-  commands (fresh app load) take ~10 s in the cloud vs ~1.2 s locally; warm calls are similar (~0.3 s).
-  Intuit sign-in in a fresh cloud browser hits a reCAPTCHA; have the user sign in to QuickBooks via
-  `browser action=open_browser` and Save, then open sessions with the saved profile.
-
-If `doctor` says not signed in (exit 3), ask the user to sign in to QuickBooks in that browser (live view
-for the cloud browser). If Intuit asks for a verification code, stop and ask the user; never guess or
+If `doctor` says not signed in (exit 3), ask the user to sign in to QuickBooks in that browser. If Intuit asks for a verification code, stop and ask the user; never guess or
 fetch one. Pick the company first if QuickBooks shows the company chooser.
 
 ## Commands
 
 Global flags: `--json` (machine output), `--yes` (apply a write), `--realm <id>` (refuse to run unless
-that company is signed in), `--runtime`, `--cdp-url`, `--base`.
+that company is signed in), `--runtime cdp`, `--cdp-url`.
 
 | Command | What it does |
 |---|---|
@@ -105,6 +89,5 @@ reports, budgeting and Business Feed redirect to upgrade pages. The API still re
 
 - `references/qbo-ui-map.md`: verified routes, forms, fields and gates (captured on a live company).
 - `references/api-notes.md`: how the in-page API call is built, endpoints seen, limits.
-- `references/design-plan.md`: the original design plan (some guesses there were later disproved; the UI map wins).
 - `runtime/`: the shared browser runtime (`session.py`), vendored from `packages/browser-runtime`; its
   `--emit` mode works with these snippets too.

@@ -101,32 +101,6 @@ class Helpers(unittest.TestCase):
         self.assertFalse(session.result_ok({"status": 200, "error": "x"}))
         self.assertFalse(session.result_ok(None))
 
-    def test_heartbeat_posts_stage_and_rows(self):
-        sent = []
-        hb = session.Heartbeat(lambda stage, rows: sent.append((stage, rows)))
-        hb.stage, hb.rows = "leads#25", 50
-        hb.beat()
-        self.assertEqual(sent, [("leads#25", 50)])
-
-    def test_heartbeat_swallows_errors(self):
-        def boom(stage, rows):
-            raise OSError("down")
-        hb = session.Heartbeat(boom)
-        hb.beat()
-        self.assertEqual((hb.beats, hb.errors), (0, 1))
-
-    def test_heartbeat_thread_beats_and_stops(self):
-        sent = []
-        hb = session.Heartbeat(lambda s, r: sent.append(s), interval=0.01)
-        hb.start()
-        deadline = __import__("time").time() + 2
-        while not sent and __import__("time").time() < deadline:
-            __import__("time").sleep(0.01)
-        hb.stop()
-        hb.join(2)
-        self.assertTrue(sent)
-        self.assertFalse(hb.is_alive())
-
     def test_snippet_lookup(self):
         with tempfile.TemporaryDirectory() as d:
             (Path(d) / "s.js").write_text("async () => 1")
@@ -289,12 +263,6 @@ class RunnerTests(unittest.TestCase):
         self.assertNotIn(SECRET, text)
         self.assertIn("[redacted]", text)
 
-    def test_heartbeat_stage_tracks_current_call(self):
-        sent = []
-        hb = session.Heartbeat(lambda s, r: sent.append((s, r)))
-        runner, _ = run(FakePage(pager(30)), plan(), self.out, heartbeat=hb)
-        self.assertTrue(hb.stage.startswith("leads#"))
-
     def test_unpaged_call_runs_once(self):
         the_plan = plan()
         the_plan["calls"] = [{"id": "size", "js": "async () => 1", "params": {"count": 1}}]
@@ -307,7 +275,8 @@ class CommandLine(unittest.TestCase):
     def test_help_and_usage(self):
         proc = subprocess.run([sys.executable, str(PKG / "session.py"), "--help"], capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0)
-        self.assertIn("agent-browser", proc.stdout)
+        self.assertIn("cdp", proc.stdout)
+        self.assertNotIn("agent-browser", proc.stdout)
         proc = subprocess.run([sys.executable, str(PKG / "session.py")], capture_output=True, text=True)
         self.assertEqual(proc.returncode, session.EXIT_USAGE)
 
@@ -319,16 +288,15 @@ class CommandLine(unittest.TestCase):
             self.assertEqual(proc.returncode, 0, proc.stderr)
             self.assertEqual(proc.stdout.strip(), '(\nasync (p) => p.n\n)({"n": 1})')
 
-    def test_agent_browser_requires_claim_and_base(self):
+    def test_agent_browser_runtime_is_gone(self):
         with tempfile.TemporaryDirectory() as d:
             plan_path = Path(d) / "plan.json"
             plan_path.write_text("{}")
-            env = {"PATH": "/usr/bin:/bin"}
             proc = subprocess.run([sys.executable, str(PKG / "session.py"), "--runtime", "agent-browser",
                                    "--plan", str(plan_path), "--out", str(Path(d) / "o.jsonl")],
-                                  capture_output=True, text=True, env=env)
-            self.assertNotEqual(proc.returncode, 0)
-            self.assertIn("--claim and --base", proc.stderr)
+                                  capture_output=True, text=True, env={"PATH": "/usr/bin:/bin"})
+            self.assertEqual(proc.returncode, session.EXIT_USAGE)
+            self.assertIn("invalid choice", proc.stderr)
 
 
 if __name__ == "__main__":

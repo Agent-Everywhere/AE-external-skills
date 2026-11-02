@@ -1,6 +1,6 @@
 """Regression tests for the browser-runtime review fixes (packages/browser-runtime/session.py).
 
-No browser, no network: fake pages, a fake Playwright and a patched post_json.
+No browser, no network: fake pages and a fake Playwright.
 Run from the repo root:  python3 -m pytest -q tests
 """
 import contextlib
@@ -13,7 +13,6 @@ import sys
 import tempfile
 import types
 import unittest
-import urllib.error
 from pathlib import Path
 from unittest import mock
 
@@ -25,9 +24,7 @@ PKG = base.PKG
 NODE = shutil.which("node")
 PAGE = ROOT / "plugins" / "sales-navigator" / "skills" / "sales-navigator" / "page"
 
-CLAIM = "claim-secret-123456"
 CDP = "wss://cloud-7f3a.example.net/devtools/browser/0a1b2c3d-feed-beef-cafe-123456789abc"
-HB = "hb-token-abcdef123456"
 
 
 # ----------------------------------------------------------------------------- fakes for main()
@@ -61,10 +58,6 @@ def fake_playwright(browser, connect_error=None):
     return lambda: types.SimpleNamespace(start=lambda: pw)
 
 
-def http_error(code, body=b""):
-    return urllib.error.HTTPError("https://connector.example/x", code, "err", {}, io.BytesIO(body))
-
-
 def simple_plan(**extra):
     the_plan = {"start_url": "https://www.linkedin.com/sales/home", "settle_ms": 0,
                 "calls": [{"id": "one", "js": "async () => 'search'", "params": {}}]}
@@ -81,130 +74,78 @@ class MainHarness(unittest.TestCase):
         self.plan_path = self.dir / "plan.json"
         self.plan_path.write_text(json.dumps(simple_plan()))
 
-    def main(self, argv, post=None, playwright=None, env_claim=True):
-        """Run session.main in-process. Return (code, stdout, stderr, posts)."""
-        posts = []
-
-        def fake_post(base_url, path, body, timeout=30):
-            posts.append((path, body))
-            if post:
-                return post(path, body)
-            if path == "/browser/claim":
-                return {"cdp_url": CDP, "heartbeat_token": HB, "session_id": "sess-1"}
-            return {}
-
+    def main(self, argv, playwright=None):
+        """Run session.main in-process. Return (code, stdout, stderr)."""
         out, err = io.StringIO(), io.StringIO()
         playwright = playwright or fake_playwright(FakeBrowser([self.sales_page()]))
-        with mock.patch.object(session, "post_json", fake_post), \
-                mock.patch.object(session, "import_playwright", lambda: playwright), \
+        with mock.patch.object(session, "import_playwright", lambda: playwright), \
                 contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = session.main(argv)
-        return code, out.getvalue(), err.getvalue(), posts
+        return code, out.getvalue(), err.getvalue()
 
     def sales_page(self, responder=None):
         return base.FakePage(responder or (lambda e, a: {"status": 200, "rows": 0}),
                              url="https://www.linkedin.com/sales/home")
 
-    def ab_args(self, *extra, base_url="https://connector.example"):
-        return ["--runtime", "agent-browser", "--claim", CLAIM, "--base", base_url,
+    def cdp_args(self, *extra, cdp_url=CDP):
+        return ["--runtime", "cdp", "--cdp-url", cdp_url,
                 "--plan", str(self.plan_path), "--out", str(self.out)] + list(extra)
 
 
 # ----------------------------------------------------------------------------- A: startup order and exit codes
 
 class StartupOrder(MainHarness):
-    def test_missing_playwright_exits_2_before_the_claim_is_posted(self):
-        posts = []
+    def test_missing_playwright_exits_2_before_any_connection(self):
         err = io.StringIO()
-        with mock.patch.object(session, "post_json", lambda *a, **k: posts.append(a) or {}), \
-                mock.patch.object(session, "import_playwright", side_effect=ImportError("no playwright")), \
+        with mock.patch.object(session, "import_playwright", side_effect=ImportError("no playwright")), \
                 contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
-            code = session.main(self.ab_args())
+            code = session.main(self.cdp_args())
         self.assertEqual(code, session.EXIT_USAGE)
-        self.assertEqual(posts, [])  # the one-use claim was never spent
         self.assertIn("playwright", err.getvalue())
         self.assertIn("pip install playwright", err.getvalue())
 
-    def test_claim_failures_exit_6_with_a_message_not_a_traceback(self):
-        cases = {"HTTP 410": http_error(410), "request failed": urllib.error.URLError("dns down"),
-                 "request failed ": OSError("reset"), "request failed  ": ValueError("not json")}
-        for label, exc in cases.items():
-            def refuse(path, body, _e=exc):
-                raise _e
-            with self.subTest(label=label):
-                code, out, err, _ = self.main(self.ab_args(), post=refuse)
-                self.assertEqual(code, session.EXIT_BROWSER)
-                self.assertNotIn("Traceback", err)
-                self.assertNotIn(CLAIM, out + err)
-                self.assertIn("claim", err)
-
-    def test_a_claim_response_missing_fields_exits_6(self):
-        code, _, err, _ = self.main(self.ab_args(), post=lambda path, body: {"cdp_url": CDP})
-        self.assertEqual(code, session.EXIT_BROWSER)
-        self.assertIn("missing", err)
-
-    def test_auth_report_4xx_or_auth_required_exits_3(self):
-        for exc in (http_error(403, b'{"error":"auth_required"}'), http_error(401), http_error(422, b"auth_required")):
-            def refuse(path, body, _e=exc):
-                if path == "/browser/auth":
-                    raise _e
-                return {"cdp_url": CDP, "heartbeat_token": HB, "session_id": "sess-1"} if path == "/browser/claim" else {}
-            with self.subTest(code=exc.code):
-                code, _, err, _ = self.main(self.ab_args(), post=refuse)
-                self.assertEqual(code, session.EXIT_AUTH)
-                self.assertIn("auth report rejected", err)
-        self.assertEqual([json.loads(l).get("event") for l in self.out.read_text().splitlines()][-1], "auth_rejected")
-
-    def test_auth_report_network_or_5xx_failure_does_not_masquerade_as_signed_out(self):
-        for exc in (urllib.error.URLError("down"), http_error(502), OSError("reset")):
-            def flaky(path, body, _e=exc):
-                if path == "/browser/auth":
-                    raise _e
-                return {"cdp_url": CDP, "heartbeat_token": HB, "session_id": "sess-1"} if path == "/browser/claim" else {}
-            with self.subTest(exc=type(exc).__name__):
-                self.out.write_text("")
-                code, _, _, _ = self.main(self.ab_args(), post=flaky)
-                self.assertEqual(code, session.EXIT_OK)
-
-    def test_a_clean_agent_browser_run_exits_0_with_a_summary(self):
-        code, out, err, posts = self.main(self.ab_args())
+    def test_a_clean_cdp_run_exits_0_with_a_summary(self):
+        code, out, err = self.main(self.cdp_args())
         self.assertEqual(code, 0, err)
         summary = json.loads(out)
         self.assertEqual((summary["executed"], summary["failed"], summary["truncated"]), (1, 0, 0))
-        self.assertEqual([p for p, _ in posts][:2], ["/browser/claim", "/browser/auth"])
 
-    def test_base_must_be_https(self):
-        for bad in ("http://connector.example", "connector.example", "ftp://x.example", "https://"):
-            with self.subTest(base=bad):
-                code, _, err, posts = self.main(self.ab_args(base_url=bad))
-                self.assertEqual(code, session.EXIT_USAGE)
-                self.assertIn("https", err)
-                self.assertEqual(posts, [])
-
-    def test_a_bad_plan_is_rejected_before_anything_is_claimed(self):
+    def test_a_bad_plan_is_rejected_before_anything_is_connected(self):
         self.plan_path.write_text(json.dumps(simple_plan(delay_ms=[0, 0])))
-        code, _, err, posts = self.main(self.ab_args())
+        code, _, err = self.main(self.cdp_args())
         self.assertEqual(code, session.EXIT_USAGE)
         self.assertIn("delay_ms", err)
-        self.assertEqual(posts, [])
+        self.assertNotIn("local runtime", err)
         self.plan_path.write_text("{not json")
-        code, _, err, posts = self.main(self.ab_args())
-        self.assertEqual((code, posts), (session.EXIT_USAGE, []))
+        code, _, err = self.main(self.cdp_args())
+        self.assertEqual(code, session.EXIT_USAGE)
 
-    def test_claim_on_the_command_line_gets_a_ps_warning_the_env_var_does_not(self):
-        _, _, err, _ = self.main(self.ab_args())
-        self.assertIn("AB_CLAIM", err)
-        self.assertNotIn(CLAIM, err)
-        argv = [a for a in self.ab_args() if a not in ("--claim", CLAIM)]
-        with mock.patch.dict("os.environ", {"AB_CLAIM": CLAIM}):
-            code, _, err, _ = self.main(argv)
-        self.assertEqual(code, 0, err)
-        self.assertNotIn("note: --claim", err)
+    def test_cdp_url_is_required(self):
+        code, _, err = self.main(["--runtime", "cdp", "--plan", str(self.plan_path), "--out", str(self.out)])
+        self.assertEqual(code, session.EXIT_USAGE)
+        self.assertIn("--cdp-url", err)
 
-    def test_help_prefers_the_env_var(self):
-        text = subprocess.run([sys.executable, str(PKG / "session.py"), "--help"], capture_output=True, text=True).stdout
-        self.assertIn("AB_CLAIM", text)
-        self.assertIn("ps", text)
+    def test_there_is_no_hosted_browser_option(self):
+        """The runtime attaches only to the user's own browser: no agent-browser runtime, no claim or base flags."""
+        help_text = subprocess.run([sys.executable, str(PKG / "session.py"), "--help"],
+                                   capture_output=True, text=True).stdout
+        for gone in ("agent-browser", "--claim", "--base", "AB_CLAIM", "heartbeat"):
+            self.assertNotIn(gone, help_text)
+        for argv in (["--runtime", "agent-browser", "--plan", "p", "--out", "o"],
+                     ["--runtime", "cdp", "--claim", "x", "--cdp-url", "http://127.0.0.1:9", "--plan", "p", "--out", "o"],
+                     ["--runtime", "cdp", "--base", "https://x.example", "--cdp-url", "http://127.0.0.1:9",
+                      "--plan", "p", "--out", "o"]):
+            with self.subTest(argv=argv), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as raised:
+                    session.main(argv)
+                self.assertEqual(raised.exception.code, 2)
+
+    def test_the_runner_has_no_hosted_browser_code(self):
+        for gone in ("Heartbeat", "post_json", "connect_agent_browser", "make_auth_reporter"):
+            self.assertFalse(hasattr(session, gone), gone)
+        source = (PKG / "session.py").read_text(encoding="utf-8")
+        for gone in ("urllib.request", "/browser/claim", "heartbeat", "AB_CLAIM"):
+            self.assertNotIn(gone, source)
 
 
 # ----------------------------------------------------------------------------- C: redaction
@@ -406,90 +347,20 @@ class SnippetOrderAndTabs(unittest.TestCase):
 
 
 class MainSecrets(MainHarness):
-    def test_connect_failure_never_prints_the_cdp_url_or_claim(self):
+    def test_connect_failure_never_prints_the_cdp_url(self):
         boom = RuntimeError("connect_over_cdp failed for %s (host cloud-7f3a.example.net)" % CDP)
-        code, out, err, _ = self.main(self.ab_args(), playwright=fake_playwright(FakeBrowser([]), connect_error=boom))
+        code, out, err = self.main(self.cdp_args(), playwright=fake_playwright(FakeBrowser([]), connect_error=boom))
         self.assertEqual(code, session.EXIT_BROWSER)
-        for leaked in ("0a1b2c3d", "cloud-7f3a", CLAIM, HB):
+        for leaked in ("0a1b2c3d", "cloud-7f3a"):
             self.assertNotIn(leaked, out + err)
 
     def test_results_that_echo_the_cdp_url_are_redacted_in_the_file(self):
         page = self.sales_page(lambda e, a: {"status": 200, "rows": 0, "echo": "on %s" % CDP})
-        code, _, err, _ = self.main(self.ab_args(), playwright=fake_playwright(FakeBrowser([page])))
+        code, _, err = self.main(self.cdp_args(), playwright=fake_playwright(FakeBrowser([page])))
         self.assertEqual(code, 0, err)
         text = self.out.read_text()
         self.assertNotIn("0a1b2c3d", text)
         self.assertNotIn("cloud-7f3a", text)
-
-
-# ----------------------------------------------------------------------------- E: heartbeat loss
-
-class HeartbeatLoss(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.out = Path(self.tmp.name) / "r.jsonl"
-
-    def test_a_4xx_answer_marks_the_session_lost(self):
-        def refuse(stage, rows):
-            raise http_error(410)
-        hb = session.Heartbeat(refuse)
-        hb.beat()
-        self.assertTrue(hb.lost)
-        self.assertIn("410", hb.lost_reason)
-
-    def test_three_failures_in_a_row_mark_it_lost_and_a_success_resets_the_count(self):
-        results = iter([OSError("a"), OSError("b"), None, OSError("c"), OSError("d"), OSError("e")])
-
-        def flaky(stage, rows):
-            outcome = next(results)
-            if outcome:
-                raise outcome
-        hb = session.Heartbeat(flaky)
-        for _ in range(3):
-            hb.beat()
-        self.assertFalse(hb.lost)  # two failures, then a success
-        self.assertEqual(hb.consecutive, 0)
-        for _ in range(3):
-            hb.beat()
-        self.assertTrue(hb.lost)
-        self.assertIn("3", hb.lost_reason)
-
-    def test_a_5xx_is_a_blip_until_it_repeats(self):
-        def blip(stage, rows):
-            raise http_error(503)
-        hb = session.Heartbeat(blip)
-        hb.beat()
-        hb.beat()
-        self.assertFalse(hb.lost)
-        hb.beat()
-        self.assertTrue(hb.lost)
-
-    def test_runner_checkpoints_and_exits_4_when_the_heartbeat_is_lost_mid_run(self):
-        hb = session.Heartbeat(lambda s, r: None)
-        state = {"n": 0}
-
-        def respond(expression, arg):
-            state["n"] += 1
-            if state["n"] == 1:
-                hb.lost, hb.lost_reason = True, "HTTP 410"  # the connector reclaimed the browser
-            return base.pager(500)(expression, arg)
-        runner, code = base.run(base.FakePage(respond), base.plan(), self.out, heartbeat=hb)
-        self.assertEqual(code, session.EXIT_CHECKPOINT)
-        recs = base.records(self.out)
-        cp = [r for r in recs if r.get("event") == "checkpoint"][0]
-        self.assertIn("heartbeat", cp["reason"])
-        self.assertEqual(cp["next_id"], "leads#25")
-        self.assertEqual([r["id"] for r in recs if "id" in r], ["leads#0"])  # no work on a dead browser
-        self.assertEqual(state["n"], 1)
-
-    def test_runner_does_not_start_when_the_heartbeat_was_already_lost(self):
-        hb = session.Heartbeat(lambda s, r: None)
-        hb.lost, hb.lost_reason = True, "HTTP 403"
-        page = base.FakePage(base.pager(10))
-        _, code = base.run(page, base.plan(), self.out, heartbeat=hb)
-        self.assertEqual(code, session.EXIT_CHECKPOINT)
-        self.assertEqual(page.calls, [])
 
 
 # ----------------------------------------------------------------------------- G: exit codes

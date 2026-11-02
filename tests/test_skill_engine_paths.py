@@ -38,7 +38,7 @@ PURPOSE_BLOCK = RESOLVE % "<absolute folder of this SKILL.md>/../sales-navigator
 ENGINE_BLOCK = RESOLVE % "<absolute folder of this SKILL.md>"
 NO_SUBSTITUTE = ("Never substitute another data source (other MCP datasets, web estimates) for the Sales Nav "
                  "count without asking the user.")
-NO_SNIPPET = ("If you cannot run a page snippet (no browser JS tool, no Agent Browser, no CDP), stop and tell "
+NO_SNIPPET = ("If you cannot run a page snippet (no browser JS tool, no CDP), stop and tell "
               "the user; never click through the UI.")
 
 
@@ -167,6 +167,40 @@ class EngineBlock(unittest.TestCase):
                         engine, rc = self._run_block(name, installed / "skills" / name, tmp / "nomnt", tmp, root)
                         self.assertEqual((engine, rc), ((installed / "skills" / "sales-navigator").resolve(), 0))
 
+    def test_an_intent_skill_copied_beside_the_engine_resolves_without_the_rest_of_the_plugin(self):
+        """Install by intent for agents that copy folders (Grok Bot box, Codex, ~/.claude/skills): only the one
+        purpose skill and the engine are present, side by side, and no plugin variable is set."""
+        for layout in ("home/box/agent-data/workflows", "home/.codex/skills", "home/.claude/skills"):
+            for name in PURPOSE:
+                with self.subTest(layout=layout, skill=name), tempfile.TemporaryDirectory() as tmp:
+                    tmp = Path(tmp)
+                    dest = tmp / layout
+                    ignore = shutil.ignore_patterns("__pycache__", "*.pyc")
+                    shutil.copytree(PLUGIN_SKILLS / name, dest / name, ignore=ignore)
+                    shutil.copytree(ENGINE_DIR, dest / "sales-navigator", ignore=ignore)
+                    self.assertEqual(sorted(p.name for p in dest.iterdir()), sorted([name, "sales-navigator"]))
+                    (tmp / "nomnt").mkdir()
+                    for root in (None, ""):
+                        engine, rc = self._run_block(name, dest / name, tmp / "nomnt", tmp, root)
+                        self.assertEqual((engine, rc), ((dest / "sales-navigator").resolve(), 0))
+
+    def test_an_intent_plugin_install_resolves_through_the_plugin_variable(self):
+        """Claude Code installs the whole marketplace source folder for each intent plugin, so
+        ${CLAUDE_PLUGIN_ROOT}/skills/sales-navigator exists even though only one skill is listed."""
+        import json
+        market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text())
+        intents = [p for p in market["plugins"] if p["source"] == "./plugins/sales-navigator" and len(p["skills"]) == 1]
+        self.assertEqual(len(intents), 5)
+        for entry in intents:
+            with self.subTest(plugin=entry["name"]), tempfile.TemporaryDirectory() as tmp:
+                tmp = Path(tmp)
+                installed = tmp / "cache" / entry["name"]
+                self._engine_copy(installed)
+                (tmp / "nomnt").mkdir()
+                skill = entry["skills"][0].rsplit("/", 1)[1]
+                engine, rc = self._run_block(skill, installed / "skills" / skill, tmp / "nomnt", tmp, installed)
+                self.assertEqual((engine, rc), ((installed / "skills" / "sales-navigator").resolve(), 0))
+
     def test_cowork_mount_resolves_with_an_empty_variable_and_a_wrong_skill_folder(self):
         """The live failure: CLAUDE_PLUGIN_ROOT empty and a guessed SKILL.md folder that does not exist."""
         with tempfile.TemporaryDirectory() as tmp:
@@ -281,7 +315,8 @@ class FailClosedFlow(unittest.TestCase):
             with self.subTest(skill=name):
                 # 0.6.0: the accounts flow carries the intake steps; 0.6.1: the 4-line ENGINE block; 0.6.2: count mode
                 # 0.7.0: the accounts flow carries the multi-segment, list-save and rubric sections
-                self.assertLessEqual(len(body(name).splitlines()), 120 if name == "salesnav-tam-accounts" else 76)
+                # 0.9.0: +9 lines for the "Install (for you, the agent)" block
+                self.assertLessEqual(len(body(name).splitlines()), 130 if name == "salesnav-tam-accounts" else 85)
         self.assertLessEqual(len(body("sales-navigator").splitlines()), 104)
 
 

@@ -77,4 +77,4 @@ as `<name>`, `<name> #2`... at 1,000 accounts), `lists.js` to verify `entityCoun
 ## Make it yours
 
 Offer to save a liked flow as the user's own small skill (ICP, caps, tone baked in) or a Cowork scheduled
-task that drafts only. A local schedule needs the Mac awake and the app open; otherwise Agent Browser.
+task that drafts only. A schedule needs the Mac awake and the app open.

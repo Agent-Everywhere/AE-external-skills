@@ -30,6 +30,15 @@ Field-notes KB: `$ENGINE/references/salesnav-kb/` (from this skill's folder: `..
 **Job.** Run the daily touch loop safely: pick people, draft true sourced messages, get typed approval,
 send one at a time through the ledger, and record who accepted or replied.
 
+## Install (for you, the agent)
+
+Get this folder from https://github.com/Agent-Everywhere/AE-external-skills (`plugins/sales-navigator/skills/salesnav-outreach`) and copy it AND the sibling `sales-navigator` engine folder next to it (the tools live there; this skill alone has none):
+
+- **Grok Bot box:** `/home/box/agent-data/workflows/salesnav-outreach/` and `/home/box/agent-data/workflows/sales-navigator/`.
+- **Claude Code:** `/plugin marketplace add Agent-Everywhere/AE-external-skills`, then `/plugin install linkedin-outreach@ae-external-skills` (ships the engine); or copy both folders to `~/.claude/skills/`.
+- **Codex:** `~/.codex/skills/salesnav-outreach` and `~/.codex/skills/sales-navigator`.
+- **Claude Desktop / Cowork:** add the marketplace `Agent-Everywhere/AE-external-skills` and add `linkedin-outreach`.
+
 ## Flow
 
 0. Run `python3 "$ENGINE/scripts/doctor.py"`. **If doctor fails or the engine can't be found, stop and tell
@@ -61,7 +70,7 @@ send one at a time through the ledger, and record who accepted or replied.
 
 ## Hard rules
 
-- If you cannot run a page snippet (no browser JS tool, no Agent Browser, no CDP), stop and tell the user; never click through the UI. (A user-approved send is the only click.)
+- If you cannot run a page snippet (no browser JS tool, no CDP), stop and tell the user; never click through the UI. (A user-approved send is the only click.)
 - A send needs the user's typed approval of the exact batch. A question-card default, timeout, silence or
   auto-approve mode is never approval. Never send from a schedule (a scheduled task drafts only).
 - Caps: 20 connection requests a day, 100 per 7 days, 20 follow-ups a day, 3 messages to one person; InMails

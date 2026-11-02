@@ -1,32 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { claimAgentBrowser, startHeartbeat, ConnectError } from "../src/connect.js";
-import { resolveWsUrl } from "../src/cdp.js";
+import { resolveWsUrl, Page } from "../src/cdp.js";
 import { redact, stats } from "../src/output.js";
-
-const res = (status, body) => ({ ok: status < 400, status, text: async () => JSON.stringify(body), json: async () => body });
-
-test("claim posts to /browser/claim and returns the session", async () => {
-  const seen = [];
-  const fetchImpl = async (url, init) => { seen.push([url, JSON.parse(init.body)]); return res(200, { cdp_url: "wss://x/y", heartbeat_token: "h", session_id: "s" }); };
-  const c = await claimAgentBrowser({ base: "https://b/", claim: "c1", fetchImpl });
-  assert.deepEqual(c, { cdpUrl: "wss://x/y", sessionId: "s", heartbeatToken: "h" });
-  assert.deepEqual(seen[0], ["https://b/browser/claim", { claim: "c1" }]);
-});
-
-test("rejected or incomplete claims fail clearly", async () => {
-  await assert.rejects(claimAgentBrowser({ base: "https://b", claim: "c", fetchImpl: async () => res(410, {}) }), /one-use/);
-  await assert.rejects(claimAgentBrowser({ base: "https://b", claim: "c", fetchImpl: async () => res(200, { cdp_url: "x" }) }), ConnectError);
-  await assert.rejects(claimAgentBrowser({ base: "", claim: "" }), /needs --base/);
-});
-
-test("heartbeat posts and stops", async () => {
-  const paths = [];
-  const hb = startHeartbeat({ base: "https://b", sessionId: "s", heartbeatToken: "h", intervalMs: 100000, fetchImpl: async (u) => { paths.push(new URL(u).pathname); return res(200, {}); } });
-  await hb.report(true);
-  await hb.stop();
-  assert.ok(paths.includes("/browser/heartbeat") && paths.includes("/browser/auth"));
-});
 
 test("resolveWsUrl passes ws urls and reads /json/version", async () => {
   assert.equal(await resolveWsUrl("ws://a/b"), "ws://a/b");
@@ -36,4 +11,42 @@ test("resolveWsUrl passes ws urls and reads /json/version", async () => {
 test("redact and stats", () => {
   assert.equal(redact("at wss://secret/host intuit_apikey=abc,"), "at <cdp-url> intuit_apikey=<redacted>,");
   assert.deepEqual(stats([5, 1, 3, 2, 4]), { n: 5, median: 3, p95: 5, min: 1, max: 5 });
+});
+
+function fakeCdp(targetInfos) {
+  const sent = [];
+  return {
+    sent,
+    async send(method, params) {
+      sent.push([method, params]);
+      if (method === "Target.getTargets") return { targetInfos };
+      if (method === "Target.createTarget") return { targetId: "new-tab" };
+      if (method === "Target.attachToTarget") return { sessionId: "sess-" + params.targetId };
+      return {};
+    },
+  };
+}
+const tab = (targetId, url) => ({ targetId, type: "page", url });
+
+test("Page.open reuses a QuickBooks tab and leaves the others alone", async () => {
+  const cdp = fakeCdp([tab("mail", "https://mail.example.com/"), tab("qbo", "https://qbo.intuit.com/app/homepage")]);
+  const p = await Page.open(cdp, { reuse: true });
+  assert.equal(p.targetId, "qbo");
+  assert.ok(!cdp.sent.some(([m]) => m === "Target.createTarget" || m === "Page.navigate"));
+});
+
+test("Page.open with no QuickBooks tab opens a new target and never touches the user's other tabs", async () => {
+  const cdp = fakeCdp([tab("mail", "https://mail.example.com/"), tab("bank", "https://bank.example.com/")]);
+  const p = await Page.open(cdp, { reuse: true });
+  assert.equal(p.targetId, "new-tab");
+  assert.ok(cdp.sent.some(([m]) => m === "Target.createTarget"));
+  const attached = cdp.sent.filter(([m]) => m === "Target.attachToTarget").map(([, a]) => a.targetId);
+  assert.deepEqual(attached, ["new-tab"]);
+});
+
+test("Page.open may reuse a blank tab", async () => {
+  const cdp = fakeCdp([tab("mail", "https://mail.example.com/"), tab("blank", "about:blank")]);
+  const p = await Page.open(cdp, { reuse: true });
+  assert.equal(p.targetId, "blank");
+  assert.ok(!cdp.sent.some(([m]) => m === "Target.createTarget"));
 });

@@ -22,7 +22,7 @@ class QuickbooksManifest(unittest.TestCase):
         self.assertEqual(m["name"], "quickbooks")
         self.assertRegex(m["version"], r"^\d+\.\d+\.\d+$")
         self.assertEqual(m["category"], "finance")
-        self.assertEqual(m["runtimes"], ["local", "agent-browser"])
+        self.assertEqual(m["runtimes"], ["local"])
         md = (SKILL / "SKILL.md").read_text()
         self.assertRegex(md, r"(?m)^name: quickbooks$")
         self.assertIn("Hard rules", md)

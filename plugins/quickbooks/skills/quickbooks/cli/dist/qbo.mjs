@@ -5564,7 +5564,7 @@ var require_websocket = __commonJS({
     var http = __require("http");
     var net = __require("net");
     var tls = __require("tls");
-    var { randomBytes: randomBytes2, createHash } = __require("crypto");
+    var { randomBytes, createHash } = __require("crypto");
     var { Duplex, Readable } = __require("stream");
     var { URL: URL2 } = __require("url");
     var PerMessageDeflate2 = require_permessage_deflate();
@@ -6115,7 +6115,7 @@ var require_websocket = __commonJS({
         }
       }
       const defaultPort = isSecure ? 443 : 80;
-      const key = randomBytes2(16).toString("base64");
+      const key = randomBytes(16).toString("base64");
       const request = isSecure ? https.request : http.request;
       const protocolSet = /* @__PURE__ */ new Set();
       let perMessageDeflate;
@@ -7026,10 +7026,7 @@ var {
 } = import_index.default;
 
 // src/cli.js
-import { writeFileSync as writeFileSync2 } from "node:fs";
-
-// src/connect.js
-import { readFileSync, writeFileSync, chmodSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 
 // node_modules/ws/wrapper.mjs
 var import_stream = __toESM(require_stream(), 1);
@@ -7147,7 +7144,7 @@ var Page = class _Page {
   static async open(cdp, { reuse = true, matchUrl = /qbo\.intuit\.com/ } = {}) {
     const { targetInfos } = await cdp.send("Target.getTargets");
     const pages = targetInfos.filter((t) => t.type === "page");
-    let target = reuse ? pages.find((t) => matchUrl.test(t.url)) || pages[0] : null;
+    let target = reuse ? pages.find((t) => matchUrl.test(t.url)) || pages.find((t) => t.url === "about:blank") : null;
     let targetId = target?.targetId;
     if (!targetId) ({ targetId } = await cdp.send("Target.createTarget", { url: "about:blank" }));
     const { sessionId } = await cdp.send("Target.attachToTarget", { targetId, flatten: true });
@@ -7201,178 +7198,21 @@ var ConnectError = class extends Error {
     this.exitCode = code;
   }
 };
-async function postJson(base, path, body, fetchImpl = globalThis.fetch) {
-  const res = await fetchImpl(base.replace(/\/+$/, "") + path, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body)
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    const e = new Error(`HTTP ${res.status}`);
-    e.status = res.status;
-    e.body = text.slice(0, 200);
-    throw e;
-  }
-  return text ? JSON.parse(text) : {};
-}
-async function claimAgentBrowser({ base, claim, fetchImpl }) {
-  if (!base || !claim) throw new ConnectError("agent-browser needs --base and a claim (env AB_CLAIM)", 2);
-  let r;
-  try {
-    r = await postJson(base, "/browser/claim", { claim }, fetchImpl);
-  } catch (e) {
-    throw new ConnectError(e.status ? `claim rejected (HTTP ${e.status}): claims are one-use and expire in 60s; open a fresh session` : `claim request failed: ${e.message}`);
-  }
-  if (!r || !r.cdp_url || !r.heartbeat_token || !r.session_id) throw new ConnectError("claim response missing cdp_url / heartbeat_token / session_id");
-  return { cdpUrl: r.cdp_url, sessionId: r.session_id, heartbeatToken: r.heartbeat_token };
-}
-function startHeartbeat({ base, sessionId, heartbeatToken, fetchImpl, intervalMs = 25e3 }) {
-  let stage = "running";
-  const beat = () => postJson(base, "/browser/heartbeat", { session_id: sessionId, heartbeat_token: heartbeatToken, stage, rows: 0 }, fetchImpl).catch(() => {
-  });
-  beat();
-  const t = setInterval(beat, intervalMs);
-  t.unref?.();
-  return {
-    report: (signedIn) => postJson(base, "/browser/auth", { session_id: sessionId, heartbeat_token: heartbeatToken, signed_in: !!signedIn }, fetchImpl).catch(() => {
-    }),
-    stop: async () => {
-      clearInterval(t);
-      stage = "done";
-      await beat();
-    }
-  };
-}
-function writeSessionFile(path, { base, cdpUrl, sessionId, heartbeatToken }) {
-  writeFileSync(path, JSON.stringify({ base, cdp_url: cdpUrl, session_id: sessionId, heartbeat_token: heartbeatToken }), { mode: 384 });
-  chmodSync(path, 384);
-}
-function readSessionFile(path) {
-  let j;
-  try {
-    j = JSON.parse(readFileSync(path, "utf8"));
-  } catch (e) {
-    throw new ConnectError(`could not read session file ${path}: ${e.code || e.message} (start one with \`qbo hold\`)`, 2);
-  }
-  if (!j.cdp_url || !j.session_id) throw new ConnectError(`session file ${path} is missing cdp_url / session_id`, 2);
-  return { base: j.base, cdpUrl: j.cdp_url, sessionId: j.session_id, heartbeatToken: j.heartbeat_token };
-}
 async function connect(opts = {}) {
-  const runtime = opts.runtime || (opts.base || process.env.AB_CLAIM || opts.sessionFile || process.env.QBO_SESSION_FILE ? "agent-browser" : "cdp");
-  let cdpUrl = opts.cdpUrl || process.env.QBO_CDP_URL || "http://127.0.0.1:9222";
-  let heartbeat = null;
-  const sessionFile = opts.sessionFile || process.env.QBO_SESSION_FILE;
-  if (runtime === "agent-browser" && sessionFile) {
-    const c = readSessionFile(sessionFile);
-    cdpUrl = c.cdpUrl;
-    const base = opts.base || c.base;
-    heartbeat = { report: (signedIn) => base && c.heartbeatToken ? postJson(base, "/browser/auth", { session_id: c.sessionId, heartbeat_token: c.heartbeatToken, signed_in: !!signedIn }).catch(() => {
-    }) : Promise.resolve(), stop: async () => {
-    } };
-  } else if (runtime === "agent-browser") {
-    const c = await claimAgentBrowser({ base: opts.base || process.env.AB_BASE, claim: opts.claim || process.env.AB_CLAIM });
-    cdpUrl = c.cdpUrl;
-    heartbeat = startHeartbeat({ base: opts.base || process.env.AB_BASE, ...c });
-  }
+  const cdpUrl = opts.cdpUrl || process.env.QBO_CDP_URL || "http://127.0.0.1:9222";
   let cdp;
   try {
     cdp = await Cdp.connect(cdpUrl);
   } catch (e) {
-    throw new ConnectError(`could not reach the browser over CDP (${runtime}): ${String(e.message).replace(/wss?:\/\/\S+/g, "<cdp>")}`);
+    throw new ConnectError(`could not reach the browser over CDP: ${String(e.message).replace(/wss?:\/\/\S+/g, "<cdp>")}`);
   }
   const page = await Page.open(cdp, { reuse: true, matchUrl: /qbo\.intuit\.com/ });
   return {
-    runtime,
+    runtime: "cdp",
     cdp,
     page,
-    heartbeat,
     async close() {
-      if (heartbeat) await heartbeat.stop();
       cdp.close();
-    }
-  };
-}
-
-// src/cli.js
-import { unlinkSync } from "node:fs";
-
-// src/relay.js
-import { randomBytes } from "node:crypto";
-async function startRelay(upstreamUrl, { WebSocketImpl = wrapper_default } = {}) {
-  const up = new WebSocketImpl(upstreamUrl, { perMessageDeflate: false, maxPayload: 256 * 1024 * 1024 });
-  await new Promise((res, rej) => {
-    up.once("open", res);
-    up.once("error", rej);
-  });
-  const token = randomBytes(16).toString("hex");
-  const wss = new import_websocket_server.default({ host: "127.0.0.1", port: 0, path: "/" + token, perMessageDeflate: false, maxPayload: 256 * 1024 * 1024 });
-  await new Promise((res) => wss.once("listening", res));
-  let nextId = 0;
-  const inflight = /* @__PURE__ */ new Map();
-  const clients = /* @__PURE__ */ new Set();
-  wss.on("connection", (client) => {
-    clients.add(client);
-    client.on("message", (buf) => {
-      let m;
-      try {
-        m = JSON.parse(buf.toString());
-      } catch {
-        return;
-      }
-      const uid = ++nextId;
-      inflight.set(uid, { client, id: m.id });
-      m.id = uid;
-      up.send(JSON.stringify(m));
-    });
-    client.on("close", () => {
-      clients.delete(client);
-      for (const [k, v] of inflight) if (v.client === client) inflight.delete(k);
-    });
-  });
-  up.on("message", (buf) => {
-    let m;
-    try {
-      m = JSON.parse(buf.toString());
-    } catch {
-      return;
-    }
-    if (m.id !== void 0) {
-      const r = inflight.get(m.id);
-      if (!r) return;
-      inflight.delete(m.id);
-      m.id = r.id;
-      if (r.client.readyState === 1) r.client.send(JSON.stringify(m));
-    } else {
-      const s = JSON.stringify(m);
-      for (const c of clients) if (c.readyState === 1) c.send(s);
-    }
-  });
-  const ping = setInterval(() => {
-    try {
-      up.ping();
-    } catch {
-    }
-  }, 2e4);
-  ping.unref?.();
-  let closedResolve;
-  const closed = new Promise((r) => {
-    closedResolve = r;
-  });
-  up.on("close", (code, reason) => {
-    clearInterval(ping);
-    for (const c of clients) c.close(1011, "upstream closed");
-    wss.close();
-    closedResolve({ code, reason: String(reason || "").slice(0, 120) });
-  });
-  return {
-    url: `ws://127.0.0.1:${wss.address().port}/${token}`,
-    closed,
-    async close() {
-      clearInterval(ping);
-      for (const c of clients) c.close();
-      await new Promise((r) => wss.close(r));
-      up.close();
     }
   };
 }
@@ -7891,30 +7731,20 @@ function benchMarkdown(results) {
 }
 
 // src/cli.js
-var VERSION = "0.1.0";
+var VERSION = "0.2.0";
 function root(cmd) {
   let c = cmd;
   while (c.parent) c = c.parent;
   return c.opts();
 }
 var log = (...a) => process.stderr.write(a.join(" ") + "\n");
-var deps = { connect, claimAgentBrowser, startHeartbeat, startRelay };
-var connOpts = (o) => ({ runtime: o.runtime, cdpUrl: o.cdpUrl, base: o.base, sessionFile: o.sessionFile });
-var reportAuth = (session, signedIn) => session.heartbeat?.report ? session.heartbeat.report(signedIn) : void 0;
+var deps = { connect };
+var connOpts = (o) => ({ cdpUrl: o.cdpUrl });
 async function withQbo(cmd, fn) {
   const o = root(cmd);
   const session = await deps.connect(connOpts(o));
   try {
     const qbo = new Qbo(session.page, { log });
-    if (session.heartbeat) {
-      try {
-        await qbo.ensureReady();
-        await reportAuth(session, true);
-      } catch (e) {
-        await reportAuth(session, false);
-        throw e;
-      }
-    }
     if (o.realm) {
       await qbo.ensureReady();
       const c = await qbo.company();
@@ -7949,7 +7779,7 @@ function summary(r) {
   return Object.fromEntries(Object.entries(r).filter(([k]) => keep.includes(k)));
 }
 function buildProgram() {
-  const program2 = new Command("qbo").description("Operate QuickBooks Online through a signed-in browser (AE cloud browser or local Chrome over CDP).\nRead-only by default; writes need --yes.").version(VERSION).option("--json", "machine-readable JSON output").option("--yes", "apply a write (without it, writes only print what they would do)").addOption(new Option("--runtime <kind>", "browser runtime").choices(["cdp", "agent-browser"])).option("--cdp-url <url>", "Chrome DevTools URL (default $QBO_CDP_URL or http://127.0.0.1:9222)").option("--base <url>", "AE browser connector base URL for agent-browser (claim from env AB_CLAIM)").option("--session-file <path>", "agent-browser: reuse the browser held by `qbo hold` (default $QBO_SESSION_FILE)").option("--realm <id>", "refuse to run unless the signed-in company has this realm id");
+  const program2 = new Command("qbo").description("Operate QuickBooks Online through your own signed-in Chrome (over CDP).\nRead-only by default; writes need --yes.").version(VERSION).option("--json", "machine-readable JSON output").option("--yes", "apply a write (without it, writes only print what they would do)").addOption(new Option("--runtime <kind>", "browser runtime (only cdp: your own Chrome)").choices(["cdp"])).option("--cdp-url <url>", "Chrome DevTools URL (default $QBO_CDP_URL or http://127.0.0.1:9222)").option("--realm <id>", "refuse to run unless the signed-in company has this realm id");
   program2.command("doctor").description("check Node, browser connection, sign-in, company and API access").action(async (_o, cmd) => {
     const checks = [];
     const add = (name, ok2, detail) => checks.push({ name, ok: ok2, detail });
@@ -7962,14 +7792,12 @@ function buildProgram() {
       try {
         const s = await qbo.ensureReady();
         add("signed_in", true, s.url);
-        await reportAuth(session, true);
         const t = performance.now();
         const c = await qbo.company();
         add("api", true, `${Math.round(performance.now() - t)} ms`);
         add("company", true, `${c.name} (realm ${c.realm})`);
       } catch (e) {
         add("signed_in", false, e.message);
-        await reportAuth(session, false);
       }
     } catch (e) {
       add("browser", false, redact(e.message));
@@ -7979,37 +7807,6 @@ function buildProgram() {
     const ok = checks.every((c) => c.ok);
     out(cmd, { ok, checks }, () => checks.map((c) => `${c.ok ? "ok  " : "FAIL"} ${c.name.padEnd(10)} ${c.detail ?? ""}`).join("\n"));
     if (!ok) process.exitCode = 1;
-  });
-  program2.command("hold").description("agent-browser: claim AB_CLAIM once, heartbeat, and write a 0600 session file so many qbo runs share one cloud browser; runs until SIGINT/SIGTERM or --max-seconds").option("--max-seconds <n>", "release after this many seconds", "2400").action(async (o, cmd) => {
-    const base = root(cmd).base || process.env.AB_BASE;
-    const sessionFile = root(cmd).sessionFile || process.env.QBO_SESSION_FILE;
-    if (!sessionFile) throw new ConnectError("hold needs --session-file <path> (or $QBO_SESSION_FILE)", 2);
-    const c = await deps.claimAgentBrowser({ base, claim: process.env.AB_CLAIM });
-    const relay = await deps.startRelay(c.cdpUrl);
-    const hb = deps.startHeartbeat({ base, ...c });
-    writeSessionFile(sessionFile, { base, ...c, cdpUrl: relay.url });
-    log(`holding agent-browser session ${c.sessionId}; session file ${sessionFile}. Stop with SIGINT/SIGTERM.`);
-    let stopping = false;
-    await new Promise((resolve) => {
-      const t = setTimeout(resolve, Number(o.maxSeconds) * 1e3);
-      for (const sig of ["SIGINT", "SIGTERM"]) process.once(sig, () => {
-        clearTimeout(t);
-        resolve();
-      });
-      relay.closed.then((c2) => {
-        if (!stopping) log(`cloud browser disconnected at ${(/* @__PURE__ */ new Date()).toISOString()} (code ${c2?.code ?? "?"}${c2?.reason ? ", " + c2.reason : ""}); the lease is gone, open a new session`);
-        clearTimeout(t);
-        resolve();
-      });
-    });
-    stopping = true;
-    await hb.stop();
-    await relay.close();
-    try {
-      unlinkSync(sessionFile);
-    } catch {
-    }
-    log("released");
   });
   program2.command("status").description("signed-in state of the QuickBooks tab").action((_o, cmd) => withQbo(cmd, async (q) => out(cmd, await q.ensureReady(), (s) => `${s.state}  ${s.url}`)));
   program2.command("company").description("company info (name, realm, plan, currency)").action((_o, cmd) => withQbo(cmd, async (q) => out(cmd, await q.company(), (c) => table([c]))));
@@ -8055,7 +7852,7 @@ function buildProgram() {
     const r = await q.report(name, { from: o.from, to: o.to, method: o.method, macro: o.macro });
     if (o.csv) {
       const esc = (v) => /[",\n]/.test(v) ? `"${String(v).replace(/"/g, '""')}"` : String(v ?? "");
-      writeFileSync2(o.csv, [r.columns, ...r.rows].map((row) => row.map(esc).join(",")).join("\n") + "\n");
+      writeFileSync(o.csv, [r.columns, ...r.rows].map((row) => row.map(esc).join(",")).join("\n") + "\n");
     }
     out(cmd, r, (v) => `${v.title} ${v.start || ""}..${v.end || ""} ${v.basis || ""}${v.noData ? "  (no data)" : ""}
 ` + table(v.rows.map((row) => Object.fromEntries(v.columns.map((c, i) => [c || `col${i}`, row[i]]))), v.columns.map((c, i) => c || `col${i}`)));
@@ -8103,7 +7900,7 @@ function buildProgram() {
   });
   program2.command("bench").description("time every read command: N cold and N warm runs, median and p95").option("--runs <n>", "runs per mode", (v) => parseInt(v, 10), 5).option("--only <substr>", "only commands containing this text (comma-separated for several)").option("--md <file>", "write a Markdown table").action((o, cmd) => withQbo(cmd, async (q, s) => {
     const save = (_row, rs) => {
-      if (o.md) writeFileSync2(o.md, benchMarkdown(rs) + "\n");
+      if (o.md) writeFileSync(o.md, benchMarkdown(rs) + "\n");
     };
     const results = await runBench(q, s.page, { runs: o.runs, only: o.only, log, onRow: save });
     save(null, results);

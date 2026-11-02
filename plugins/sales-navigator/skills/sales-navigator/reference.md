@@ -160,9 +160,8 @@ in one `values:List(...)`) plus seniority and title filters. A segment merge kee
 7. **Cowork asks per site** ("Allow Claude to fetch pages from <site>?"). Count sites, ask the user
    once: Auto approval mode, "Allow all for this website", or once per site. Never a send approval.
 8. **Question cards auto-select** their recommended option after minutes: make it the safe one.
-9. **One script per Agent Browser session**; the cloud browser dies with the process and has a
-   40-minute ceiling (`session.py` checkpoints, exits 4; resume with `--skip-done`). A claim lasts 60
-   seconds: write the plan first.
+9. **One script per browser session.** A `session.py` run has a 40-minute ceiling (it checkpoints and
+   exits 4; resume with `--skip-done`).
 10. **Pending and degree**: `pending_invitation=yes` means skip; blank means absent, not "no".
     `degree=1st` is already connected. Skip opening a profile only for `no`, 2nd/3rd degree and
     collected today.
@@ -271,7 +270,7 @@ ENGINE="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/sales-navigator}"
 A relative script or snippet path resolves against the user's project folder, not the skill: always use
 `"$ENGINE/..."`. Step 0 of every flow (for TAM, after A and B) is `python3 "$ENGINE/scripts/doctor.py"` (engine folder, Python, required
 snippets and scripts, workspace). If it fails or the engine is not found, stop and tell the user; never drive
-the Sales Nav UI by hand. If no page snippet can run (no browser JS tool, Agent Browser or CDP), stop too.
+the Sales Nav UI by hand. If no page snippet can run (no browser JS tool or CDP), stop too.
 
 ## CSVs
 
