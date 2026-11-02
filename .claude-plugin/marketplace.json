@@ -106,6 +106,24 @@
         "procurement",
         "prospecting"
       ]
+    },
+    {
+      "name": "linkedin-emails",
+      "source": "./plugins/linkedin-emails",
+      "version": "0.1.0",
+      "description": "Skill + scripts: fill the missing emails in your LinkedIn connections CSV by reading each person's Contact info from your own logged-in LinkedIn browser, paced and read-only. No Unipile or hosted service. Unofficial.",
+      "strict": false,
+      "skills": [
+        "./skills/linkedin-emails"
+      ],
+      "category": "sales",
+      "tags": [
+        "linkedin",
+        "connections",
+        "emails",
+        "contact-info",
+        "browser"
+      ]
     }
   ]
 }

@@ -1,0 +1,7 @@
+# Per-skill manifest. Keep in step with .claude-plugin/marketplace.json (checked by tests).
+name: linkedin-emails
+version: 0.1.0
+category: sales
+# No vendored browser runtime: the snippets run in the user's own logged-in linkedin.com tab through whatever
+# browser or JS tool the agent already has; emails.py is stdlib-only and makes no network calls.
+runtimes: []
