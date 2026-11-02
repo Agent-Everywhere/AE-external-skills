@@ -22,6 +22,9 @@ SEMVER = r"\d+\.\d+\.\d+"
 PLUGIN_NAMES = {"claude-desktop": "desktop-cowork"}
 # multi-skill plugins under plugins/ besides sales-navigator (checked in their own test files)
 OTHER_PLUGINS = ["quickbooks", "sourcewell", "linkedin-emails"]
+# plain-LinkedIn (no Sales Navigator) job plugins: one skill each, all sharing the plugins/linkedin source folder
+# (their own checks live in tests/test_linkedin_classic.py)
+CLASSIC_PLUGINS = ["linkedin-find-people", "linkedin-outreach", "linkedin-replies"]
 # install-by-intent plugins: one job each, all sharing the sales-navigator source folder (plugin name -> skill folder)
 INTENT_PLUGINS = {"salesnav-find-people": "salesnav-tam-people", "salesnav-find-companies": "salesnav-tam-accounts",
                   "salesnav-split-big-search": "salesnav-tam-tracker", "salesnav-outreach": "salesnav-outreach",
@@ -102,7 +105,7 @@ class SkillManifests(unittest.TestCase):
         self.assertEqual(sorted(entries), sorted(
             [PLUGIN_NAMES.get(d.name, d.name) for d in skill_dirs()
              if sync_runtime.load_manifest(d)["category"] != "sales"]
-            + ["sales-navigator"] + list(INTENT_PLUGINS) + OTHER_PLUGINS))
+            + ["sales-navigator"] + list(INTENT_PLUGINS) + OTHER_PLUGINS + CLASSIC_PLUGINS))
 
     def test_sales_navigator_plugin_ships_only_its_skills(self):
         """The marketplace source folder is what installs: it must not drag in tests, build scripts or packages."""
@@ -170,8 +173,9 @@ class IntentPlugins(unittest.TestCase):
         self.assertEqual(sorted(sharing), sorted(["sales-navigator"] + list(INTENT_PLUGINS)))
 
     def test_old_linkedin_job_names_are_gone(self):
-        old = ("linkedin-find-people", "linkedin-find-companies", "linkedin-split-big-search",
-               "linkedin-outreach", "linkedin-replies")
+        # linkedin-find-people, linkedin-outreach and linkedin-replies are back, as the plain-LinkedIn skills
+        # (plugins/linkedin); the Sales Navigator ones stay salesnav-*
+        old = ("linkedin-find-companies", "linkedin-split-big-search")
         for name in old:
             with self.subTest(old=name):
                 self.assertNotIn(name, self.entries)
@@ -187,6 +191,20 @@ class IntentPlugins(unittest.TestCase):
                 self.assertRegex(e["description"].lower(), r"sales navigator seat")
                 if e["name"] != "sales-navigator":
                     self.assertTrue(e["description"].startswith("Needs a LinkedIn Sales Navigator seat."))
+
+    def test_linkedin_names_are_plain_linkedin_and_salesnav_names_are_sales_navigator(self):
+        """A `linkedin-*` plugin is never sourced from the Sales Navigator folder, and the reverse."""
+        for e in self.market["plugins"]:
+            with self.subTest(plugin=e["name"]):
+                if e["name"].startswith("linkedin-") and e["name"] != "linkedin-emails":
+                    self.assertEqual(e["source"], "./plugins/linkedin")
+                    self.assertTrue(e["description"].startswith("Plain LinkedIn, no Sales Navigator needed."))
+                if e["name"].startswith("salesnav-"):
+                    self.assertEqual(e["source"], "./plugins/sales-navigator")
+                if e["source"] == "./plugins/linkedin":
+                    self.assertIn(e["name"], CLASSIC_PLUGINS)
+                if e["source"] == "./plugins/sales-navigator":
+                    self.assertFalse(e["name"].startswith("linkedin-"), e["name"])
 
     def test_each_intent_plugin_lists_exactly_its_one_skill(self):
         engine_version = sync_runtime.load_manifest(ENGINE)["version"]
