@@ -52,8 +52,8 @@
     {
       "name": "sales-navigator",
       "source": "./plugins/sales-navigator",
-      "version": "0.9.0",
-      "description": "6 skills: LinkedIn Sales Navigator toolkit plus TAM accounts, TAM people, TAM tracker, outreach and DIY LinkedIn (no hosted API) skills. Runs in your own browser.",
+      "version": "0.9.1",
+      "description": "6 skills: LinkedIn Sales Navigator toolkit plus TAM accounts, TAM people, TAM tracker, outreach and DIY LinkedIn (no hosted API) skills. Needs a LinkedIn Sales Navigator seat. Runs in your own browser.",
       "strict": false,
       "skills": [
         "./skills/sales-navigator",
@@ -73,10 +73,10 @@
       ]
     },
     {
-      "name": "linkedin-find-people",
+      "name": "salesnav-find-people",
       "source": "./plugins/sales-navigator",
-      "version": "0.9.0",
-      "description": "One job: find decision-makers at a list of companies on your own LinkedIn Sales Navigator seat, with exact counts. Read-only. Runs in your own browser.",
+      "version": "0.9.1",
+      "description": "Needs a LinkedIn Sales Navigator seat. Find decision-makers at a list of companies on your own LinkedIn Sales Navigator seat, with exact counts. Read-only. Runs in your own browser.",
       "strict": false,
       "skills": [
         "./skills/salesnav-tam-people"
@@ -90,10 +90,10 @@
       ]
     },
     {
-      "name": "linkedin-find-companies",
+      "name": "salesnav-find-companies",
       "source": "./plugins/sales-navigator",
-      "version": "0.9.0",
-      "description": "One job: find and qualify the companies that match your ideal customer on your own LinkedIn Sales Navigator seat. Read-only. Runs in your own browser.",
+      "version": "0.9.1",
+      "description": "Needs a LinkedIn Sales Navigator seat. Find and qualify the companies that match your ideal customer on your own LinkedIn Sales Navigator seat. Read-only. Runs in your own browser.",
       "strict": false,
       "skills": [
         "./skills/salesnav-tam-accounts"
@@ -107,10 +107,10 @@
       ]
     },
     {
-      "name": "linkedin-split-big-search",
+      "name": "salesnav-split-big-search",
       "source": "./plugins/sales-navigator",
-      "version": "0.9.0",
-      "description": "One job: split a Sales Navigator search that is over the viewable cap into pieces, pull each one and track what is covered. Runs in your own browser.",
+      "version": "0.9.1",
+      "description": "Needs a LinkedIn Sales Navigator seat. Split a Sales Navigator search that is over the viewable cap into pieces, pull each one and track what is covered. Runs in your own browser.",
       "strict": false,
       "skills": [
         "./skills/salesnav-tam-tracker"
@@ -124,10 +124,10 @@
       ]
     },
     {
-      "name": "linkedin-outreach",
+      "name": "salesnav-outreach",
       "source": "./plugins/sales-navigator",
-      "version": "0.9.0",
-      "description": "One job: draft daily LinkedIn connection requests, InMails and follow-ups from your Sales Navigator seat; sends only after you approve the exact batch. Runs in your own browser.",
+      "version": "0.9.1",
+      "description": "Needs a LinkedIn Sales Navigator seat. Draft daily LinkedIn connection requests, InMails and follow-ups from your Sales Navigator seat; sends only after you approve the exact batch. Runs in your own browser.",
       "strict": false,
       "skills": [
         "./skills/salesnav-outreach"
@@ -140,10 +140,10 @@
       ]
     },
     {
-      "name": "linkedin-replies",
+      "name": "salesnav-inbox",
       "source": "./plugins/sales-navigator",
-      "version": "0.9.0",
-      "description": "One job: see who accepted and who replied on LinkedIn, from your own signed-in browser, with no hosted API (the Sales Nav inbox and InMail checks need a Sales Navigator seat); sends only after you approve the exact batch.",
+      "version": "0.9.1",
+      "description": "Needs a LinkedIn Sales Navigator seat. See who accepted and who replied on LinkedIn, from your own signed-in browser, with no hosted API (the Sales Nav inbox and InMail checks need a Sales Navigator seat); sends only after you approve the exact batch.",
       "strict": false,
       "skills": [
         "./skills/salesnav-diy-linkedin"
@@ -152,8 +152,8 @@
       "tags": [
         "linkedin",
         "sales-navigator",
-        "replies",
-        "diy"
+        "diy",
+        "inbox"
       ]
     },
     {

@@ -35,9 +35,9 @@ scoped by those company ids, an exact count per variant, and rows the user has c
 Get this folder from https://github.com/Agent-Everywhere/AE-external-skills (`plugins/sales-navigator/skills/salesnav-tam-people`) and copy it AND the sibling `sales-navigator` engine folder next to it (the tools live there; this skill alone has none):
 
 - **Grok Bot box:** `/home/box/agent-data/workflows/salesnav-tam-people/` and `/home/box/agent-data/workflows/sales-navigator/`.
-- **Claude Code:** `/plugin marketplace add Agent-Everywhere/AE-external-skills`, then `/plugin install linkedin-find-people@ae-external-skills` (ships the engine); or copy both folders to `~/.claude/skills/`.
+- **Claude Code:** `/plugin marketplace add Agent-Everywhere/AE-external-skills`, then `/plugin install salesnav-find-people@ae-external-skills` (ships the engine); or copy both folders to `~/.claude/skills/`.
 - **Codex:** `~/.codex/skills/salesnav-tam-people` and `~/.codex/skills/sales-navigator`.
-- **Claude Desktop / Cowork:** add the marketplace `Agent-Everywhere/AE-external-skills` and add `linkedin-find-people`.
+- **Claude Desktop / Cowork:** add the marketplace `Agent-Everywhere/AE-external-skills` and add `salesnav-find-people`.
 
 ## Flow
 

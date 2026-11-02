@@ -35,9 +35,9 @@ send one at a time through the ledger, and record who accepted or replied.
 Get this folder from https://github.com/Agent-Everywhere/AE-external-skills (`plugins/sales-navigator/skills/salesnav-outreach`) and copy it AND the sibling `sales-navigator` engine folder next to it (the tools live there; this skill alone has none):
 
 - **Grok Bot box:** `/home/box/agent-data/workflows/salesnav-outreach/` and `/home/box/agent-data/workflows/sales-navigator/`.
-- **Claude Code:** `/plugin marketplace add Agent-Everywhere/AE-external-skills`, then `/plugin install linkedin-outreach@ae-external-skills` (ships the engine); or copy both folders to `~/.claude/skills/`.
+- **Claude Code:** `/plugin marketplace add Agent-Everywhere/AE-external-skills`, then `/plugin install salesnav-outreach@ae-external-skills` (ships the engine); or copy both folders to `~/.claude/skills/`.
 - **Codex:** `~/.codex/skills/salesnav-outreach` and `~/.codex/skills/sales-navigator`.
-- **Claude Desktop / Cowork:** add the marketplace `Agent-Everywhere/AE-external-skills` and add `linkedin-outreach`.
+- **Claude Desktop / Cowork:** add the marketplace `Agent-Everywhere/AE-external-skills` and add `salesnav-outreach`.
 
 ## Flow
 

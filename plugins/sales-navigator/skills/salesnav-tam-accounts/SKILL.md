@@ -37,9 +37,9 @@ cap? Cut it into sub-lists with `salesnav-tam-tracker`.
 Get this folder from https://github.com/Agent-Everywhere/AE-external-skills (`plugins/sales-navigator/skills/salesnav-tam-accounts`) and copy it AND the sibling `sales-navigator` engine folder next to it (the tools live there; this skill alone has none):
 
 - **Grok Bot box:** `/home/box/agent-data/workflows/salesnav-tam-accounts/` and `/home/box/agent-data/workflows/sales-navigator/`.
-- **Claude Code:** `/plugin marketplace add Agent-Everywhere/AE-external-skills`, then `/plugin install linkedin-find-companies@ae-external-skills` (ships the engine); or copy both folders to `~/.claude/skills/`.
+- **Claude Code:** `/plugin marketplace add Agent-Everywhere/AE-external-skills`, then `/plugin install salesnav-find-companies@ae-external-skills` (ships the engine); or copy both folders to `~/.claude/skills/`.
 - **Codex:** `~/.codex/skills/salesnav-tam-accounts` and `~/.codex/skills/sales-navigator`.
-- **Claude Desktop / Cowork:** add the marketplace `Agent-Everywhere/AE-external-skills` and add `linkedin-find-companies`.
+- **Claude Desktop / Cowork:** add the marketplace `Agent-Everywhere/AE-external-skills` and add `salesnav-find-companies`.
 
 ## Flow
 
