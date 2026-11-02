@@ -208,6 +208,57 @@
         "contact-info",
         "browser"
       ]
+    },
+    {
+      "name": "linkedin-find-people",
+      "source": "./plugins/linkedin",
+      "version": "0.10.0",
+      "description": "Plain LinkedIn, no Sales Navigator needed. Find people by keywords (for example \"realtor\") with a normal LinkedIn search in your own signed-in browser, a few pages a day, into a CSV with name, headline, location and degree. Read-only. Runs in your own browser.",
+      "strict": false,
+      "skills": [
+        "./skills/linkedin-find-people"
+      ],
+      "category": "sales",
+      "tags": [
+        "linkedin",
+        "people",
+        "search",
+        "classic"
+      ]
+    },
+    {
+      "name": "linkedin-outreach",
+      "source": "./plugins/linkedin",
+      "version": "0.10.0",
+      "description": "Plain LinkedIn, no Sales Navigator needed. Draft LinkedIn connection requests and messages to your connections from a CSV; sends one at a time by UI click only after you type approval of the exact batch, under conservative daily caps. Runs in your own browser.",
+      "strict": false,
+      "skills": [
+        "./skills/linkedin-outreach"
+      ],
+      "category": "sales",
+      "tags": [
+        "linkedin",
+        "outreach",
+        "connections",
+        "classic"
+      ]
+    },
+    {
+      "name": "linkedin-replies",
+      "source": "./plugins/linkedin",
+      "version": "0.10.0",
+      "description": "Plain LinkedIn, no Sales Navigator needed. See who accepted your connection requests and who replied, from your own signed-in browser, a few paced reads a day with no message text kept. Read-only. Runs in your own browser.",
+      "strict": false,
+      "skills": [
+        "./skills/linkedin-replies"
+      ],
+      "category": "sales",
+      "tags": [
+        "linkedin",
+        "replies",
+        "inbox",
+        "classic"
+      ]
     }
   ]
 }
