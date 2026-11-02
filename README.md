@@ -7,7 +7,7 @@ another agent with shell or browser access, as noted per plugin below).
 
 ## What's in here
 
-Six plugins. Install only the ones you need.
+Seven plugins. Install only the ones you need.
 
 | Plugin | What it is | Who it's for | Where it runs | Needs | Install |
 |---|---|---|---|---|---|
@@ -17,6 +17,7 @@ Six plugins. Install only the ones you need.
 | [`sales-navigator`](plugins/sales-navigator/skills/sales-navigator/SKILL.md) | One plugin bundling 6 skills: the `sales-navigator` toolkit plus `salesnav-tam-accounts`, `salesnav-tam-people`, `salesnav-tam-tracker`, `salesnav-outreach` and `salesnav-diy-linkedin` | Anyone with a LinkedIn Sales Navigator seat who sizes markets, builds lists and runs outreach | Claude Desktop / Cowork's built-in browser, your own Chrome, or Agent Browser | A signed-in Sales Navigator seat; Agent Browser only: the connector `https://browser-mcp-production-6535.up.railway.app/mcp` (Google sign-in) | `/plugin install sales-navigator@ae-external-skills` |
 | [`quickbooks`](plugins/quickbooks/skills/quickbooks/SKILL.md) | CLI + skill. The `qbo` command (bundled single-file Node CLI) plus a skill: doctor, lists, search, reports (P&L, balance sheet, aging, general ledger...), and approval-gated create / void / delete. Calls QuickBooks Online's own API from inside your signed-in tab, with page reading as a fallback | Anyone with a QuickBooks Online company who wants Claude to read the books and do small, approved bookkeeping steps | Claude Code (or any agent with shell access) attached to your own Chrome over CDP, or Agent Browser | Node 20+, a browser signed in to QuickBooks Online; Agent Browser only: the connector `https://browser-mcp-production-6535.up.railway.app/mcp` | `/plugin install quickbooks@ae-external-skills` |
 | [`sourcewell`](plugins/sourcewell/skills/sourcewell/SKILL.md) | CLI + skill. The `sourcewell` command (bundled single-file Node CLI, no dependencies) plus a skill: who holds a Sourcewell cooperative contract and when it expires, open and upcoming (planned) bids, past RFP bidders and awardees, re-bid candidates, and participating agencies by state or type. Read-only; JSON or CSV output | Anyone prospecting US public-sector buyers through cooperative purchasing | Claude Desktop (Cowork task) or Claude Code; no browser | Node 20+ (Cowork has it); only `docs download` needs your own procurement-portal login | `/plugin install sourcewell@ae-external-skills` |
+| [`linkedin-emails`](plugins/linkedin-emails/skills/linkedin-emails/SKILL.md) | Skill + scripts (`emails.py`, `contact_info.js`, `download_export.js`). Fills the blank emails in your LinkedIn connections CSV (the export has about 3 in 100) by reading each person's Contact info from your own logged-in LinkedIn tab: 40 per run, at most 120 a day, 6 to 12 seconds apart, stops the day on any rate-limit or checkpoint. Read-only; no Unipile or hosted service | A salesperson with a Connections.csv who wants emails for their own network | A Grok Bot box, Claude Code, Claude Desktop / Cowork or Codex, driving a browser you are logged into | Python 3, a logged-in linkedin.com tab the agent can run JavaScript in | `/plugin install linkedin-emails@ae-external-skills` (or paste the link, see Install by link) |
 
 `grokbot` and `grokbot-box` are not the same thing: `grokbot` is for a human on a Mac, `grokbot-box`
 is for an agent inside a box. Each skill points to the other.
@@ -36,6 +37,8 @@ The `sales-navigator` plugin's six skills:
 >
 > **Unofficial.** `sourcewell` is not affiliated with or endorsed by Sourcewell. It reads Sourcewell's public website data and bid portal pages, which may change. It is read-only; it never registers for, submits or asks questions on a bid.
 >
+> **Unofficial.** `linkedin-emails` is not affiliated with or endorsed by LinkedIn. It calls LinkedIn's own web endpoints from your signed-in tab, which may change or be limited by LinkedIn, and LinkedIn's terms apply to your account. It is read-only and paced; read its [`SKILL.md`](plugins/linkedin-emails/skills/linkedin-emails/SKILL.md) hard rules first.
+>
 > **Unofficial.** `grokbot` and `grokbot-box` are not affiliated with or endorsed by Cursor or xAI. They use Grok Bot's private, undocumented interfaces, which may change or break at any time. Use at your own risk: some commands can delete agents and sections.
 
 ## Install
@@ -50,7 +53,19 @@ The `sales-navigator` plugin's six skills:
 /plugin install sales-navigator@ae-external-skills
 /plugin install quickbooks@ae-external-skills
 /plugin install sourcewell@ae-external-skills
+/plugin install linkedin-emails@ae-external-skills
 ```
+
+### Install by link (any agent)
+
+For `linkedin-emails`, paste one sentence into your AI agent (Grok Bot, Claude Code, Claude Desktop / Cowork or Codex):
+
+> Install the linkedin-emails skill from https://github.com/Agent-Everywhere/AE-external-skills (the folder
+> `plugins/linkedin-emails/skills/linkedin-emails`), follow the Install section of its SKILL.md for your setup,
+> then help me fill in the emails in my LinkedIn connections CSV.
+
+The agent clones the public repo, puts the folder where your agent keeps skills, and walks you through it. You
+only log into LinkedIn yourself in the browser it opens; it never needs your password.
 
 ### Install in Claude Desktop (no GitHub)
 
@@ -143,6 +158,7 @@ plugins/sales-navigator/   # the ONLY folder the sales-navigator plugin installs
     salesnav-tam-tracker/
     salesnav-outreach/
     salesnav-diy-linkedin/
+plugins/linkedin-emails/   # skill + scripts/ (emails.py, contact_info.js, download_export.js); fixtures in tests/fixtures/linkedin_emails/
 packages/
   browser-runtime/  # SOURCE OF TRUTH for the shared browser runtime (session.py + one README)
 build/

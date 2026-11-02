@@ -1,0 +1,12 @@
+Notes:
+"When exporting your connection data, you may notice that some of the email addresses are missing. You will only see email addresses for connections who have allowed their connections to see or download their email address using this setting."
+
+First Name,Last Name,URL,Email Address,Company,Position,Connected On
+Ada,Lovelace,https://www.linkedin.com/in/ada-lovelace,ada@example.com,Analytical Engines,Loan Officer,01 Nov 2026
+Bob,Builder,https://www.linkedin.com/in/bob-builder/,,Fix It Inc,Realtor,31 Oct 2026
+Carla,Dupont,https://www.linkedin.com/in/carla-dupont?trk=people-search,,Dupont Homes,Realtor,30 Oct 2026
+José,García,https://www.linkedin.com/in/jos%C3%A9-garc%C3%ADa/,,Casa Loans,Loan Officer,29 Oct 2026
+Bob,Builder,https://www.linkedin.com/in/Bob-Builder?utm=x,bob@work.example,Fix It Inc,Realtor,28 Oct 2026
+Dan,Nolink,,,Nowhere LLC,Accountant,27 Oct 2026
+Eve,Escrow,https://www.linkedin.com/in/eve-escrow/,,Title Co,Escrow Officer,26 Oct 2026
+Finn,Fields,https://www.linkedin.com/in/finn-fields,,Fields Realty,Realtor,25 Oct 2026
