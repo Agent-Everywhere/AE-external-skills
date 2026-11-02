@@ -230,8 +230,10 @@ class IntentPlugins(unittest.TestCase):
         self.assertIn("## What do you want to do?", head)
         for name in list(INTENT_PLUGINS) + ["linkedin-emails", "quickbooks", "sourcewell"]:
             with self.subTest(plugin=name):
-                self.assertIn("Install the %s skill from https://github.com/Agent-Everywhere/AE-external-skills "
-                              "and set it up for me." % name, head)
+                folder = self.entries[name]["source"].removeprefix("./")
+                self.assertIn("Install the %s skill from "
+                              "https://github.com/Agent-Everywhere/AE-external-skills/tree/main/%s "
+                              "and set it up for me." % (name, folder), head)
         power = head.split("### For developers / power users", 1)[1]
         main_part = head.split("### For developers / power users", 1)[0]
         for name in ("grokbot", "grokbot-box", "desktop-cowork"):

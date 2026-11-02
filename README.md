@@ -14,7 +14,7 @@ through setup. You only sign in to the website yourself, in your own browser; th
 
 | I want to... | Paste this | You need |
 |---|---|---|
-| Get emails for my LinkedIn connections | `Install the linkedin-emails skill from https://github.com/Agent-Everywhere/AE-external-skills and set it up for me.` | Your LinkedIn Connections.csv, a signed-in LinkedIn tab |
+| Get emails for my LinkedIn connections | `Install the linkedin-emails skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/linkedin-emails and set it up for me.` | Your LinkedIn Connections.csv, a signed-in LinkedIn tab |
 
 More plain-LinkedIn skills (find people, outreach, replies without Sales Navigator) are coming.
 
@@ -24,18 +24,18 @@ These run on LinkedIn Sales Navigator, a separate paid LinkedIn product. They ne
 
 | I want to... | Paste this | You need |
 |---|---|---|
-| Find decision-makers at a list of companies | `Install the salesnav-find-people skill from https://github.com/Agent-Everywhere/AE-external-skills and set it up for me.` | A LinkedIn Sales Navigator seat, signed in in your browser |
-| Find the companies that match my ideal customer | `Install the salesnav-find-companies skill from https://github.com/Agent-Everywhere/AE-external-skills and set it up for me.` | A LinkedIn Sales Navigator seat |
-| Split a Sales Navigator search that is too big to pull at once, and track what is covered | `Install the salesnav-split-big-search skill from https://github.com/Agent-Everywhere/AE-external-skills and set it up for me.` | A LinkedIn Sales Navigator seat |
-| Draft and send my daily LinkedIn outreach (I approve every batch) | `Install the salesnav-outreach skill from https://github.com/Agent-Everywhere/AE-external-skills and set it up for me.` | A LinkedIn Sales Navigator seat |
-| See who accepted and who replied on LinkedIn | `Install the salesnav-inbox skill from https://github.com/Agent-Everywhere/AE-external-skills and set it up for me.` | A LinkedIn Sales Navigator seat, signed in in your browser |
+| Find decision-makers at a list of companies | `Install the salesnav-find-people skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/sales-navigator and set it up for me.` | A LinkedIn Sales Navigator seat, signed in in your browser |
+| Find the companies that match my ideal customer | `Install the salesnav-find-companies skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/sales-navigator and set it up for me.` | A LinkedIn Sales Navigator seat |
+| Split a Sales Navigator search that is too big to pull at once, and track what is covered | `Install the salesnav-split-big-search skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/sales-navigator and set it up for me.` | A LinkedIn Sales Navigator seat |
+| Draft and send my daily LinkedIn outreach (I approve every batch) | `Install the salesnav-outreach skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/sales-navigator and set it up for me.` | A LinkedIn Sales Navigator seat |
+| See who accepted and who replied on LinkedIn | `Install the salesnav-inbox skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/sales-navigator and set it up for me.` | A LinkedIn Sales Navigator seat, signed in in your browser |
 
 ### Other tools
 
 | I want to... | Paste this | You need |
 |---|---|---|
-| Ask questions of my QuickBooks Online books | `Install the quickbooks skill from https://github.com/Agent-Everywhere/AE-external-skills and set it up for me.` | Node 20+, Chrome signed in to QuickBooks Online |
-| Research Sourcewell contracts, bids and agencies | `Install the sourcewell skill from https://github.com/Agent-Everywhere/AE-external-skills and set it up for me.` | Node 20+ |
+| Ask questions of my QuickBooks Online books | `Install the quickbooks skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/quickbooks and set it up for me.` | Node 20+, Chrome signed in to QuickBooks Online |
+| Research Sourcewell contracts, bids and agencies | `Install the sourcewell skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/sourcewell and set it up for me.` | Node 20+ |
 
 The five `salesnav-*` skills above (`salesnav-find-people`, `salesnav-find-companies`, `salesnav-split-big-search`, `salesnav-outreach`, `salesnav-inbox`) are each one job from the `sales-navigator` plugin (below), installed on its own. `linkedin-emails` is a separate plugin and works on plain LinkedIn.
 
