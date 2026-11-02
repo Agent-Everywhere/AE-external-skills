@@ -23,9 +23,9 @@ PLUGIN_NAMES = {"claude-desktop": "desktop-cowork"}
 # multi-skill plugins under plugins/ besides sales-navigator (checked in their own test files)
 OTHER_PLUGINS = ["quickbooks", "sourcewell", "linkedin-emails"]
 # install-by-intent plugins: one job each, all sharing the sales-navigator source folder (plugin name -> skill folder)
-INTENT_PLUGINS = {"linkedin-find-people": "salesnav-tam-people", "linkedin-find-companies": "salesnav-tam-accounts",
-                  "linkedin-split-big-search": "salesnav-tam-tracker", "linkedin-outreach": "salesnav-outreach",
-                  "linkedin-replies": "salesnav-diy-linkedin"}
+INTENT_PLUGINS = {"salesnav-find-people": "salesnav-tam-people", "salesnav-find-companies": "salesnav-tam-accounts",
+                  "salesnav-split-big-search": "salesnav-tam-tracker", "salesnav-outreach": "salesnav-outreach",
+                  "salesnav-inbox": "salesnav-diy-linkedin"}
 
 
 PLUGIN = ROOT / "plugins" / "sales-navigator"
@@ -88,8 +88,9 @@ class SkillManifests(unittest.TestCase):
                 m = sync_runtime.load_manifest(d)
                 if m["category"] == "sales":
                     self.assertIn(d.name, bundled)
+                    # a job plugin may share its one skill's name (salesnav-outreach); no other skill is a plugin
                     self.assertEqual(sum(1 for e in entries.values() if e["name"] == d.name),
-                                     1 if d.name == "sales-navigator" else 0)
+                                     1 if d.name in ("sales-navigator",) + tuple(INTENT_PLUGINS) else 0)
                 else:
                     plugin_name = PLUGIN_NAMES.get(d.name, d.name)
                     e = entries[plugin_name]
@@ -167,6 +168,25 @@ class IntentPlugins(unittest.TestCase):
         self.assertEqual(len(names), len(set(names)))
         sharing = [p["name"] for p in self.market["plugins"] if p["source"] == "./plugins/sales-navigator"]
         self.assertEqual(sorted(sharing), sorted(["sales-navigator"] + list(INTENT_PLUGINS)))
+
+    def test_old_linkedin_job_names_are_gone(self):
+        old = ("linkedin-find-people", "linkedin-find-companies", "linkedin-split-big-search",
+               "linkedin-outreach", "linkedin-replies")
+        for name in old:
+            with self.subTest(old=name):
+                self.assertNotIn(name, self.entries)
+                self.assertNotIn(name, self.readme)
+
+    def test_sales_navigator_sourced_plugins_are_named_and_described_as_sales_navigator(self):
+        """Classic LinkedIn and Sales Navigator are different products: never name a seat-only plugin `linkedin-*`."""
+        sharing = [p for p in self.market["plugins"] if p["source"] == "./plugins/sales-navigator"]
+        self.assertTrue(sharing)
+        for e in sharing:
+            with self.subTest(plugin=e["name"]):
+                self.assertTrue(e["name"].startswith("salesnav-") or e["name"] == "sales-navigator", e["name"])
+                self.assertRegex(e["description"].lower(), r"sales navigator seat")
+                if e["name"] != "sales-navigator":
+                    self.assertTrue(e["description"].startswith("Needs a LinkedIn Sales Navigator seat."))
 
     def test_each_intent_plugin_lists_exactly_its_one_skill(self):
         engine_version = sync_runtime.load_manifest(ENGINE)["version"]

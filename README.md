@@ -10,28 +10,44 @@ another agent with shell or browser access, as noted per plugin below).
 Paste the sentence into your AI agent (Claude, Codex, Grok Bot or similar). It installs the skill and walks you
 through setup. You only sign in to the website yourself, in your own browser; the agent never needs your password.
 
+### Plain LinkedIn (no Sales Navigator needed)
+
 | I want to... | Paste this | You need |
 |---|---|---|
-| Find decision-makers at a list of companies | `Install the linkedin-find-people skill from https://github.com/Agent-Everywhere/AE-external-skills and set it up for me.` | A LinkedIn Sales Navigator seat, signed in in your browser |
-| Find the companies that match my ideal customer | `Install the linkedin-find-companies skill from https://github.com/Agent-Everywhere/AE-external-skills and set it up for me.` | A LinkedIn Sales Navigator seat |
-| Split a Sales Navigator search that is too big to pull at once, and track what is covered | `Install the linkedin-split-big-search skill from https://github.com/Agent-Everywhere/AE-external-skills and set it up for me.` | A LinkedIn Sales Navigator seat |
-| Draft and send my daily LinkedIn outreach (I approve every batch) | `Install the linkedin-outreach skill from https://github.com/Agent-Everywhere/AE-external-skills and set it up for me.` | A LinkedIn Sales Navigator seat |
-| See who accepted and who replied on LinkedIn | `Install the linkedin-replies skill from https://github.com/Agent-Everywhere/AE-external-skills and set it up for me.` | A LinkedIn account signed in in your browser; a Sales Navigator seat for the Sales Nav inbox, InMail credits and Sales Nav lookups |
 | Get emails for my LinkedIn connections | `Install the linkedin-emails skill from https://github.com/Agent-Everywhere/AE-external-skills and set it up for me.` | Your LinkedIn Connections.csv, a signed-in LinkedIn tab |
+
+More plain-LinkedIn skills (find people, outreach, replies without Sales Navigator) are coming.
+
+### Sales Navigator (needs a seat)
+
+These run on LinkedIn Sales Navigator, a separate paid LinkedIn product. They need a Sales Navigator seat; a plain (classic) LinkedIn account is not enough.
+
+| I want to... | Paste this | You need |
+|---|---|---|
+| Find decision-makers at a list of companies | `Install the salesnav-find-people skill from https://github.com/Agent-Everywhere/AE-external-skills and set it up for me.` | A LinkedIn Sales Navigator seat, signed in in your browser |
+| Find the companies that match my ideal customer | `Install the salesnav-find-companies skill from https://github.com/Agent-Everywhere/AE-external-skills and set it up for me.` | A LinkedIn Sales Navigator seat |
+| Split a Sales Navigator search that is too big to pull at once, and track what is covered | `Install the salesnav-split-big-search skill from https://github.com/Agent-Everywhere/AE-external-skills and set it up for me.` | A LinkedIn Sales Navigator seat |
+| Draft and send my daily LinkedIn outreach (I approve every batch) | `Install the salesnav-outreach skill from https://github.com/Agent-Everywhere/AE-external-skills and set it up for me.` | A LinkedIn Sales Navigator seat |
+| See who accepted and who replied on LinkedIn | `Install the salesnav-inbox skill from https://github.com/Agent-Everywhere/AE-external-skills and set it up for me.` | A LinkedIn Sales Navigator seat, signed in in your browser |
+
+### Other tools
+
+| I want to... | Paste this | You need |
+|---|---|---|
 | Ask questions of my QuickBooks Online books | `Install the quickbooks skill from https://github.com/Agent-Everywhere/AE-external-skills and set it up for me.` | Node 20+, Chrome signed in to QuickBooks Online |
 | Research Sourcewell contracts, bids and agencies | `Install the sourcewell skill from https://github.com/Agent-Everywhere/AE-external-skills and set it up for me.` | Node 20+ |
 
-The first five `linkedin-*` skills above (`linkedin-find-people`, `linkedin-find-companies`, `linkedin-split-big-search`, `linkedin-outreach`, `linkedin-replies`) are each one job from the `sales-navigator` plugin (below), installed on its own. `linkedin-emails` is a separate plugin.
+The five `salesnav-*` skills above (`salesnav-find-people`, `salesnav-find-companies`, `salesnav-split-big-search`, `salesnav-outreach`, `salesnav-inbox`) are each one job from the `sales-navigator` plugin (below), installed on its own. `linkedin-emails` is a separate plugin and works on plain LinkedIn.
 
 **For the agent reading this:** the plugin names above are marketplace plugin names (Claude Code: `/plugin marketplace add Agent-Everywhere/AE-external-skills`, then `/plugin install <name>@ae-external-skills`). If you install by copying folders instead, copy the skill folder AND the shared engine `plugins/sales-navigator/skills/sales-navigator` next to it, then follow the "Install (for you, the agent)" section of the skill's `SKILL.md`:
 
 | Plugin | Skill folder under `plugins/sales-navigator/skills/` |
 |---|---|
-| `linkedin-find-people` | `salesnav-tam-people` |
-| `linkedin-find-companies` | `salesnav-tam-accounts` |
-| `linkedin-split-big-search` | `salesnav-tam-tracker` |
-| `linkedin-outreach` | `salesnav-outreach` |
-| `linkedin-replies` | `salesnav-diy-linkedin` |
+| `salesnav-find-people` | `salesnav-tam-people` |
+| `salesnav-find-companies` | `salesnav-tam-accounts` |
+| `salesnav-split-big-search` | `salesnav-tam-tracker` |
+| `salesnav-outreach` | `salesnav-outreach` |
+| `salesnav-inbox` | `salesnav-diy-linkedin` |
 
 `linkedin-emails`, `quickbooks` and `sourcewell` are `plugins/<name>/skills/<name>`.
 
@@ -47,8 +63,8 @@ Details are in the table below.
 
 ## What's in here
 
-Install only the ones you need. The five job plugins `linkedin-find-people`, `linkedin-find-companies`,
-`linkedin-split-big-search`, `linkedin-outreach` and `linkedin-replies` each install one skill of the `sales-navigator` plugin;
+Install only the ones you need. The five job plugins `salesnav-find-people`, `salesnav-find-companies`,
+`salesnav-split-big-search`, `salesnav-outreach` and `salesnav-inbox` each install one skill of the `sales-navigator` plugin;
 the table lists the other plugins (`linkedin-emails` is its own plugin).
 
 | Plugin | What it is | Who it's for | Where it runs | Needs | Install |
@@ -93,11 +109,11 @@ The `sales-navigator` plugin's six skills:
 /plugin install grokbot-box@ae-external-skills
 /plugin install desktop-cowork@ae-external-skills
 /plugin install sales-navigator@ae-external-skills
-/plugin install linkedin-find-people@ae-external-skills
-/plugin install linkedin-find-companies@ae-external-skills
-/plugin install linkedin-split-big-search@ae-external-skills
-/plugin install linkedin-outreach@ae-external-skills
-/plugin install linkedin-replies@ae-external-skills
+/plugin install salesnav-find-people@ae-external-skills
+/plugin install salesnav-find-companies@ae-external-skills
+/plugin install salesnav-split-big-search@ae-external-skills
+/plugin install salesnav-outreach@ae-external-skills
+/plugin install salesnav-inbox@ae-external-skills
 /plugin install quickbooks@ae-external-skills
 /plugin install sourcewell@ae-external-skills
 /plugin install linkedin-emails@ae-external-skills
@@ -183,7 +199,9 @@ round (at most 5 questions), calibrate on example customers, then accounts, then
 
 0.8.1 checks every page snippet's params before a session is claimed (unknown or missing params exit 2 with a did-you-mean; `typeahead.js` takes `query` as an alias of `term`) and adds field notes to the KB: per-seat limits from outside sources as reported on 2026-10-16 (vendor export caps, about 150 profile views a day, pacing tiers, seat cost per 1,000 rows) in KB 05; keyword and API quirks (`NOT` only drops companies that use the word, double-meaning keywords, self-labelled industries, the deprecated `salesApiCompanySearch`) in KB 04; notes for runners that read rendered result pages (never headless, one run per seat, human pacing, selectors, stop phrases) in KB 01; and 11 more US state ids in `reference.md`.
 
-0.9.0 adds the five job plugins (`linkedin-find-people`, `linkedin-find-companies`, `linkedin-split-big-search`, `linkedin-outreach`, `linkedin-replies`: each one skill of this plugin, installed with the shared engine), and drops the cloud-browser option: the runtime now attaches only to your own Chrome over CDP. `quickbooks` 0.2.0 does the same.
+0.9.0 adds the five job plugins (each one skill of this plugin, installed with the shared engine), and drops the cloud-browser option: the runtime now attaches only to your own Chrome over CDP. `quickbooks` 0.2.0 does the same.
+
+0.9.1 renames the five job plugins from `linkedin-*` to `salesnav-*` (the same day they were added in 0.9.0), because they run on LinkedIn Sales Navigator and need a Sales Navigator seat, which plain (classic) LinkedIn does not include: `salesnav-find-people`, `salesnav-find-companies`, `salesnav-split-big-search`, `salesnav-outreach` and `salesnav-inbox`. The old `linkedin-*` names are gone. If you installed one under its old name, run `/plugin uninstall <old-name>@ae-external-skills`, then install the new one. `linkedin-emails` is unchanged.
 
 The hosted cloud browser option was removed in `sales-navigator` 0.9.0 and `quickbooks` 0.2.0: `AB_CLAIM`, `AB_BASE` and `QBO_SESSION_FILE` are now ignored, and the tools attach only to your own Chrome over CDP.
 
@@ -199,7 +217,7 @@ If you installed `ae-desktop-operator` (the earlier name of `desktop-cowork`), r
 ```
 .claude-plugin/
   marketplace.json  # Claude Code marketplace: one plugin per skill, except sales-navigator (bundles its six skills)
-                    # and the five linkedin-* job plugins (same source, one skill each)
+                    # and the five salesnav-* job plugins (same source, one skill each)
 plugins/sales-navigator/   # the ONLY folder the sales-navigator plugin installs (marketplace `source`)
   skills/
     sales-navigator/        # the shared ENGINE: page/, scripts/, runtime/, reference.md, recipes.md, templates/

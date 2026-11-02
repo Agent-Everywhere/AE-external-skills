@@ -467,7 +467,8 @@ class PurposeSkillDocs(unittest.TestCase):
                          sorted("./skills/%s" % n for n in ["sales-navigator"] + NAMES))
         for name in NAMES:
             with self.subTest(skill=name):
-                self.assertNotIn(name, market)
+                if name in market:   # a one-skill job plugin may share its skill's name (salesnav-outreach)
+                    self.assertEqual(market[name]["skills"], ["./skills/%s" % name])
                 self.assertIn("plugins/sales-navigator/skills/%s/SKILL.md" % name, readme)
 
 
