@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """find_people.py: ledger for classic LinkedIn people search (Python 3 stdlib only, no network).
 
-  find_people.py init --keywords K [--network F,S] [--geo ID] [--extra QS] [--daily-cap N] [--force]
-  find_people.py add-search --keywords K [--network F,S] [--geo ID] [--extra QS]
+  find_people.py init --keywords-file FILE [--network F,S] [--geo ID] [--extra QS] [--daily-cap N] [--force]
+  find_people.py add-search --keywords-file FILE [--network F,S] [--geo ID] [--extra QS]
+      (the keywords are the user's words: give them in a file or on stdin, never inside double quotes)
   find_people.py next-pages [--search sN] [--pages N] [--abandon-issue]
                                          JSON {"params": {...}} to feed search_people.js (reserves the cap)
   find_people.py merge <results.json>    write search_people.js output into the people list (dedupe by vanity)
@@ -26,7 +27,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from li_common import (DAY, Fail, atomic_write, atomic_write_many, clean_text, compile_where, csv_text, defuse,  # noqa: E402
                        dump_json, emit, in_window, load_json, load_results_file, locked, now_of, parse_ts,
-                       profile_url, read_dict_csv, run_main, safe_vanity, ts)
+                       profile_url, read_dict_csv, run_main, safe_vanity, text_arg, ts, undefuse)
 
 DEFAULT_DIR = "linkedin-find-people-work"
 PEOPLE = "people.csv"
@@ -36,6 +37,7 @@ DEFAULT_RUN_PAGES = 3
 MAX_RUN_PAGES = 5
 LAST_PAGE = 100          # LinkedIn serves at most 100 result pages per search
 PEOPLE_COLS = ["name", "headline", "location", "degree", "profile_url", "keywords", "found_at", "vanity"]
+GUARDED = ("name", "headline", "location", "keywords")   # text columns a spreadsheet could read as a formula
 EXPORT_COLS = ["name", "headline", "location", "degree", "profile_url", "keywords", "found_at"]
 # LinkedIn's own Connections.csv header, so the export can feed linkedin-emails' `emails.py init`.
 EMAILS_COLS = ["First Name", "Last Name", "URL", "Email Address", "Company", "Position", "Connected On"]
@@ -96,7 +98,7 @@ def clean_extra(s):
 
 
 def new_search(args, sid):
-    kw = clean_text(args.keywords, 200)
+    kw = clean_text(text_arg(args.keywords, args.keywords_file, args.keywords_stdin, "keywords"), 200)
     if not kw:
         raise Fail("--keywords is required")
     return {"id": sid, "keywords": kw, "network": parse_network(args.network), "geo": clean_geo(args.geo),
@@ -115,6 +117,9 @@ def load_work(args):
     if not os.path.exists(people) or not os.path.exists(ledger):
         raise Fail("no working dir in %s: run `find_people.py init --keywords ...` first" % d)
     _, rows = read_dict_csv(people)
+    for r in rows:   # the file on disk is formula-guarded; in memory the values are the real text
+        for c in GUARDED:
+            r[c] = undefuse(r.get(c, ""))
     led = load_json(ledger)
     if not isinstance(led, dict) or "searches" not in led:
         raise Fail("%s is not a find_people ledger" % ledger)
@@ -123,7 +128,8 @@ def load_work(args):
 
 def save_work(args, rows, led):
     d, people, ledger = paths(args)
-    atomic_write_many([(people, csv_text(PEOPLE_COLS, rows)), (ledger, dump_json(led))])
+    guarded = [dict(r, **{c: defuse(r.get(c, "")) for c in GUARDED}) for r in rows]
+    atomic_write_many([(people, csv_text(PEOPLE_COLS, guarded)), (ledger, dump_json(led))])
 
 
 def check_cap(n, approved):
@@ -155,9 +161,9 @@ def search_by_id(led, sid):
     return s
 
 
-def params_of(s, page_from, pages):
+def params_of(s, page_from, pages, issue_id):
     p = {"keywords": s["keywords"], "network": s["network"], "page_from": page_from, "pages": pages,
-         "search": s["id"]}
+         "search": s["id"], "issue": issue_id}
     if s.get("geo"):
         p["geoUrn"] = s["geo"]
     if s.get("extra"):
@@ -184,6 +190,9 @@ def cmd_init(args):
                     backups.append(b)
             if os.path.exists(people):
                 rows = read_dict_csv(people)[1]
+                for r in rows:
+                    for c in GUARDED:
+                        r[c] = undefuse(r.get(c, ""))
             if os.path.exists(ledger):
                 old = load_json(ledger)
         cap = args.daily_cap if args.daily_cap is not None else (old or {}).get("daily_cap", DEFAULT_CAP)
@@ -242,8 +251,9 @@ def cmd_next_pages(args):
         elif pages == 0:
             reason = "nothing_left" if s["next_page"] > LAST_PAGE else "limit_zero"
         else:
-            params = params_of(s, s["next_page"], pages)
-            led["issues"].append({"id": "%s-%d" % (now.strftime("%Y%m%dT%H%M%SZ"), len(led["issues"]) + 1),
+            issue_id = "%s-%d" % (now.strftime("%Y%m%dT%H%M%SZ"), len(led["issues"]) + 1)
+            params = params_of(s, s["next_page"], pages, issue_id)
+            led["issues"].append({"id": issue_id,
                                   "at": ts(now), "search": s["id"], "page_from": s["next_page"], "pages": pages,
                                   "count": pages, "status": "open"})
             changed = True
@@ -290,12 +300,24 @@ def cmd_merge(args):
     with locked(paths(args)[0], "find_people.py"):
         rows, led = load_work(args)
         now = now_of(args)
-        digest = hashlib.sha256(json.dumps(res, sort_keys=True).encode()).hexdigest()
+        req = res.get("request") if isinstance(res.get("request"), dict) else {}
+        issue_id = req.get("issue") if isinstance(req.get("issue"), str) else None
+        # A repeat of the same output is only a duplicate within the same run id: a later, legitimately identical
+        # run carries a different issue id and merges.
+        digest = (issue_id + ":" if issue_id else "") + hashlib.sha256(json.dumps(res, sort_keys=True).encode()).hexdigest()
         stop = res.get("stopped_reason")
         if digest in led["merges"]:
             emit({"already_merged": True, "added": 0, "stopped_reason": stop})
             return
-        s = match_search(led, res.get("request"))
+        issue = None
+        if issue_id:
+            issue = next((i for i in led["issues"] if i["id"] == issue_id), None)
+            if issue is None:
+                raise Fail("these results carry run id %r, which is not in this ledger; use the params `next-pages` "
+                           "printed, unchanged" % issue_id)
+            if issue["status"] == "merged":
+                raise Fail("run %s was already merged with other results; reserve a new one with `next-pages`" % issue_id)
+        s = match_search(led, req if not issue else dict(req, search=issue["search"]))
         by_vanity = {r["vanity"].lower(): r for r in rows}
         added = known = ignored = 0
         for raw in res["rows"]:
@@ -321,8 +343,8 @@ def cmd_merge(args):
         read = int_of(res.get("pages_read"))
         attempted = max(int_of(res.get("pages_attempted"), read), read)
         page_from = int_of((res.get("request") or {}).get("page_from"), s["next_page"]) or s["next_page"]
-        mine = [i for i in led["issues"] if i["status"] in ("open", "abandoned") and i["search"] == s["id"]
-                and i["page_from"] == page_from]
+        mine = [issue] if issue else [i for i in led["issues"] if i["status"] in ("open", "abandoned")
+                                      and i["search"] == s["id"] and i["page_from"] == page_from]
         if mine:
             mine[0].update(count=attempted, status="merged", merged_at=ts(now))
         elif attempted:   # pages nobody reserved: still counted
@@ -404,7 +426,9 @@ def build_parser():
         return p
 
     def search_args(p):
-        p.add_argument("--keywords", required=True)
+        p.add_argument("--keywords", default=None, help="the user's words; prefer --keywords-file or --keywords-stdin")
+        p.add_argument("--keywords-file", default=None, help="read the keywords from this file (no shell quoting)")
+        p.add_argument("--keywords-stdin", action="store_true", help="read the keywords from stdin")
         p.add_argument("--network", default="F,S", help="F=1st S=2nd O=3rd+ (default F,S)")
         p.add_argument("--geo", default=None, help="LinkedIn geo id (optional)")
         p.add_argument("--extra", default=None, help="raw query string for other LinkedIn search filters")

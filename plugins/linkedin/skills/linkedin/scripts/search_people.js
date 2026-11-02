@@ -9,6 +9,8 @@
 //   extra      optional raw query string for other LinkedIn search filters; it cannot override keywords, network,
 //              page or geoUrn.
 //   search     optional ledger search id (s1, s2...), echoed back so find_people.py can match the run.
+//   issue      optional run id printed by `find_people.py next-pages`, echoed back in `request` so `merge` settles the
+//              right reservation. Pass the printed params unchanged.
 //   Pacing is fixed at 8 to 15 seconds between pages (params.__test === true overrides it, for tests only).
 // Returns {rows:[{vanity,name,degree,headline,location,page}], pages_read, pages_attempted, stopped_reason, request}
 //   pages_read counts pages that held people; pages_attempted counts every fetch.
@@ -77,10 +79,12 @@ async function (params) {
       extra = e.split('&').filter((kv) => kv && !['keywords', 'network', 'page', 'geourn'].includes(kv.split('=')[0].toLowerCase())).join('&');
     }
     const search = typeof p.search === 'string' && /^s\d{1,3}$/.test(p.search) ? p.search : undefined;
+    const issue = typeof p.issue === 'string' && /^[0-9A-Za-z-]{1,40}$/.test(p.issue) ? p.issue : undefined;
     out.request = { keywords, network, page_from: pageFrom, pages };
     if (geo) out.request.geoUrn = geo;
     if (extra) out.request.extra = extra;
     if (search) out.request.search = search;
+    if (issue) out.request.issue = issue;
 
     const host = (typeof location !== 'undefined' && location && location.hostname) || '';
     if (host && !/(^|\.)linkedin\.com$/i.test(host)) return finish('wrong_page');
@@ -135,8 +139,12 @@ async function (params) {
           const self = /\/\s*$/.test(m[3]) || VOID.has(tag);
           toks.push({ t: 'open', tag, attrs: attrsOf(m[3]), self });
           if (!self && (tag === 'script' || tag === 'style')) {
-            const end = html.toLowerCase().indexOf('</' + tag, re.lastIndex);
-            re.lastIndex = end < 0 ? html.length : end;
+            // Case-insensitive match on the original string: lower-casing it first (toLowerCase) can change its
+            // length for non-ASCII text, which would shift every offset after it.
+            const endRe = new RegExp('</' + tag + '(?=[\\s>/])', 'ig');
+            endRe.lastIndex = re.lastIndex;
+            const em = endRe.exec(html);
+            re.lastIndex = em ? em.index : html.length;
           }
         } else if (m[4] !== undefined) toks.push({ t: 'text', text: m[4] });
       }
@@ -148,7 +156,9 @@ async function (params) {
       const start = html.search(/<main[\s>]/i);
       const res = { main: start >= 0, rows: [], cards: 0, mainText: '', pageLabels: [] };
       if (start < 0) return res;
-      const endAt = html.toLowerCase().lastIndexOf('</main>');
+      let endAt = -1;
+      const mainEnd = /<\/main\s*>/ig;
+      for (let mm = mainEnd.exec(html); mm; mm = mainEnd.exec(html)) endAt = mm.index;
       const toks = tokenize(html.slice(start, endAt > start ? endAt : html.length));
       const stack = [];
       let card = null;

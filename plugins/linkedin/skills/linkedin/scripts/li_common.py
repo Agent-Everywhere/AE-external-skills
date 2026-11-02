@@ -11,6 +11,7 @@ import io
 import json
 import os
 import re
+import secrets
 import sys
 import tempfile
 import time
@@ -104,6 +105,29 @@ def defuse(s):
     return "'" + s if s and s[0] in "=+-@\t\r" else s
 
 
+def undefuse(s):
+    """Undo defuse(): a single leading quote in front of = + - @ tab or CR is the guard, not part of the value."""
+    s = "" if s is None else str(s)
+    return s[1:] if len(s) > 1 and s[0] == "'" and s[1] in "=+-@\t\r" else s
+
+
+def text_arg(inline, file_path=None, use_stdin=False, what="value"):
+    """A user-supplied value from exactly one source: the inline flag, a file, or stdin. Files and stdin keep the
+    value out of the shell command line, where quotes, $ and backticks in it would be interpreted."""
+    given = [x for x in (inline is not None, file_path is not None, bool(use_stdin)) if x]
+    if len(given) != 1:
+        raise Fail("give the %s exactly one way: inline, from a file, or on stdin" % what)
+    if file_path is not None:
+        try:
+            with open(file_path, encoding="utf-8-sig") as f:
+                return f.read().strip()
+        except OSError as e:
+            raise Fail("cannot read %s file %s: %s" % (what, file_path, e))
+    if use_stdin:
+        return sys.stdin.read().strip()
+    return inline
+
+
 def norm_key(name):
     return re.sub(r"[^a-z0-9]+", "_", (name or "").strip().lower()).strip("_")
 
@@ -170,27 +194,59 @@ def atomic_write(path, text):
     atomic_write_many([(path, text)])
 
 
+STALE_LOCK_SECONDS = 120
+
+
 @contextlib.contextmanager
 def locked(d, tool="the script"):
-    """Lock file (O_EXCL) so two runs never write the same working dir together."""
+    """Lock file (O_EXCL) so two runs never write the same working dir together.
+
+    The file holds a random token. A lock older than STALE_LOCK_SECONDS (a crashed run) is taken over by renaming it
+    away first, which only one contender can win; and a lock is unlinked on exit only if it still holds our token,
+    so a run that outlived its lock never deletes the lock of the run that replaced it."""
     os.makedirs(d, exist_ok=True)
     path = os.path.join(d, LOCK)
-    try:
-        if time.time() - os.path.getmtime(path) > 120:   # left behind by a crashed run
-            os.unlink(path)
-    except OSError:
-        pass
-    try:
+    token = "%d:%s" % (os.getpid(), secrets.token_hex(8))
+
+    def create():
         fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, token.encode())
+        os.close(fd)
+
+    try:
+        create()
     except FileExistsError:
-        raise Fail("another run of %s is using %s (lock file %s); wait a moment and retry" % (tool, d, path))
-    os.write(fd, str(os.getpid()).encode())
-    os.close(fd)
+        try:
+            stale = time.time() - os.path.getmtime(path) > STALE_LOCK_SECONDS
+        except OSError:
+            stale = False
+        if not stale:
+            raise Fail("another run of %s is using %s (lock file %s); wait a moment and retry" % (tool, d, path))
+        grave = "%s.stale-%s" % (path, token.split(":")[1])
+        try:
+            os.rename(path, grave)   # atomic: exactly one contender wins the takeover
+        except OSError:
+            grave = None
+        if grave:
+            try:
+                if time.time() - os.path.getmtime(grave) <= STALE_LOCK_SECONDS:   # we moved a live, fresh lock
+                    os.rename(grave, path)
+                    raise Fail("another run of %s is using %s (lock file %s); wait a moment and retry" % (tool, d, path))
+                os.unlink(grave)
+            except OSError:
+                pass
+        try:
+            create()
+        except FileExistsError:
+            raise Fail("another run of %s took over %s (lock file %s); wait a moment and retry" % (tool, d, path))
     try:
         yield
     finally:
         try:
-            os.unlink(path)
+            with open(path, encoding="utf-8") as f:
+                mine = f.read() == token
+            if mine:
+                os.unlink(path)
         except OSError:
             pass
 

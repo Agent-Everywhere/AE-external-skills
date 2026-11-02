@@ -6,8 +6,11 @@
 //   start               offset into the newest-first connections list (default 0; replies.py moves it when more than
 //                       10 connections are new).
 //   conversationsSince  epoch ms of the newest conversation activity already seen.
-//   includeText         opt-in. Default false: message bodies are never returned. true returns at most 280
-//                       characters of the latest message per replied conversation, as untrusted text.
+//   poll                the poll id printed by `replies.py next`, echoed back in `request` so `merge` settles the right poll.
+//   includeText         opt-in, only the boolean true. Default false: message bodies are never returned. true returns
+//                       at most 280 characters of the latest message per replied conversation, as untrusted text, in the
+//                       RETURNED object only: it is never written to localStorage or the clipboard, so show it to the
+//                       user from memory and strip the `text` fields before saving the result to a file.
 //   parts               subset of ["pending","connections","conversations"] (default all three).
 //   conversationsQueryId / mailboxUrn  override what the script reads from the page (see references/endpoints.md).
 //   Pacing is fixed at 4 to 8 seconds between requests (params.__test === true overrides it, for tests only).
@@ -15,8 +18,8 @@
 //          replied:[{member,vanity,conversation,lastMessageAt,fromThem:true,text?}],
 //          cursor:{connectedAt,conversationsAt}, has_more_connections, seen:{...counts}, stopped_reason, request}
 // vanity is "" when the response did not carry it; replies.py then matches on member id.
-// Never returns cookies, tokens, invitation secrets or custom invite notes. After each request the result so far is
-// saved to localStorage "liPollLastRun".
+// Never returns cookies, tokens, invitation secrets or custom invite notes. After each request the result so far
+// (without any message text) is saved to localStorage "liPollLastRun"; the clipboard copy has no text either.
 async function (params) {
   const PAGE = 10;
   const MAX_TEXT = 280;
@@ -30,23 +33,32 @@ async function (params) {
   const since = int(p.since);
   const start = int(p.start);
   const convSince = int(p.conversationsSince);
-  const includeText = p.includeText === true;
+  const includeText = p.includeText === true;   // only the boolean true: "false", 0 and "" are off
+  const pollId = typeof p.poll === 'string' && /^[0-9A-Za-z-]{1,40}$/.test(p.poll) ? p.poll : undefined;
   const parts = Array.isArray(p.parts) && p.parts.length ? p.parts : ['pending', 'connections', 'conversations'];
 
   const out = { accepted: [], pending: [], replied: [], cursor: { connectedAt: 0, conversationsAt: 0 },
     has_more_connections: false, seen: {}, stopped_reason: null,
     request: { since, start, conversationsSince: convSince, includeText } };
+  if (pollId) out.request.poll = pollId;
+  // Message text lives only in the object this function returns. Everything that outlives the call (localStorage,
+  // the clipboard) gets a copy with the text fields removed.
+  const durable = () => Object.assign({}, out, { replied: out.replied.map((r) => {
+    const c = Object.assign({}, r);
+    delete c.text;
+    return c;
+  }) });
   const persist = (partial) => {
     try {
       if (typeof localStorage !== 'undefined') {
-        localStorage.setItem('liPollLastRun', JSON.stringify(Object.assign({}, out, { partial: !!partial, saved_at: new Date().toISOString() })));
+        localStorage.setItem('liPollLastRun', JSON.stringify(Object.assign(durable(), { partial: !!partial, saved_at: new Date().toISOString() })));
       }
     } catch (e) { /* storage is optional */ }
   };
   const finish = (reason) => {
     out.stopped_reason = reason || null;
     persist(false);
-    try { if (typeof copy === 'function') copy(JSON.stringify(out)); } catch (e) { /* clipboard is optional */ }
+    try { if (typeof copy === 'function') copy(JSON.stringify(durable())); } catch (e) { /* clipboard is optional */ }
     return out;
   };
 

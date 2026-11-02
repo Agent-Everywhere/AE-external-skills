@@ -1,6 +1,6 @@
 # Per-skill manifest. Keep in step with .claude-plugin/marketplace.json (checked by tests).
 name: linkedin
-version: 0.1.0
+version: 0.10.0
 category: sales
 # The shared engine for linkedin-find-people, linkedin-outreach and linkedin-replies: scripts/ (stdlib-only ledgers
 # and the page snippets) and references/endpoints.md. Not a job of its own, so it has no SKILL.md. No vendored

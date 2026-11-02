@@ -103,9 +103,10 @@ def cmd_next(args):
             info = {"next_poll_after": ts(last + MIN_GAP), "hint": "poll at uneven times, at least 60 minutes apart"}
         else:
             c = led["connections"]
-            params = {"since": c["since"], "start": c["resume_start"], "conversationsSince": led["conversations_at"]}
-            led["polls"].append({"id": "%s-%d" % (now.strftime("%Y%m%dT%H%M%SZ"), len(led["polls"]) + 1),
-                                 "at": ts(now), "status": "open"})
+            poll_id = "%s-%d" % (now.strftime("%Y%m%dT%H%M%SZ"), len(led["polls"]) + 1)
+            params = {"since": c["since"], "start": c["resume_start"], "conversationsSince": led["conversations_at"],
+                      "poll": poll_id}
+            led["polls"].append({"id": poll_id, "at": ts(now), "status": "open"})
             changed = True
         if changed:
             save_work(args, led)
@@ -193,10 +194,24 @@ def cmd_merge(args):
     with locked(paths(args)[0], "replies.py"):
         led = load_work(args)
         now = now_of(args)
-        digest = hashlib.sha256(json.dumps(res, sort_keys=True).encode()).hexdigest()
+        req = res.get("request") if isinstance(res.get("request"), dict) else {}
+        poll_id = req.get("poll") if isinstance(req.get("poll"), str) else None
+        # A repeat of the same output is only a duplicate within the same poll id: a later, legitimately identical
+        # poll carries a different id and is merged.
+        digest = (poll_id + ":" if poll_id else "") + hashlib.sha256(json.dumps(res, sort_keys=True).encode()).hexdigest()
         if digest in led["merges"]:
             emit({"already_merged": True, "stopped_reason": stop})
             return
+        if poll_id:
+            done = next((x for x in led["polls"] if x["id"] == poll_id), None)
+            if done is None:
+                raise Fail("these results carry poll id %r, which is not in this ledger; use the params `next` "
+                           "printed, unchanged" % poll_id)
+            if done["status"] == "merged":
+                raise Fail("poll %s was already merged with other results; reserve a new one with `next`" % poll_id)
+        else:   # no id echoed (an older paste): the open poll, else the most recent abandoned one, never a merged one
+            done = next((x for x in led["polls"] if x["status"] == "open"), None) or max(
+                (x for x in led["polls"] if x["status"] == "abandoned"), key=lambda x: x["at"], default=None)
         out_dir = args.outreach_dir or outreach.DEFAULT_DIR
         counts, unresolved, out_found = None, [], os.path.exists(outreach.ledger_path(out_dir))
         if out_found:
@@ -219,7 +234,6 @@ def cmd_merge(args):
         # a snippet that refused before any request (not signed in, wrong tab, already running, no queryId) used no poll
         ran = not (stop in ("no_session", "wrong_page", "already_running", "bad_params", "queryid_not_found")
                    and not (accepted or replied or pending))
-        done = next((x for x in led["polls"] if x["status"] in ("open", "abandoned")), None)
         if done:
             done.update(status="merged", merged_at=ts(now), counts=ran)
         elif ran:

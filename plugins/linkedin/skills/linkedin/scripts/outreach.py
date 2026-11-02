@@ -5,9 +5,10 @@
   outreach.py draft --kind connect|message --template FILE [--where col=regex ...] [--limit N]
   outreach.py batch --kind connect|message --limit N [--retry-failed] [--abandon-batch]
                                                       prints the EXACT batch for approval and reserves it
-  outreach.py approve --typed "approve N"             records the user's typed approval of the open batch
-  outreach.py record <vanity> --status sent|skipped|failed [--note TEXT] [--member ID]   after each UI send
-  outreach.py stop --reason R                         lock sending for 24 hours (limit banner, captcha, 429...)
+  outreach.py approve --typed-stdin                   records the user's typed approval ("approve N" on stdin)
+  outreach.py record <vanity> --status sent|skipped|failed [--note-stdin] [--member ID]   after each UI send
+  outreach.py stop --reason-stdin                     lock sending for 24 hours (limit banner, captcha, 429...)
+  (the user's words never go inside double quotes on a command line: use stdin, or single quotes with ' as '\\'')
   outreach.py account --new-account | --established   halve (or restore) the caps
   outreach.py status | export [--out FILE]
 
@@ -27,7 +28,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from li_common import (DAY, WEEK, Fail, atomic_write, atomic_write_many, clean_text, compile_where, csv_text,  # noqa: E402
                        defuse, dump_json, emit, find_col, in_window, load_json, locked, norm_key, now_of,
-                       parse_ts, parse_vanity, profile_url, read_csv, run_main, ts)
+                       parse_ts, parse_vanity, profile_url, read_csv, run_main, text_arg, ts, undefuse)
 
 DEFAULT_DIR = "linkedin-outreach-work"
 LEDGER = "ledger.json"
@@ -142,8 +143,8 @@ def parse_people_csv(path):
             data = (data + [""] * len(keys))[: len(keys)]
             rec = {}
             for k, v in zip(keys, data):
-                if k and k not in rec:
-                    rec[k] = clean_text(v, 300)
+                if k and k not in rec:   # an export guards formula-looking text with a leading quote: take it off
+                    rec[k] = clean_text(undefuse(v), 300)
             out.append((rec, rec.get(col, "")))
         if not out:
             raise Fail("%s has a header but no people after it" % path)
@@ -345,9 +346,15 @@ def cmd_batch(args):
         reason, items, info = None, [], {}
         if b:
             reason = "open_batch"
+            left = [it for it in b["items"] if it["status"] is None]
             info = {"open_batch": {"id": b["id"], "kind": b["kind"], "approved": bool(b.get("approved_at")),
-                                   "unrecorded": [it["vanity"] for it in b["items"] if it["status"] is None]},
-                    "hint": "record each person, or rerun with --abandon-batch (unrecorded people stay counted)"}
+                                   "unrecorded": [it["vanity"] for it in left],
+                                   "unrecorded_items": [{"vanity": it["vanity"], "name": it["name"],
+                                                         "profile_url": it["profile_url"], "text": it["text"],
+                                                         "chars": it["chars"]} for it in left]},
+                    "hint": "resume it: each person still unrecorded goes through the send step again (read the "
+                            "screen first: it may already have been sent), then `record`; or rerun with "
+                            "--abandon-batch (unrecorded people stay counted)"}
         elif stop:
             reason = "stopped:" + stop["reason"]
             info = {"locked_until": ts(parse_ts(stop["at"]) + DAY)}
@@ -388,11 +395,12 @@ def cmd_approve(args):
         if b.get("approved_at"):
             emit({"already_approved": True, "batch": b["id"], "count": len(b["items"])})
             return
-        m = APPROVE.fullmatch(args.typed or "")
+        typed = text_arg(args.typed, None, args.typed_stdin, "approval")
+        m = APPROVE.fullmatch(typed)
         if not m or int(m.group(1)) != len(b["items"]):
             raise Fail("approval must be the user's own typed words `approve %d` (the number of people in the batch); "
                        "anything else is not approval. Show the batch again and ask." % len(b["items"]))
-        b["approved_at"], b["typed"] = ts(now), clean_text(args.typed, 40)
+        b["approved_at"], b["typed"] = ts(now), clean_text(typed, 40)
         save_ledger(d, led)
     emit({"approved": True, "batch": b["id"], "kind": b["kind"], "count": len(b["items"])})
 
@@ -400,6 +408,7 @@ def cmd_approve(args):
 def cmd_record(args):
     d = dir_of(args)
     now = now_of(args)
+    note = text_arg(args.note, None, args.note_stdin, "note") if (args.note is not None or args.note_stdin) else ""
     with locked(d, "outreach.py"):
         led = load_ledger(d)
         b = open_batch(led)
@@ -421,7 +430,7 @@ def cmd_record(args):
         item["status"] = args.status
         kind = b["kind"]
         led["events"].append({"at": ts(now), "vanity": item["vanity"], "kind": kind, "status": args.status,
-                              "batch": b["id"], "note": clean_text(args.note, 80)})
+                              "batch": b["id"], "note": clean_text(note, 80)})
         led["drafts"][kind][low]["status"] = args.status
         p = led["people"][low]
         if args.member:
@@ -445,7 +454,7 @@ def cmd_stop(args):
     now = now_of(args)
     with locked(d, "outreach.py"):
         led = load_ledger(d)
-        reason = re.sub(r"[^a-z0-9_:.-]", "", (args.reason or "").lower())[:60] or "stopped"
+        reason = re.sub(r"[^a-z0-9_:.-]", "", text_arg(args.reason, None, args.reason_stdin, "reason").lower())[:60] or "stopped"
         led["stops"].append({"at": ts(now), "reason": reason})
         save_ledger(d, led)
     emit({"stopped": reason, "locked_until": ts(now + DAY)})
@@ -532,14 +541,17 @@ def build_parser():
     p.add_argument("--abandon-batch", action="store_true",
                    help="close the open batch; its unrecorded people stay counted against the caps")
     p = add("approve", cmd_approve, help="record the user's typed approval of the open batch")
-    p.add_argument("--typed", required=True, help='the user\'s own words, exactly "approve N"')
+    p.add_argument("--typed", default=None, help='the user\'s own words, exactly "approve N"; prefer --typed-stdin')
+    p.add_argument("--typed-stdin", action="store_true", help="read the user's words from stdin (no shell quoting)")
     p = add("record", cmd_record, help="write down what happened to one person after the UI click")
     p.add_argument("vanity")
     p.add_argument("--status", choices=("sent", "skipped", "failed"), required=True)
-    p.add_argument("--note", default="")
+    p.add_argument("--note", default=None, help="why; prefer --note-stdin when it holds free text")
+    p.add_argument("--note-stdin", action="store_true", help="read the note from stdin (no shell quoting)")
     p.add_argument("--member", default=None, help="LinkedIn member id, if you read it")
     p = add("stop", cmd_stop, help="lock sending for 24 hours")
-    p.add_argument("--reason", required=True)
+    p.add_argument("--reason", default=None, help="what you saw; prefer --reason-stdin")
+    p.add_argument("--reason-stdin", action="store_true", help="read the reason from stdin (no shell quoting)")
     p = add("account", cmd_account, help="set or clear the new-account half caps")
     g = p.add_mutually_exclusive_group(required=True)
     g.add_argument("--new-account", action="store_true")
