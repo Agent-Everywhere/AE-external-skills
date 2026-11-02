@@ -74,7 +74,8 @@ export class Page {
   static async open(cdp, { reuse = true, matchUrl = /qbo\.intuit\.com/ } = {}) {
     const { targetInfos } = await cdp.send("Target.getTargets");
     const pages = targetInfos.filter((t) => t.type === "page");
-    let target = reuse ? (pages.find((t) => matchUrl.test(t.url)) || pages[0]) : null;
+    // Reuse only a matching QuickBooks tab or a blank one; never navigate the user's other tabs.
+    let target = reuse ? (pages.find((t) => matchUrl.test(t.url)) || pages.find((t) => t.url === "about:blank")) : null;
     let targetId = target?.targetId;
     if (!targetId) ({ targetId } = await cdp.send("Target.createTarget", { url: "about:blank" }));
     const { sessionId } = await cdp.send("Target.attachToTarget", { targetId, flatten: true });

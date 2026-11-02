@@ -24,7 +24,7 @@ PLUGIN_NAMES = {"claude-desktop": "desktop-cowork"}
 OTHER_PLUGINS = ["quickbooks", "sourcewell", "linkedin-emails"]
 # install-by-intent plugins: one job each, all sharing the sales-navigator source folder (plugin name -> skill folder)
 INTENT_PLUGINS = {"linkedin-find-people": "salesnav-tam-people", "linkedin-find-companies": "salesnav-tam-accounts",
-                  "linkedin-track-new-leads": "salesnav-tam-tracker", "linkedin-outreach": "salesnav-outreach",
+                  "linkedin-split-big-search": "salesnav-tam-tracker", "linkedin-outreach": "salesnav-outreach",
                   "linkedin-replies": "salesnav-diy-linkedin"}
 
 

@@ -107,10 +107,10 @@
       ]
     },
     {
-      "name": "linkedin-track-new-leads",
+      "name": "linkedin-split-big-search",
       "source": "./plugins/sales-navigator",
       "version": "0.9.0",
-      "description": "One job: split a Sales Navigator search that is over the viewable cap, pull it in pieces and track what is covered. Runs in your own browser.",
+      "description": "One job: split a Sales Navigator search that is over the viewable cap into pieces, pull each one and track what is covered. Runs in your own browser.",
       "strict": false,
       "skills": [
         "./skills/salesnav-tam-tracker"
@@ -119,7 +119,7 @@
       "tags": [
         "linkedin",
         "sales-navigator",
-        "tracker",
+        "split",
         "tam"
       ]
     },
@@ -143,7 +143,7 @@
       "name": "linkedin-replies",
       "source": "./plugins/sales-navigator",
       "version": "0.9.0",
-      "description": "One job: see who accepted and who replied on LinkedIn, from your own signed-in browser, with no hosted API; sends only after you approve the exact batch.",
+      "description": "One job: see who accepted and who replied on LinkedIn, from your own signed-in browser, with no hosted API (the Sales Nav inbox and InMail checks need a Sales Navigator seat); sends only after you approve the exact batch.",
       "strict": false,
       "skills": [
         "./skills/salesnav-diy-linkedin"

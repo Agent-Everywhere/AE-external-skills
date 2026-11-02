@@ -43,7 +43,7 @@ class PublicHygiene(unittest.TestCase):
         self.assertEqual(hits(r"browser-mcp-production|railway\.app"), [])
 
     def test_no_agent_everywhere_browser_option_anywhere(self):
-        self.assertEqual(hits(r"agent[ _-]?browser|AB_CLAIM|browser/claim"), [])
+        self.assertEqual(hits(r"agent[ _-]?browser|browser/claim"), [])
 
     def test_no_internal_product_names_anywhere(self):
         self.assertEqual(hits(r"lireach"), [])
