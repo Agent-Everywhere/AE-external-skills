@@ -63,7 +63,7 @@
             <totalOfferingAmount>5000000</totalOfferingAmount>
             <totalAmountSold>2500000</totalAmountSold>
             <totalRemaining>2500000</totalRemaining>
-            <clarificationOfResponse>Round led by existing investors. Details at https://widgets.example.com/news</clarificationOfResponse>
+            <clarificationOfResponse>Round led by existing investors. Details at https://widgets.example.com</clarificationOfResponse>
         </offeringSalesAmounts>
         <investors>
             <hasNonAccreditedInvestors>false</hasNonAccreditedInvestors>

@@ -69,34 +69,55 @@ export function companyRows(rows) {
   }));
 }
 
-export const PEOPLE_COLUMNS = ["First Name", "Last Name", "Title", "Relationship", "Company Name", "Website", "Raise Amount (USD)", "Filing Date", "Source", "Fit", "EDGAR URL"];
+export const PEOPLE_COLUMNS = ["First Name", "Last Name", "Title", "Relationship", "Company Name", "Website", "Raise Amount (USD)", "Filing Date", "Source", "Confidence", "Notes", "Fit", "EDGAR URL"];
 
-/** One row per related person (and the filing's signer when not already listed), for Apollo people lookup. No addresses. */
+const SUFFIX = new Set(["jr", "sr", "ii", "iii", "iv", "md", "phd", "esq"]);
+const letters = (s) => String(s || "").toLowerCase().replace(/[^a-z]/g, "");
+/** Dedupe key: first word of the first name + last word of the last name, so middle names and initials do not matter. */
+const nameKey = (first, last) => {
+  const f = String(first || "").trim().split(/\s+/)[0];
+  const l = String(last || "").trim().split(/\s+/).filter((t) => !SUFFIX.has(letters(t))).pop() || "";
+  return `${letters(f)} ${letters(l)}`.trim();
+};
+/** A short clarification ("CEO", "Chief Financial Officer") can serve as a title; a sentence cannot. */
+const shortTitle = (c) => (c && c.length <= 40 && !/\.\s*$|\b(?:is|was|are|of the)\b/i.test(c) ? c : "");
+
+/**
+ * One row per related person (Source "related person", Confidence "high"), plus the filing's signer when not already listed
+ * (Source "signer", Confidence "low": signers are often an attorney or attorney-in-fact). Title is a short title or the filed
+ * relationships; a long clarification sentence goes to Notes. No addresses.
+ */
 export function peopleRows(rows) {
   const out = [];
   for (const r of rows) {
     if (isNo(r)) continue;
     const seen = new Map();
-    const push = (first, last, title, relationship, source) => {
-      const key = `${first} ${last}`.toLowerCase().replace(/\s+/g, " ").trim();
+    const push = (first, last, title, relationship, notes, source) => {
+      const key = nameKey(first, last);
       if (!key) return;
       if (seen.has(key)) { const prior = seen.get(key); if (!prior.Title && title) prior.Title = title; return; }
       const row = {
-        "First Name": titleCase(first), "Last Name": titleCase(last), Title: title, Relationship: relationship, "Company Name": r.issuer_name,
-        Website: r.website || "", "Raise Amount (USD)": r.raise_amount ?? "", "Filing Date": r.filing_date, Source: source, Fit: r.fit || "", "EDGAR URL": r.filing_url,
+        "First Name": titleCase(first), "Last Name": titleCase(last), Title: title || relationship, Relationship: relationship, "Company Name": r.issuer_name,
+        Website: r.website || "", "Raise Amount (USD)": r.raise_amount ?? "", "Filing Date": r.filing_date, Source: source, Confidence: source === "signer" ? "low" : "high",
+        Notes: notes || "", Fit: r.fit || "", "EDGAR URL": r.filing_url,
       };
       seen.set(key, row);
       out.push(row);
     };
-    for (const p of r.related_persons || []) push(p.first_name, p.last_name, p.clarification || "", (p.relationships || []).join(" / "), "related person");
+    for (const p of r.related_persons || []) {
+      const rel = (p.relationships || []).join(" / ");
+      const short = shortTitle(p.clarification);
+      push(p.first_name, p.last_name, short, rel, p.clarification && !short ? p.clarification : "", "related person");
+    }
     const sig = r.signer || {};
     if (sig.name) {
-      const parts = sig.name.trim().split(/\s+/);
-      push(parts[0] || "", parts.slice(1).join(" "), sig.title || "", "", "signer");
+      const tokens = sig.name.trim().split(/\s+/);
+      const kept = tokens.filter((t, i) => i === 0 || !SUFFIX.has(letters(t)));
+      const first = kept[0] || "";
+      const last = kept.length > 1 ? kept[kept.length - 1] : "";
+      push(first, last, sig.title || "", "", "", "signer");
     }
   }
-  // Fall back to the relationship when no title was written.
-  for (const row of out) if (!row.Title) row.Title = row.Relationship;
   return out;
 }
 

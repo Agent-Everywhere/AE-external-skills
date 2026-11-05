@@ -6,7 +6,7 @@ import { basename, dirname as dirname2 } from "node:path";
 
 // src/http.js
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 // src/allowlist.js
@@ -61,6 +61,7 @@ function createHttp({
   minIntervalMs = MIN_INTERVAL_MS,
   maxRetries = 4,
   backoffMs = 1e3,
+  timeoutMs = 3e4,
   cacheDir,
   noCache = false
 } = {}) {
@@ -87,7 +88,7 @@ function createHttp({
       let res = null;
       let err = null;
       try {
-        res = await fetchImpl(url, { method: "GET", redirect: "manual", headers: { "user-agent": ua, accept } });
+        res = await fetchImpl(url, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(timeoutMs), headers: { "user-agent": ua, accept } });
       } catch (e) {
         err = e;
       }
@@ -123,11 +124,11 @@ function createHttp({
   const getJson = async (url) => (await get(url)).json();
   const getText = async (url) => (await get(url)).text();
   const keyFile = (key) => join(cacheDir, createHash("sha256").update(key).digest("hex") + ".json");
-  async function cachedText(key, produce) {
+  async function cachedText(key, produce, validate = () => true) {
     if (!noCache && cacheDir) {
       try {
         const { value: value2 } = JSON.parse(await readFile(keyFile(key), "utf8"));
-        if (typeof value2 === "string") {
+        if (typeof value2 === "string" && validate(value2)) {
           stats.cacheHits++;
           return value2;
         }
@@ -135,10 +136,14 @@ function createHttp({
       }
     }
     const value = await produce();
+    if (!validate(value)) throw new Error(`unexpected document for ${key}`);
     if (!noCache && cacheDir) {
       try {
         await mkdir(cacheDir, { recursive: true });
-        await writeFile(keyFile(key), JSON.stringify({ key, value }));
+        const file = keyFile(key);
+        const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+        await writeFile(tmp, JSON.stringify({ key, value }));
+        await rename(tmp, file);
       } catch {
       }
     }
@@ -226,6 +231,8 @@ var getPreset = (name) => PRESETS[name] ? JSON.parse(JSON.stringify(PRESETS[name
 // src/profile.js
 import { readFile as readFile3, writeFile as writeFile3 } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join as join3 } from "node:path";
 var ProfileError = class extends Error {
   constructor(message) {
     super(message);
@@ -290,14 +297,21 @@ async function saveProfile(path, profile, { overwrite = false } = {}) {
   if (!overwrite && existsSync(path)) throw new ProfileError(`${path} already exists: not overwriting your profile (pick another path or delete it)`);
   await writeFile3(path, JSON.stringify(profile, null, 2) + "\n");
 }
-async function resolveKeywords(spec, { presets, readFileImpl = readFile3 } = {}) {
+var PATHLIKE = /^(?:\.{1,2}[\\/]|\/|~[\\/]|[A-Za-z]:[\\/])/;
+function splitKeywords(text, { comments }) {
+  const lines = text.split(/\r?\n/).map((l) => comments ? /^\s*#/.test(l) ? "" : l.replace(/\s#.*$/, "") : l);
+  return lines.join("\n").split(/[\r\n,]+/).map((x) => x.trim()).filter(Boolean);
+}
+async function resolveKeywords(spec, { presets, file = false, readFileImpl = readFile3 } = {}) {
   const s = String(spec || "").trim();
   if (!s) throw new ProfileError("no keywords given");
-  const split = (text) => text.split(/[\r\n,]+/).map((x) => x.replace(/#.*$/, "").trim()).filter(Boolean);
   let list2;
-  if (existsSync(s)) list2 = split(await readFileImpl(s, "utf8"));
-  else if (presets && presets[s]) list2 = [...presets[s].keywords];
-  else list2 = split(s);
+  if (file || PATHLIKE.test(s)) {
+    const path = s.startsWith("~/") ? join3(homedir(), s.slice(2)) : s;
+    if (!existsSync(path)) throw new ProfileError(`keywords file not found: ${s}`);
+    list2 = splitKeywords(await readFileImpl(path, "utf8"), { comments: true });
+  } else if (presets && presets[s]) list2 = [...presets[s].keywords];
+  else list2 = splitKeywords(s, { comments: false });
   const seen = /* @__PURE__ */ new Set();
   list2 = list2.filter((k) => {
     const key = k.toLowerCase();
@@ -365,30 +379,52 @@ function parseHit(h) {
     location: s.biz_locations && s.biz_locations[0] || ""
   };
 }
+var dayMs = 864e5;
+var addDays = (date, n) => new Date(Date.parse(date + "T00:00:00Z") + n * dayMs).toISOString().slice(0, 10);
+var daysBetween = (a, b) => Math.round((Date.parse(b + "T00:00:00Z") - Date.parse(a + "T00:00:00Z")) / dayMs);
 async function searchFilings(http, { keywords, startdt, enddt, maxPerKeyword = 500 }) {
   const byAcc = /* @__PURE__ */ new Map();
   const perKeyword = [];
   for (const kw of keywords) {
-    let from = 0;
-    let total = 0;
-    let fetched = 0;
-    for (; ; ) {
-      const json = await http.getJson(buildSearchUrl({ q: keywordQuery(kw), startdt, enddt, from }));
-      const hits = json.hits && json.hits.hits || [];
-      total = json.hits && json.hits.total && json.hits.total.value || 0;
-      for (const h of hits) {
-        const hit = parseHit(h);
-        if (!hit) continue;
-        fetched++;
-        const prior = byAcc.get(hit.accession);
-        if (prior) {
-          if (!prior.matched_keywords.includes(kw)) prior.matched_keywords.push(kw);
-        } else byAcc.set(hit.accession, { ...hit, matched_keywords: [kw] });
+    const seen = /* @__PURE__ */ new Set();
+    const stat = { keyword: kw, total: 0, fetched: 0, windows: 0, capped: false };
+    const window = async (a, b, top) => {
+      let from = 0;
+      let total = 0;
+      let got = 0;
+      for (; ; ) {
+        const json = await http.getJson(buildSearchUrl({ q: keywordQuery(kw), startdt: a, enddt: b, from }));
+        const hits = json.hits && json.hits.hits || [];
+        total = json.hits && json.hits.total && json.hits.total.value || 0;
+        for (const h of hits) {
+          const hit = parseHit(h);
+          if (!hit) continue;
+          got++;
+          seen.add(hit.accession);
+          const prior = byAcc.get(hit.accession);
+          if (prior) {
+            if (!prior.matched_keywords.includes(kw)) prior.matched_keywords.push(kw);
+          } else byAcc.set(hit.accession, { ...hit, matched_keywords: [kw] });
+        }
+        from += hits.length;
+        if (!hits.length || from >= total || from >= maxPerKeyword) break;
       }
-      from += hits.length;
-      if (!hits.length || from >= total || from >= maxPerKeyword) break;
-    }
-    perKeyword.push({ keyword: kw, total, fetched, capped: fetched < total });
+      stat.windows++;
+      if (top) stat.total = total;
+      if (got < total) {
+        const span = daysBetween(a, b);
+        if (span < 1) {
+          stat.capped = true;
+          return;
+        }
+        const mid = addDays(a, Math.floor(span / 2));
+        await window(a, mid, false);
+        await window(addDays(mid, 1), b, false);
+      }
+    };
+    await window(startdt, enddt, true);
+    stat.fetched = seen.size;
+    perKeyword.push(stat);
   }
   return { hits: [...byAcc.values()], perKeyword };
 }
@@ -403,7 +439,8 @@ function parseFilingRef(ref) {
   return null;
 }
 var ENTITIES = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&apos;": "'" };
-var decode = (s) => s.replace(/&(amp|lt|gt|quot|apos);|&#(\d+);|&#x([0-9a-f]+);/gi, (m, n, d, h) => n ? ENTITIES[m.toLowerCase()] : String.fromCodePoint(d ? Number(d) : parseInt(h, 16)));
+var codePoint = (n) => Number.isInteger(n) && n > 0 && n <= 1114111 && !(n >= 55296 && n <= 57343) ? String.fromCodePoint(n) : "";
+var decode = (s) => s.replace(/&(amp|lt|gt|quot|apos);|&#(\d+);|&#x([0-9a-f]+);/gi, (m, n, d, h) => n ? ENTITIES[m.toLowerCase()] : codePoint(d ? Number(d) : parseInt(h, 16)));
 var clean = (s) => s == null ? "" : decode(String(s).replace(/<[^>]*>/g, " ")).replace(/\s+/g, " ").trim();
 var rx = (name, flags) => new RegExp(`<${name}(?:\\s[^>]*)?>([\\s\\S]*?)</${name}>`, flags);
 var tag = (xml, name) => {
@@ -439,6 +476,18 @@ var SECURITY_FLAGS = [
   ["isOtherType", "Other"]
 ];
 var URL_RE = /\b((?:https?:\/\/|www\.)[^\s<>"')]+)/i;
+function normalizeWebsite(candidate) {
+  const c = String(candidate || "").trim().replace(/[.,;]+$/, "");
+  if (!c) return "";
+  let u;
+  try {
+    u = new URL(/^https?:\/\//i.test(c) ? c : `https://${c}`);
+  } catch {
+    return "";
+  }
+  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(u.hostname) || u.pathname !== "/" && u.pathname !== "" || u.search || u.hash) return "";
+  return c.replace(/\/+$/, "");
+}
 function parseFormD(xml, { accession, cik } = {}) {
   const issuer = block(xml, "primaryIssuer");
   const offering = block(xml, "offeringData");
@@ -468,7 +517,7 @@ function parseFormD(xml, { accession, cik } = {}) {
   const sold = parseAmount(soldText);
   const notes = [tag(sales, "clarificationOfResponse"), tag(offering, "clarificationOfResponse")].filter(Boolean).join(" ");
   const freeText = [notes, tag(block(offering, "businessCombinationTransaction"), "clarificationOfResponse"), tag(xml, "issuerWebsite"), tag(xml, "website")].join(" ");
-  const web = URL_RE.exec(freeText);
+  const web = normalizeWebsite(tag(xml, "issuerWebsite") || tag(xml, "website")) || normalizeWebsite((URL_RE.exec(freeText) || [])[1]);
   const row = {
     accession: accession || "",
     cik: dropZeros(tag(issuer, "cik") || cik || ""),
@@ -495,17 +544,21 @@ function parseFormD(xml, { accession, cik } = {}) {
     exemptions: values(block(offering, "federalExemptionsExclusions"), "item"),
     related_persons: persons,
     signer: { name: tag(sig, "nameOfSigner") || tag(sig, "signatureName"), title: tag(sig, "signatureTitle"), date: tag(sig, "signatureDate") },
-    website: web ? web[1].replace(/[.,;]+$/, "") : "",
+    website: web,
     notes
   };
   row.raise_amount = sold || total || null;
   row.raise_amount_basis = sold ? "sold" : total ? "offering" : null;
   return row;
 }
+var isFormD = (xml) => /<edgarSubmission/i.test(xml);
 async function fetchFiling(http, { cik, accession }) {
   const url = docUrl(cik, accession);
-  const xml = await http.cachedText(url, () => http.getText(url));
-  if (!/<edgarSubmission/i.test(xml)) throw new Error(`${accession}: not a Form D document`);
+  const xml = await http.cachedText(url, async () => {
+    const text = await http.getText(url);
+    if (!isFormD(text)) throw new Error(`${accession}: response was not a Form D document`);
+    return text;
+  }, isFormD);
   const row = parseFormD(xml, { accession, cik });
   row.filing_url = filingUrl(row.cik || cik, accession);
   row.doc_url = url;
@@ -558,6 +611,7 @@ var reasonKind = (reason) => !reason ? null : reason.startsWith("excluded:") ? "
 // src/commands.js
 var num = (v) => v === void 0 || v === null || v === "" ? null : Number(v);
 var byLatest = (a, b) => (b.filing_date || "").localeCompare(a.filing_date || "") || b.accession.localeCompare(a.accession);
+var AMOUNT_FIELDS = ["raise_amount", "raise_amount_basis", "total_offering_amount", "total_offering_text", "total_amount_sold", "total_amount_sold_text", "total_remaining_text"];
 function dedupeByCik(rows) {
   const groups = /* @__PURE__ */ new Map();
   for (const r of rows) {
@@ -572,6 +626,21 @@ function dedupeByCik(rows) {
     latest.accessions = group.map((g) => g.accession);
     latest.first_filing_date = group.map((g) => g.filing_date).filter(Boolean).sort()[0] || latest.filing_date;
     latest.matched_keywords = [...new Set(group.flatMap((g) => g.matched_keywords || []))];
+    if (latest.raise_amount === null || latest.raise_amount === void 0) {
+      const donor = group.find((g) => g.raise_amount !== null && g.raise_amount !== void 0);
+      if (donor) {
+        for (const k of AMOUNT_FIELDS) latest[k] = donor[k];
+        latest.amount_from = donor.accession;
+      }
+    }
+    if (!latest.date_of_first_sale) {
+      const donor = group.find((g) => g.date_of_first_sale);
+      if (donor) {
+        latest.date_of_first_sale = donor.date_of_first_sale;
+        latest.first_sale_yet_to_occur = false;
+      }
+    }
+    if (!latest.website) latest.website = group.map((g) => g.website).find(Boolean) || "";
     const seen = /* @__PURE__ */ new Set();
     latest.related_persons = group.flatMap((g) => g.related_persons || []).filter((p) => {
       const k = `${p.first_name} ${p.last_name}`.toLowerCase();
@@ -579,7 +648,6 @@ function dedupeByCik(rows) {
       seen.add(k);
       return true;
     });
-    if (!latest.website) latest.website = group.map((g) => g.website).find(Boolean) || "";
     out.push(latest);
   }
   return out.sort(byLatest);
@@ -587,6 +655,9 @@ function dedupeByCik(rows) {
 var bump = (o, k, n = 1) => {
   o[k] = (o[k] || 0) + n;
 };
+var daysBetween2 = (a, b) => Math.round((Date.parse(b + "T00:00:00Z") - Date.parse(a + "T00:00:00Z")) / 864e5);
+var isDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v + "T00:00:00Z"));
+var MAX_CONSECUTIVE_BLOCKS = 3;
 async function runSearch({
   http,
   today: today2,
@@ -598,6 +669,7 @@ async function runSearch({
   maxAmount,
   includeFunds = false,
   includeUnknownAmount = false,
+  includeOldOfferings = false,
   excludes = {},
   sample,
   maxPerKeyword = 500,
@@ -605,6 +677,7 @@ async function runSearch({
   }
 }) {
   const startdt = parseSince(since, today2);
+  if (until !== void 0 && !isDate(until)) throw new Error(`--until must be a date (YYYY-MM-DD): got "${until}"`);
   const enddt = until || today2;
   if (startdt > enddt) throw new Error(`--since ${startdt} is after the end date ${enddt}`);
   const wantStates = states.map((s) => s.toUpperCase());
@@ -615,15 +688,51 @@ async function runSearch({
   const uniqueIssuers = new Set(hits.map((h) => h.cik));
   const filtered = {};
   const examples = /* @__PURE__ */ new Map();
-  const drop = (cik, name, reason) => {
-    if (!examples.has(cik)) {
-      bump(filtered, reasonKind(reason) === "excluded" ? "excluded" : reason.startsWith("fund") ? "fund" : "vehicle_name");
-      examples.set(cik, { issuer: name, reason });
-    }
+  const note = (cik, issuer, reason) => {
+    if (!examples.has(cik)) examples.set(cik, { issuer, reason });
   };
+  const drop = (cik, name, reason) => {
+    if (!examples.has(cik)) bump(filtered, reasonKind(reason) === "excluded" ? "excluded" : reason.startsWith("fund") ? "fund" : "vehicle_name");
+    note(cik, name, reason);
+  };
+  const finalize = (fetchedRows) => {
+    const stats = {};
+    const why = /* @__PURE__ */ new Map();
+    const rows2 = dedupeByCik(fetchedRows).filter((r) => {
+      let reason = null;
+      if (wantStates.length && r.state && !wantStates.includes(r.state.toUpperCase())) {
+        bump(stats, "state");
+        reason = `state ${r.state} not in ${wantStates.join(",")}`;
+      } else if (min !== null || max !== null) {
+        if (r.raise_amount === null) {
+          if (!includeUnknownAmount) {
+            bump(stats, "unknown_amount");
+            reason = "amount not disclosed";
+          }
+        } else if (min !== null && r.raise_amount < min) {
+          bump(stats, "below_min_amount");
+          reason = "below min amount";
+        } else if (max !== null && r.raise_amount > max) {
+          bump(stats, "above_max_amount");
+          reason = "above max amount";
+        }
+      }
+      if (!reason && !includeOldOfferings && r.is_amendment && r.date_of_first_sale && r.date_of_first_sale < startdt) {
+        bump(stats, "old_offering");
+        reason = `amendment of an older offering (first sale ${r.date_of_first_sale}, before ${startdt})`;
+      }
+      if (reason) why.set(r.cik, { issuer: r.issuer_name, reason });
+      return !reason;
+    });
+    for (const r of rows2) r.first_sale_age_days = r.date_of_first_sale ? daysBetween2(r.date_of_first_sale, today2) : null;
+    return { rows: rows2, stats, why };
+  };
+  const wanted = (rows2) => includeFunds ? rows2.length : rows2.filter((r) => !r.filtered_reason).length;
   const fetched = [];
   const errors = [];
   let n = 0;
+  let blocks2 = 0;
+  let stoppedEarly = false;
   for (const hit of hits) {
     n++;
     const nameReason = excludeReason(hit.name, excludes) || vehicleNameReason(hit.name);
@@ -631,14 +740,10 @@ async function runSearch({
       drop(hit.cik, hit.name, nameReason);
       continue;
     }
-    if (wantStates.length && hit.state && !wantStates.includes(hit.state.toUpperCase())) {
-      if (!examples.has(hit.cik)) bump(filtered, "state");
-      examples.set(hit.cik, { issuer: hit.name, reason: `state ${hit.state} not in ${wantStates.join(",")}` });
-      continue;
-    }
     onProgress(`fetching filing ${n}/${hits.length}: ${hit.name}`);
     try {
       const row = await fetchFiling(http, { cik: hit.cik, accession: hit.accession });
+      blocks2 = 0;
       row.filing_date = hit.filing_date;
       row.matched_keywords = hit.matched_keywords;
       row.issuer_name = row.issuer_name || hit.name;
@@ -651,34 +756,25 @@ async function runSearch({
       fetched.push(row);
     } catch (e) {
       errors.push({ accession: hit.accession, issuer: hit.name, error: e.message });
+      blocks2 = e.status === 403 || e.status === 429 ? blocks2 + 1 : 0;
+      if (blocks2 >= MAX_CONSECUTIVE_BLOCKS) {
+        throw new Error(`stopping: the SEC refused ${MAX_CONSECUTIVE_BLOCKS} requests in a row (HTTP ${e.status}). Check that the contact email is real and wait a few minutes before trying again; the filings already fetched are cached.`);
+      }
+      continue;
+    }
+    if (sample && n < hits.length && wanted(finalize(fetched).rows) >= sample) {
+      stoppedEarly = true;
+      break;
     }
   }
-  let rows = dedupeByCik(fetched);
-  rows = rows.filter((r) => {
-    let why = null;
-    if (wantStates.length && r.state && !wantStates.includes(r.state.toUpperCase())) {
-      bump(filtered, "state");
-      why = `state ${r.state}`;
-    } else if (min !== null || max !== null) {
-      if (r.raise_amount === null) {
-        if (!includeUnknownAmount) {
-          bump(filtered, "unknown_amount");
-          why = "amount not disclosed";
-        }
-      } else if (min !== null && r.raise_amount < min) {
-        bump(filtered, "below_min_amount");
-        why = "below min";
-      } else if (max !== null && r.raise_amount > max) {
-        bump(filtered, "above_max_amount");
-        why = "above max";
-      }
-    }
-    if (why) examples.set(r.cik, { issuer: r.issuer_name, reason: why });
-    return !why;
-  });
+  const final = finalize(fetched);
+  for (const [k, v] of Object.entries(final.stats)) bump(filtered, k, v);
+  for (const [cik, v] of final.why) note(cik, v.issuer, v.reason);
+  let rows = final.rows;
   const kept = rows.length;
   const operating = rows.filter((r) => !r.filtered_reason).length;
   if (sample) rows = rows.slice(0, sample);
+  const capped = perKeyword.filter((k) => k.capped).map((k) => k.keyword);
   return {
     rows,
     meta: {
@@ -692,10 +788,12 @@ async function runSearch({
       issuers_after_all_filters: kept,
       operating_company_rows: operating,
       include_funds: includeFunds,
+      new_offerings_only: !includeOldOfferings,
       filtered,
       filtered_examples: [...examples.values()].slice(0, 25),
-      ...sample ? { sample } : {},
-      complete: errors.length === 0,
+      ...sample ? { sample, sample_stopped_early: stoppedEarly } : {},
+      capped,
+      complete: errors.length === 0 && capped.length === 0,
       fetch_errors: errors,
       requests: http.stats.requests,
       cache_hits: http.stats.cacheHits
@@ -724,8 +822,8 @@ function normalizeJudgments(json) {
 function mergeJudgments(rows, list2) {
   const problems = [];
   const stripZeros = (s) => String(s).replace(/^0+/, "");
-  const byCik = new Map(rows.map((r) => [stripZeros(r.cik), r]));
-  const byName = new Map(rows.map((r) => [r.issuer_name.toLowerCase(), r]));
+  const byCik = new Map(rows.filter((r) => r && r.cik !== void 0).map((r) => [stripZeros(r.cik), r]));
+  const byName = new Map(rows.filter((r) => r && typeof r.issuer_name === "string").map((r) => [r.issuer_name.toLowerCase(), r]));
   const apply = [];
   list2.forEach((j, i) => {
     const label = `judgment #${i + 1}${j && (j.cik || j.issuer_name) ? ` (${j.cik || j.issuer_name})` : ""}`;
@@ -768,7 +866,7 @@ function mergeJudgments(rows, list2) {
 
 // src/output.js
 import { mkdir as mkdir2, writeFile as writeFile4 } from "node:fs/promises";
-import { join as join3 } from "node:path";
+import { join as join4 } from "node:path";
 var cell = (v) => {
   if (v === null || v === void 0) return "";
   let s = Array.isArray(v) ? v.join("; ") : typeof v === "object" ? JSON.stringify(v) : String(v);
@@ -859,14 +957,22 @@ function companyRows(rows) {
     "EDGAR URL": r.filing_url
   }));
 }
-var PEOPLE_COLUMNS = ["First Name", "Last Name", "Title", "Relationship", "Company Name", "Website", "Raise Amount (USD)", "Filing Date", "Source", "Fit", "EDGAR URL"];
+var PEOPLE_COLUMNS = ["First Name", "Last Name", "Title", "Relationship", "Company Name", "Website", "Raise Amount (USD)", "Filing Date", "Source", "Confidence", "Notes", "Fit", "EDGAR URL"];
+var SUFFIX2 = /* @__PURE__ */ new Set(["jr", "sr", "ii", "iii", "iv", "md", "phd", "esq"]);
+var letters = (s) => String(s || "").toLowerCase().replace(/[^a-z]/g, "");
+var nameKey = (first, last) => {
+  const f = String(first || "").trim().split(/\s+/)[0];
+  const l = String(last || "").trim().split(/\s+/).filter((t) => !SUFFIX2.has(letters(t))).pop() || "";
+  return `${letters(f)} ${letters(l)}`.trim();
+};
+var shortTitle = (c) => c && c.length <= 40 && !/\.\s*$|\b(?:is|was|are|of the)\b/i.test(c) ? c : "";
 function peopleRows(rows) {
   const out = [];
   for (const r of rows) {
     if (isNo(r)) continue;
     const seen = /* @__PURE__ */ new Map();
-    const push = (first, last, title, relationship, source) => {
-      const key = `${first} ${last}`.toLowerCase().replace(/\s+/g, " ").trim();
+    const push = (first, last, title, relationship, notes, source) => {
+      const key = nameKey(first, last);
       if (!key) return;
       if (seen.has(key)) {
         const prior = seen.get(key);
@@ -876,36 +982,44 @@ function peopleRows(rows) {
       const row = {
         "First Name": titleCase(first),
         "Last Name": titleCase(last),
-        Title: title,
+        Title: title || relationship,
         Relationship: relationship,
         "Company Name": r.issuer_name,
         Website: r.website || "",
         "Raise Amount (USD)": r.raise_amount ?? "",
         "Filing Date": r.filing_date,
         Source: source,
+        Confidence: source === "signer" ? "low" : "high",
+        Notes: notes || "",
         Fit: r.fit || "",
         "EDGAR URL": r.filing_url
       };
       seen.set(key, row);
       out.push(row);
     };
-    for (const p of r.related_persons || []) push(p.first_name, p.last_name, p.clarification || "", (p.relationships || []).join(" / "), "related person");
+    for (const p of r.related_persons || []) {
+      const rel = (p.relationships || []).join(" / ");
+      const short = shortTitle(p.clarification);
+      push(p.first_name, p.last_name, short, rel, p.clarification && !short ? p.clarification : "", "related person");
+    }
     const sig = r.signer || {};
     if (sig.name) {
-      const parts = sig.name.trim().split(/\s+/);
-      push(parts[0] || "", parts.slice(1).join(" "), sig.title || "", "", "signer");
+      const tokens = sig.name.trim().split(/\s+/);
+      const kept = tokens.filter((t, i) => i === 0 || !SUFFIX2.has(letters(t)));
+      const first = kept[0] || "";
+      const last = kept.length > 1 ? kept[kept.length - 1] : "";
+      push(first, last, sig.title || "", "", "", "signer");
     }
   }
-  for (const row of out) if (!row.Title) row.Title = row.Relationship;
   return out;
 }
 async function writeOutputs(dir, name, result) {
   await mkdir2(dir, { recursive: true });
   const files = {
-    json: join3(dir, `${name}.json`),
-    full: join3(dir, `${name}-full.csv`),
-    companies: join3(dir, `${name}-apollo-companies.csv`),
-    people: join3(dir, `${name}-people.csv`)
+    json: join4(dir, `${name}.json`),
+    full: join4(dir, `${name}-full.csv`),
+    companies: join4(dir, `${name}-apollo-companies.csv`),
+    people: join4(dir, `${name}-people.csv`)
   };
   const companies = companyRows(result.rows);
   const people = peopleRows(result.rows);
@@ -945,9 +1059,9 @@ var COMMANDS = {
   "profile init": { string: ["preset"], bool: [], usage: "profile init --out <profile.json> [--preset physical-ai|ai-data]   (write an example profile to edit; refuses to overwrite)" },
   "profile check": { string: [], bool: [], positional: 1, usage: "profile check <profile.json>   (validate a profile and show what a run would use)" },
   search: {
-    string: ["keywords", "profile", "since", "until", "states", "min-amount", "max-amount", "sample", "max-per-keyword", "out-dir", "name"],
-    bool: ["include-funds", "include-unknown-amount"],
-    usage: "search (--keywords <file|preset|a,b,c> | --profile <profile.json>) --since <YYYY-MM-DD|30d|12w|6m> [--until <date>] [--states CA,TX] [--min-amount N] [--max-amount N] [--include-funds] [--include-unknown-amount] [--sample N] [--out-dir <dir> [--name <prefix>]]"
+    string: ["keywords", "keywords-file", "profile", "since", "until", "states", "min-amount", "max-amount", "sample", "max-per-keyword", "out-dir", "name"],
+    bool: ["include-funds", "include-unknown-amount", "include-old-offerings"],
+    usage: "search (--keywords <preset|a,b,c|./file> | --keywords-file <file> | --profile <profile.json>) --since <YYYY-MM-DD|30d|12w|6m> [--until <date>] [--states CA,TX] [--min-amount N] [--max-amount N] [--include-funds] [--include-unknown-amount] [--include-old-offerings] [--sample N] [--out-dir <dir> [--name <prefix>]]"
   },
   show: { string: ["cik"], bool: [], positional: 1, usage: "show <accession | cik/accession | EDGAR filing URL> [--cik <cik>]" },
   annotate: { string: ["in", "judgments", "out-dir", "name"], bool: [], usage: 'annotate --in <search.json> --judgments <judgments.json> [--out-dir <dir>] [--name <prefix>]   (merge fit/fit_reason/evidence; fit "no" leaves the Apollo CSVs)' }
@@ -1038,7 +1152,8 @@ async function doctor({ email, source, http }) {
   let first = null;
   await run("efts.sec.gov (full-text search)", async () => {
     const t = today();
-    const { hits } = await searchFilings(http, { keywords: ["a"], startdt: parseSince("14d", t), enddt: t, maxPerKeyword: 1 });
+    const json = await http.getJson(buildSearchUrl({ q: "a", startdt: parseSince("14d", t), enddt: t }));
+    const hits = (json.hits && json.hits.hits || []).map(parseHit).filter(Boolean);
     if (!hits.length) throw new Error("search returned no Form D filings for the last 14 days");
     first = hits[0];
     return `reachable (${hits.length} filing(s) returned)`;
@@ -1108,6 +1223,8 @@ Requests will identify as: ${userAgent(flags.email)}
         throw new UsageError(`could not read ${flags.in}: ${e.message}`);
       }
       if (!result2 || !Array.isArray(result2.rows)) throw new UsageError(`${flags.in} is not a search result (no rows)`);
+      const bad = result2.rows.findIndex((r) => !r || typeof r !== "object" || typeof r.issuer_name !== "string" || !r.issuer_name);
+      if (bad >= 0) throw new UsageError(`${flags.in} is not a search result: row ${bad + 1} has no issuer_name`);
       let judgments;
       try {
         judgments = JSON.parse(await readFile4(flags.judgments, "utf8"));
@@ -1146,12 +1263,13 @@ Requests will identify as: ${userAgent(flags.email)}
     }
     let keywords;
     try {
-      keywords = flags.keywords ? await resolveKeywords(flags.keywords, { presets: PRESETS }) : profile ? profile.keywords : null;
+      keywords = flags["keywords-file"] ? await resolveKeywords(flags["keywords-file"], { presets: PRESETS, file: true }) : flags.keywords ? await resolveKeywords(flags.keywords, { presets: PRESETS }) : profile ? profile.keywords : null;
     } catch (e) {
       throw new UsageError(e.message);
     }
-    if (!keywords) throw new UsageError("search needs --keywords <file|preset|a,b,c> or --profile <profile.json>");
+    if (!keywords) throw new UsageError("search needs --keywords <preset|a,b,c|./file>, --keywords-file <file> or --profile <profile.json>");
     if (!flags.since) throw new UsageError("search needs --since <YYYY-MM-DD|30d|12w|6m>");
+    if (flags.until !== void 0 && !/^\d{4}-\d{2}-\d{2}$/.test(flags.until)) throw new UsageError(`--until must be a date (YYYY-MM-DD): got "${flags.until}"`);
     const states = flags.states ? list(flags.states) : profile && profile.states || [];
     if (states.some((s) => !/^[A-Za-z]{2}$/.test(s))) throw new UsageError("--states takes two-letter codes, e.g. CA,TX");
     let n = 0;
@@ -1166,6 +1284,7 @@ Requests will identify as: ${userAgent(flags.email)}
       maxAmount: flags["max-amount"] !== void 0 ? amount(flags["max-amount"], "max-amount") : profile && profile.max_amount,
       includeFunds: !!flags["include-funds"],
       includeUnknownAmount: !!flags["include-unknown-amount"],
+      includeOldOfferings: !!flags["include-old-offerings"],
       excludes: profile && profile.excludes || {},
       sample: posInt(flags.sample, "sample"),
       maxPerKeyword: posInt(flags["max-per-keyword"], "max-per-keyword") || 500,
@@ -1184,7 +1303,9 @@ Requests will identify as: ${userAgent(flags.email)}
       if (note) deps.stderr(note + "\n");
     }
     if (!result.meta.complete) {
-      deps.stderr(`sec-funding-signals: ${result.meta.fetch_errors.length} filing(s) could not be fetched; results are PARTIAL (see meta.fetch_errors). Run again.
+      if (result.meta.fetch_errors.length) deps.stderr(`sec-funding-signals: ${result.meta.fetch_errors.length} filing(s) could not be fetched; results are PARTIAL (see meta.fetch_errors). Run again.
+`);
+      if (result.meta.capped.length) deps.stderr(`sec-funding-signals: results for ${result.meta.capped.join(", ")} are still capped at ${posInt(flags["max-per-keyword"], "max-per-keyword") || 500} per day-window and are PARTIAL. Narrow --since, use more specific keywords, or raise --max-per-keyword.
 `);
       process.exitCode = 3;
     }

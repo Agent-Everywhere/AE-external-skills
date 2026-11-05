@@ -72,33 +72,56 @@ export function parseHit(h) {
   };
 }
 
+const dayMs = 86400000;
+const addDays = (date, n) => new Date(Date.parse(date + "T00:00:00Z") + n * dayMs).toISOString().slice(0, 10);
+const daysBetween = (a, b) => Math.round((Date.parse(b + "T00:00:00Z") - Date.parse(a + "T00:00:00Z")) / dayMs);
+
 /**
  * Search each keyword separately (so every hit records which keywords found it), page through the results, and union the
- * hits by accession number. Returns { hits, perKeyword: [{keyword, total, fetched, capped}] }.
+ * hits by accession number. When a keyword has more results than `maxPerKeyword` the date range is split in half and
+ * each half searched again (down to single days), so a cap never silently drops filings. Returns
+ * { hits, perKeyword: [{keyword, total, fetched, windows, capped}] }; `capped` is true only if a single day still
+ * exceeded the cap.
  */
 export async function searchFilings(http, { keywords, startdt, enddt, maxPerKeyword = 500 }) {
   const byAcc = new Map();
   const perKeyword = [];
   for (const kw of keywords) {
-    let from = 0;
-    let total = 0;
-    let fetched = 0;
-    for (;;) {
-      const json = await http.getJson(buildSearchUrl({ q: keywordQuery(kw), startdt, enddt, from }));
-      const hits = (json.hits && json.hits.hits) || [];
-      total = (json.hits && json.hits.total && json.hits.total.value) || 0;
-      for (const h of hits) {
-        const hit = parseHit(h);
-        if (!hit) continue;
-        fetched++;
-        const prior = byAcc.get(hit.accession);
-        if (prior) { if (!prior.matched_keywords.includes(kw)) prior.matched_keywords.push(kw); }
-        else byAcc.set(hit.accession, { ...hit, matched_keywords: [kw] });
+    const seen = new Set();
+    const stat = { keyword: kw, total: 0, fetched: 0, windows: 0, capped: false };
+    const window = async (a, b, top) => {
+      let from = 0;
+      let total = 0;
+      let got = 0;
+      for (;;) {
+        const json = await http.getJson(buildSearchUrl({ q: keywordQuery(kw), startdt: a, enddt: b, from }));
+        const hits = (json.hits && json.hits.hits) || [];
+        total = (json.hits && json.hits.total && json.hits.total.value) || 0;
+        for (const h of hits) {
+          const hit = parseHit(h);
+          if (!hit) continue;
+          got++;
+          seen.add(hit.accession);
+          const prior = byAcc.get(hit.accession);
+          if (prior) { if (!prior.matched_keywords.includes(kw)) prior.matched_keywords.push(kw); }
+          else byAcc.set(hit.accession, { ...hit, matched_keywords: [kw] });
+        }
+        from += hits.length;
+        if (!hits.length || from >= total || from >= maxPerKeyword) break;
       }
-      from += hits.length;
-      if (!hits.length || from >= total || from >= maxPerKeyword) break;
-    }
-    perKeyword.push({ keyword: kw, total, fetched, capped: fetched < total });
+      stat.windows++;
+      if (top) stat.total = total;
+      if (got < total) {
+        const span = daysBetween(a, b);
+        if (span < 1) { stat.capped = true; return; }
+        const mid = addDays(a, Math.floor(span / 2));
+        await window(a, mid, false);
+        await window(addDays(mid, 1), b, false);
+      }
+    };
+    await window(startdt, enddt, true);
+    stat.fetched = seen.size;
+    perKeyword.push(stat);
   }
   return { hits: [...byAcc.values()], perKeyword };
 }
@@ -121,7 +144,8 @@ export function parseFilingRef(ref) {
 // ---------- primary_doc.xml ----------
 
 const ENTITIES = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&apos;": "'" };
-const decode = (s) => s.replace(/&(amp|lt|gt|quot|apos);|&#(\d+);|&#x([0-9a-f]+);/gi, (m, n, d, h) => (n ? ENTITIES[m.toLowerCase()] : String.fromCodePoint(d ? Number(d) : parseInt(h, 16))));
+const codePoint = (n) => (Number.isInteger(n) && n > 0 && n <= 0x10ffff && !(n >= 0xd800 && n <= 0xdfff) ? String.fromCodePoint(n) : "");
+const decode = (s) => s.replace(/&(amp|lt|gt|quot|apos);|&#(\d+);|&#x([0-9a-f]+);/gi, (m, n, d, h) => (n ? ENTITIES[m.toLowerCase()] : codePoint(d ? Number(d) : parseInt(h, 16))));
 const clean = (s) => (s == null ? "" : decode(String(s).replace(/<[^>]*>/g, " ")).replace(/\s+/g, " ").trim());
 
 const rx = (name, flags) => new RegExp(`<${name}(?:\\s[^>]*)?>([\\s\\S]*?)</${name}>`, flags);
@@ -152,6 +176,16 @@ const SECURITY_FLAGS = [
 ];
 const URL_RE = /\b((?:https?:\/\/|www\.)[^\s<>"')]+)/i;
 
+/** A company website only if it is a bare domain or a site root (no path, query or fragment); otherwise "". */
+export function normalizeWebsite(candidate) {
+  const c = String(candidate || "").trim().replace(/[.,;]+$/, "");
+  if (!c) return "";
+  let u;
+  try { u = new URL(/^https?:\/\//i.test(c) ? c : `https://${c}`); } catch { return ""; }
+  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(u.hostname) || (u.pathname !== "/" && u.pathname !== "") || u.search || u.hash) return "";
+  return c.replace(/\/+$/, "");
+}
+
 export function parseFormD(xml, { accession, cik } = {}) {
   const issuer = block(xml, "primaryIssuer");
   const offering = block(xml, "offeringData");
@@ -181,7 +215,7 @@ export function parseFormD(xml, { accession, cik } = {}) {
   const notes = [tag(sales, "clarificationOfResponse"), tag(offering, "clarificationOfResponse")].filter(Boolean).join(" ");
   // Form D has no website field; take one only if the filer wrote a URL into a free-text field (never from addresses).
   const freeText = [notes, tag(block(offering, "businessCombinationTransaction"), "clarificationOfResponse"), tag(xml, "issuerWebsite"), tag(xml, "website")].join(" ");
-  const web = URL_RE.exec(freeText);
+  const web = normalizeWebsite(tag(xml, "issuerWebsite") || tag(xml, "website")) || normalizeWebsite((URL_RE.exec(freeText) || [])[1]);
 
   const row = {
     accession: accession || "",
@@ -209,7 +243,7 @@ export function parseFormD(xml, { accession, cik } = {}) {
     exemptions: values(block(offering, "federalExemptionsExclusions"), "item"),
     related_persons: persons,
     signer: { name: tag(sig, "nameOfSigner") || tag(sig, "signatureName"), title: tag(sig, "signatureTitle"), date: tag(sig, "signatureDate") },
-    website: web ? web[1].replace(/[.,;]+$/, "") : "",
+    website: web,
     notes,
   };
   // The raise figure: money actually sold if reported, else the offering size if it is a number.
@@ -218,11 +252,16 @@ export function parseFormD(xml, { accession, cik } = {}) {
   return row;
 }
 
-/** Fetch (cached) and parse one filing's primary_doc.xml. Adds the EDGAR links. */
+const isFormD = (xml) => /<edgarSubmission/i.test(xml);
+
+/** Fetch (cached) and parse one filing's primary_doc.xml. Only a real Form D document is ever cached. */
 export async function fetchFiling(http, { cik, accession }) {
   const url = docUrl(cik, accession);
-  const xml = await http.cachedText(url, () => http.getText(url));
-  if (!/<edgarSubmission/i.test(xml)) throw new Error(`${accession}: not a Form D document`);
+  const xml = await http.cachedText(url, async () => {
+    const text = await http.getText(url);
+    if (!isFormD(text)) throw new Error(`${accession}: response was not a Form D document`);
+    return text;
+  }, isFormD);
   const row = parseFormD(xml, { accession, cik });
   row.filing_url = filingUrl(row.cik || cik, accession);
   row.doc_url = url;

@@ -60,21 +60,31 @@ test("rows judged fit 'no' leave the Apollo company and people CSVs but stay in 
   assert.equal(companyRows(rows)[0].Fit, "strong");
 });
 
-test("people rows: first, last, title, relationship, company; names are title-cased; signer added once; no addresses", () => {
+test("people rows: first, last, title, relationship, company; names are title-cased; signer added once, low confidence; no addresses", () => {
   assert.deepEqual(PEOPLE_COLUMNS.slice(0, 5), ["First Name", "Last Name", "Title", "Relationship", "Company Name"]);
+  assert.ok(PEOPLE_COLUMNS.includes("Confidence") && PEOPLE_COLUMNS.includes("Notes"));
   const people = peopleRows([row()]);
-  assert.deepEqual(people.map((p) => [p["First Name"], p["Last Name"], p.Title, p.Relationship, p.Source]), [
-    ["Pat", "Sample", "Chief Executive Officer", "Executive Officer / Director", "related person"],
-    ["Jordan", "Example", "Director", "Director", "related person"],
+  assert.deepEqual(people.map((p) => [p["First Name"], p["Last Name"], p.Title, p.Relationship, p.Source, p.Confidence]), [
+    ["Pat", "Sample", "Chief Executive Officer", "Executive Officer / Director", "related person", "high"],
+    ["Jordan", "Example", "Director", "Director", "related person", "high"],
   ]);
-  const other = peopleRows([row({ related_persons: [], signer: { name: "Sam Q Signer", title: "Founder" } })]);
-  assert.deepEqual([other[0]["First Name"], other[0]["Last Name"], other[0].Title, other[0].Source], ["Sam", "Q Signer", "Founder", "signer"]);
+  const other = peopleRows([row({ related_persons: [], signer: { name: "Sam Q. Signer", title: "Founder" } })]);
+  assert.deepEqual([other[0]["First Name"], other[0]["Last Name"], other[0].Title, other[0].Source, other[0].Confidence], ["Sam", "Signer", "Founder", "signer", "low"]);
 });
 
-test("a signer who is also a related person fills in a missing title instead of duplicating", () => {
-  const people = peopleRows([row({ related_persons: [{ first_name: "Sam", last_name: "Signer", relationships: [], clarification: "" }], signer: { name: "Sam Signer", title: "President" } })]);
+test("a long relationship clarification is a Notes sentence, and Title comes from the filed relationships", () => {
+  const sentence = "Mr. Doe is a Managing Director of the sole member of the Issuer's general partner.";
+  const [p] = peopleRows([row({ related_persons: [{ first_name: "Dana", last_name: "Doe", relationships: ["Executive Officer", "Director"], clarification: sentence }] })]);
+  assert.equal(p.Title, "Executive Officer / Director");
+  assert.equal(p.Notes, sentence);
+});
+
+test("a signer is matched to a related person across middle names, initials and suffixes", () => {
+  const people = peopleRows([row({ related_persons: [{ first_name: "Jessica", middle_name: "O", last_name: "Thwing", relationships: ["Director"], clarification: "" }], signer: { name: "Jessica O. Thwing Jr.", title: "President" } })]);
   assert.equal(people.length, 1);
-  assert.equal(people[0].Title, "President");
+  assert.equal(people[0].Title, "Director", "an existing title is kept");
+  const two = peopleRows([row({ related_persons: [{ first_name: "Sam", last_name: "Signer", relationships: [], clarification: "" }], signer: { name: "Sam Signer", title: "President" } })]);
+  assert.equal(two[0].Title, "President");
 });
 
 test("writeOutputs writes the JSON, full, Apollo-companies and people files", async () => {

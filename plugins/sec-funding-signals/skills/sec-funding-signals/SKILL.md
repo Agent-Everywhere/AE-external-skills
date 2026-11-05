@@ -31,7 +31,13 @@ Node 20+. No `npm install`: one bundled file ships with this skill.
 SF="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/sec-funding-signals/cli/dist/sec-funding-signals.mjs}"
 [ -f "$SF" ] || SF="/mnt/skills/plugin-files/sec-funding-signals/skills/sec-funding-signals/cli/dist/sec-funding-signals.mjs"
 [ -f "$SF" ] || SF="/mnt/skills/plugin-files/sec-funding-signals/cli/dist/sec-funding-signals.mjs"
-[ -f "$SF" ] || SF="$(find / -path '*/sec-funding-signals/cli/dist/sec-funding-signals.mjs' 2>/dev/null | head -1)"
+if [ ! -f "$SF" ]; then   # bounded search of the known plugin folders only, never the whole disk
+  for d in "$HOME/.claude/plugins" "$HOME/.claude/skills" /mnt/skills /mnt/plugins; do
+    [ -d "$d" ] || continue
+    f="$(find "$d" -maxdepth 8 -path '*/sec-funding-signals/cli/dist/sec-funding-signals.mjs' 2>/dev/null | head -1)"
+    [ -n "$f" ] && { SF="$f"; break; }
+  done
+fi
 node "$SF" doctor
 node "$SF" --help
 ```
@@ -104,7 +110,8 @@ user says "add X to my excludes" or "raise the minimum" (keep the JSON valid, sh
 node "$SF" search --profile profile.json --since 90d --sample 10 --out-dir calibration --name sample
 ```
 
-Show about ten issuers, and for each say why it matched (`matched_keywords`, the issuer name, industry group),
+The sample stops fetching as soon as about ten operating issuers are found, so it is quick even for a broad
+search. Show them, and for each say why it matched (`matched_keywords`, the issuer name, industry group),
 the raise, and one line on what it looks like. Ask what is off: wrong kind of company, noise names to exclude,
 a missing keyword, an amount range that is too wide. Refine `profile.json`, rerun the sample if the change is big,
 then do the full run:
@@ -113,12 +120,27 @@ then do the full run:
 node "$SF" search --profile profile.json --since 90d --out-dir out --name run1
 ```
 
-`--since` takes a date or `30d`, `12w`, `6m`. For a repeating weekly list use `--since 14d`. Other flags:
-`--states CA,TX`, `--min-amount 2000000`, `--max-amount 50000000`, `--include-unknown-amount` (keep raises whose
-amount is undisclosed when a minimum is set), `--include-funds`, `--keywords <file|preset|a,b,c>` instead of a
-profile. The summary it prints (`meta`) gives counts before and after filtering, which issuers were dropped and
-why (`filtered_examples`), and `complete`. Exit code 3 means some filings could not be fetched and the result is
-partial: run it again. Filings are cached in the working folder, so a rerun is cheap.
+`--since` takes a date or `30d`, `12w`, `6m` (`--until <YYYY-MM-DD>` ends the window; default today). For a
+repeating weekly list use `--since 14d`. Other flags: `--states CA,TX` (matched against the state on the filing),
+`--min-amount 2000000`, `--max-amount 50000000`, `--include-unknown-amount` (keep raises whose amount is
+undisclosed when a minimum is set), `--include-funds`, `--include-old-offerings` (see below), and
+`--keywords <preset|a,b,c>` instead of a profile (`--keywords ./kw.txt` or `--keywords-file kw.txt` reads a file
+with one keyword per line; a bare word is always a keyword, never a file name). The summary it prints (`meta`)
+gives counts before and after filtering, which issuers were dropped and why (`filtered_examples`), and
+`complete`. Exit code 3 means the result is partial, either because some filings could not be fetched (run it
+again) or because a keyword still had more results than the cap (`meta.capped`: narrow `--since`, use more specific
+keywords, or raise `--max-per-keyword`). When a keyword has more than 500 results the CLI splits the date range
+into smaller windows on its own, so a cap only remains for a single very busy day. If the SEC refuses three
+requests in a row (HTTP 403 or 429) the run stops with a message: check the contact email and wait a few
+minutes. Filings fetched so far are cached in the working folder (`.sec-funding-cache`, safe to delete), so a
+rerun is cheap.
+
+**Just raised, not just amended.** EDGAR returns amendments (`D/A`) of long-running offerings too. By default
+an amendment whose `date_of_first_sale` is before the `--since` window is dropped as an old offering
+(`meta.filtered.old_offering`); `--include-old-offerings` keeps it. Every row has `first_sale_age_days` (days from
+the first sale to today), so read it as "how fresh is this raise". A new `D` filing is always kept. When a later
+amendment reports no amount, the amount and first-sale date from the company's earlier filing are used
+(`amount_from` names that filing).
 
 ### 3. Read the filing and the company
 
@@ -162,7 +184,7 @@ in the full CSV with their reason; nothing is applied if any judgment is malform
 | File | Use |
 |---|---|
 | `run1-apollo-companies.csv` | `Company Name`, `Website`, raise amount and date, state, notes, fit. Import into Apollo, or look up each company by name when `Website` is blank |
-| `run1-people.csv` | `First Name`, `Last Name`, `Title`, `Relationship`, `Company Name`: the executives and directors named in the filing (and the signer), for Apollo people lookup and LinkedIn search. Start with the user's `buyer_titles` |
+| `run1-people.csv` | `First Name`, `Last Name`, `Title`, `Relationship`, `Company Name`, `Confidence`, `Notes`: the executives and directors named in the filing, for Apollo people lookup and LinkedIn search. `Title` is a short title when the filing gives one, else the filed relationships (Executive Officer, Director...); a long explanatory sentence goes in `Notes`. The filing's signer is added once with `Confidence` `low` (signers are often an attorney or attorney-in-fact). Start with the user's `buyer_titles` and the `high` rows |
 | `run1-full.csv` | every row, every field, `filtered_reason` and the fit columns |
 | `run1.json` | the same with full detail; `annotate` reads it |
 

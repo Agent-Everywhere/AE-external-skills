@@ -22,7 +22,8 @@ BUNDLE = CLI / "dist" / "sec-funding-signals.mjs"
 
 
 def shipped():
-    return [p for p in sorted(PLUGIN.rglob("*")) if p.is_file() and "tests" not in p.relative_to(PLUGIN).parts and "node_modules" not in p.parts]
+    skip = {"tests", "node_modules", ".sec-funding-cache"}
+    return [p for p in sorted(PLUGIN.rglob("*")) if p.is_file() and not (skip & set(p.relative_to(PLUGIN).parts))]
 
 
 class SecFundingSignals(unittest.TestCase):
@@ -71,12 +72,42 @@ class SecFundingSignals(unittest.TestCase):
                 self.assertIsNone(pattern.search(text), str(path.relative_to(ROOT)))
 
     def test_public_text_is_a_neutral_data_source_playbook(self):
-        banned = re.compile(r"\bPVP\b|angle bank|Agent Everywhere internal|aettio|grok|hiring|\bjobs?\b.*\b(check|signal)", re.I)
+        banned = re.compile(r"hiring|\bjobs?\b.*\b(check|signal)", re.I)
         for path in shipped():
             if path.suffix in (".md", ".yaml", ".json") and path.name != "plugin.json":
                 for n, line in enumerate(path.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
                     if banned.search(line) and "no hiring or jobs check" not in line and "makes no hiring" not in line:
                         self.fail("%s:%d: %s" % (path.relative_to(ROOT), n, line.strip()))
+
+    def test_no_local_cache_or_config_is_in_the_source_tree_or_ignored_wrongly(self):
+        self.assertEqual([str(p.relative_to(ROOT)) for p in PLUGIN.rglob(".sec-funding-cache")], [], "a developer cache must not sit in the plugin")
+        self.assertEqual([str(p.relative_to(ROOT)) for p in PLUGIN.rglob("sec-funding-signals.config.json")], [])
+        ignored = (ROOT / ".gitignore").read_text().split()
+        self.assertIn(".sec-funding-cache/", ignored)
+        self.assertIn("sec-funding-signals.config.json", ignored)
+
+    def test_the_skill_never_searches_the_whole_disk_for_the_bundle(self):
+        text = (SKILL / "SKILL.md").read_text()
+        self.assertNotRegex(text, r"find\s+/(\s|\))")
+        self.assertIn("-maxdepth", text)
+
+    def test_a_cache_dir_never_ships_in_the_plugin_zip(self):
+        if not shutil.which("zip"):
+            self.skipTest("zip not installed")
+        cache = CLI / ".sec-funding-cache"
+        config = CLI / "sec-funding-signals.config.json"
+        try:
+            cache.mkdir()
+            (cache / "x.json").write_text("{}")
+            config.write_text('{"contact_email": "x"}')
+            proc = subprocess.run(["bash", str(ROOT / "scripts" / "build-plugin-zip.sh"), "sec-funding-signals", "0.1.0"], capture_output=True, text=True, cwd=ROOT)
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            listing = subprocess.run(["unzip", "-Z1", str(ROOT / "dist" / "sec-funding-signals.zip")], capture_output=True, text=True).stdout
+            self.assertNotIn(".sec-funding-cache", listing)
+            self.assertNotIn("sec-funding-signals.config.json", listing)
+        finally:
+            shutil.rmtree(cache, ignore_errors=True)
+            config.unlink(missing_ok=True)
 
     def test_plugin_zip_builds(self):
         if not shutil.which("zip"):

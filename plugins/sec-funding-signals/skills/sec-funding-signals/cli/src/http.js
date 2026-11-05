@@ -1,7 +1,7 @@
 // Polite HTTP for SEC EDGAR: descriptive User-Agent with a contact email (SEC fair-access policy), at most 4
 // requests/second (SEC's ceiling is 10), retry with backoff on 429/5xx, immutable-filing cache on disk.
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { assertAllowed } from "./allowlist.js";
 
@@ -25,6 +25,7 @@ export function createHttp({
   minIntervalMs = MIN_INTERVAL_MS,
   maxRetries = 4,
   backoffMs = 1000,
+  timeoutMs = 30000,
   cacheDir,
   noCache = false,
 } = {}) {
@@ -52,7 +53,7 @@ export function createHttp({
       stats.requests++;
       let res = null;
       let err = null;
-      try { res = await fetchImpl(url, { method: "GET", redirect: "manual", headers: { "user-agent": ua, accept } }); }
+      try { res = await fetchImpl(url, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(timeoutMs), headers: { "user-agent": ua, accept } }); }
       catch (e) { err = e; }
       const retryable = err || res.status === 429 || res.status >= 500;
       if (!retryable) return res;
@@ -88,19 +89,27 @@ export function createHttp({
 
   const keyFile = (key) => join(cacheDir, createHash("sha256").update(key).digest("hex") + ".json");
 
-  /** Filings never change once accepted, so a cached document is valid forever. */
-  async function cachedText(key, produce) {
+  /**
+   * Filings never change once accepted, so a cached document is valid forever. `validate(value)` must accept both a
+   * fresh value (before it is cached) and a cached one: an invalid page is never stored, and an invalid cached
+   * entry is refetched. Files are written atomically (temp file, then rename).
+   */
+  async function cachedText(key, produce, validate = () => true) {
     if (!noCache && cacheDir) {
       try {
         const { value } = JSON.parse(await readFile(keyFile(key), "utf8"));
-        if (typeof value === "string") { stats.cacheHits++; return value; }
+        if (typeof value === "string" && validate(value)) { stats.cacheHits++; return value; }
       } catch { /* miss */ }
     }
     const value = await produce();
+    if (!validate(value)) throw new Error(`unexpected document for ${key}`);
     if (!noCache && cacheDir) {
       try {
         await mkdir(cacheDir, { recursive: true });
-        await writeFile(keyFile(key), JSON.stringify({ key, value }));
+        const file = keyFile(key);
+        const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+        await writeFile(tmp, JSON.stringify({ key, value }));
+        await rename(tmp, file);
       } catch { /* cache is best effort */ }
     }
     return value;

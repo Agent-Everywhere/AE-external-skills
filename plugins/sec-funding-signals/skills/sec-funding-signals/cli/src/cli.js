@@ -8,7 +8,7 @@ import { getPreset, presetNames, PRESETS } from "./presets.js";
 import { loadProfile, ProfileError, resolveKeywords, saveProfile } from "./profile.js";
 import { mergeJudgments, normalizeJudgments, runSearch, showFiling } from "./commands.js";
 import { emit, writeOutputs } from "./output.js";
-import { fetchFiling, parseSince, searchFilings } from "./edgar.js";
+import { buildSearchUrl, fetchFiling, parseHit, parseSince } from "./edgar.js";
 
 export { VERSION };
 
@@ -33,9 +33,9 @@ export const COMMANDS = {
   "profile init": { string: ["preset"], bool: [], usage: "profile init --out <profile.json> [--preset physical-ai|ai-data]   (write an example profile to edit; refuses to overwrite)" },
   "profile check": { string: [], bool: [], positional: 1, usage: "profile check <profile.json>   (validate a profile and show what a run would use)" },
   search: {
-    string: ["keywords", "profile", "since", "until", "states", "min-amount", "max-amount", "sample", "max-per-keyword", "out-dir", "name"],
-    bool: ["include-funds", "include-unknown-amount"],
-    usage: "search (--keywords <file|preset|a,b,c> | --profile <profile.json>) --since <YYYY-MM-DD|30d|12w|6m> [--until <date>] [--states CA,TX] [--min-amount N] [--max-amount N] [--include-funds] [--include-unknown-amount] [--sample N] [--out-dir <dir> [--name <prefix>]]",
+    string: ["keywords", "keywords-file", "profile", "since", "until", "states", "min-amount", "max-amount", "sample", "max-per-keyword", "out-dir", "name"],
+    bool: ["include-funds", "include-unknown-amount", "include-old-offerings"],
+    usage: "search (--keywords <preset|a,b,c|./file> | --keywords-file <file> | --profile <profile.json>) --since <YYYY-MM-DD|30d|12w|6m> [--until <date>] [--states CA,TX] [--min-amount N] [--max-amount N] [--include-funds] [--include-unknown-amount] [--include-old-offerings] [--sample N] [--out-dir <dir> [--name <prefix>]]",
   },
   show: { string: ["cik"], bool: [], positional: 1, usage: "show <accession | cik/accession | EDGAR filing URL> [--cik <cik>]" },
   annotate: { string: ["in", "judgments", "out-dir", "name"], bool: [], usage: "annotate --in <search.json> --judgments <judgments.json> [--out-dir <dir>] [--name <prefix>]   (merge fit/fit_reason/evidence; fit \"no\" leaves the Apollo CSVs)" },
@@ -118,7 +118,8 @@ async function doctor({ email, source, http }) {
   let first = null;
   await run("efts.sec.gov (full-text search)", async () => {
     const t = today();
-    const { hits } = await searchFilings(http, { keywords: ["a"], startdt: parseSince("14d", t), enddt: t, maxPerKeyword: 1 });
+    const json = await http.getJson(buildSearchUrl({ q: "a", startdt: parseSince("14d", t), enddt: t }));
+    const hits = ((json.hits && json.hits.hits) || []).map(parseHit).filter(Boolean);
     if (!hits.length) throw new Error("search returned no Form D filings for the last 14 days");
     first = hits[0];
     return `reachable (${hits.length} filing(s) returned)`;
@@ -176,6 +177,8 @@ export async function main(argv = process.argv.slice(2)) {
       let result;
       try { result = JSON.parse(await readFile(flags.in, "utf8")); } catch (e) { throw new UsageError(`could not read ${flags.in}: ${e.message}`); }
       if (!result || !Array.isArray(result.rows)) throw new UsageError(`${flags.in} is not a search result (no rows)`);
+      const bad = result.rows.findIndex((r) => !r || typeof r !== "object" || typeof r.issuer_name !== "string" || !r.issuer_name);
+      if (bad >= 0) throw new UsageError(`${flags.in} is not a search result: row ${bad + 1} has no issuer_name`);
       let judgments;
       try { judgments = JSON.parse(await readFile(flags.judgments, "utf8")); } catch (e) { throw new UsageError(`could not read ${flags.judgments}: ${e.message}`); }
       const merged = mergeJudgments(result.rows, normalizeJudgments(judgments));
@@ -213,10 +216,14 @@ export async function main(argv = process.argv.slice(2)) {
       for (const w of loaded.warnings) deps.stderr(`profile warning: ${w}\n`);
     }
     let keywords;
-    try { keywords = flags.keywords ? await resolveKeywords(flags.keywords, { presets: PRESETS }) : profile ? profile.keywords : null; }
+    try {
+      keywords = flags["keywords-file"] ? await resolveKeywords(flags["keywords-file"], { presets: PRESETS, file: true })
+        : flags.keywords ? await resolveKeywords(flags.keywords, { presets: PRESETS }) : profile ? profile.keywords : null;
+    }
     catch (e) { throw new UsageError(e.message); }
-    if (!keywords) throw new UsageError("search needs --keywords <file|preset|a,b,c> or --profile <profile.json>");
+    if (!keywords) throw new UsageError("search needs --keywords <preset|a,b,c|./file>, --keywords-file <file> or --profile <profile.json>");
     if (!flags.since) throw new UsageError("search needs --since <YYYY-MM-DD|30d|12w|6m>");
+    if (flags.until !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(flags.until)) throw new UsageError(`--until must be a date (YYYY-MM-DD): got "${flags.until}"`);
     const states = flags.states ? list(flags.states) : (profile && profile.states) || [];
     if (states.some((s) => !/^[A-Za-z]{2}$/.test(s))) throw new UsageError("--states takes two-letter codes, e.g. CA,TX");
     let n = 0;
@@ -224,7 +231,7 @@ export async function main(argv = process.argv.slice(2)) {
       http, today: today(), keywords, since: flags.since, until: flags.until, states,
       minAmount: flags["min-amount"] !== undefined ? amount(flags["min-amount"], "min-amount") : profile && profile.min_amount,
       maxAmount: flags["max-amount"] !== undefined ? amount(flags["max-amount"], "max-amount") : profile && profile.max_amount,
-      includeFunds: !!flags["include-funds"], includeUnknownAmount: !!flags["include-unknown-amount"],
+      includeFunds: !!flags["include-funds"], includeUnknownAmount: !!flags["include-unknown-amount"], includeOldOfferings: !!flags["include-old-offerings"],
       excludes: (profile && profile.excludes) || {}, sample: posInt(flags.sample, "sample"), maxPerKeyword: posInt(flags["max-per-keyword"], "max-per-keyword") || 500,
       onProgress: (m) => { if (++n % 10 === 1) deps.stderr(m + "\n"); },
     });
@@ -240,7 +247,8 @@ export async function main(argv = process.argv.slice(2)) {
       if (note) deps.stderr(note + "\n");
     }
     if (!result.meta.complete) {
-      deps.stderr(`sec-funding-signals: ${result.meta.fetch_errors.length} filing(s) could not be fetched; results are PARTIAL (see meta.fetch_errors). Run again.\n`);
+      if (result.meta.fetch_errors.length) deps.stderr(`sec-funding-signals: ${result.meta.fetch_errors.length} filing(s) could not be fetched; results are PARTIAL (see meta.fetch_errors). Run again.\n`);
+      if (result.meta.capped.length) deps.stderr(`sec-funding-signals: results for ${result.meta.capped.join(", ")} are still capped at ${posInt(flags["max-per-keyword"], "max-per-keyword") || 500} per day-window and are PARTIAL. Narrow --since, use more specific keywords, or raise --max-per-keyword.\n`);
       process.exitCode = 3;
     }
   } catch (e) {

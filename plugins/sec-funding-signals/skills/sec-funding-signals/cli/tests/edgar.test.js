@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildSearchUrl, docUrl, filingUrl, keywordQuery, parseAmount, parseFilingRef, parseFormD, parseHit, parseSince, searchFilings } from "../src/edgar.js";
+import { buildSearchUrl, docUrl, fetchFiling, filingUrl, keywordQuery, normalizeWebsite, parseAmount, parseFilingRef, parseFormD, parseHit, parseSince, searchFilings } from "../src/edgar.js";
 import { createHttp } from "../src/http.js";
-import { fakeClock, fixture, hit, mockFetch, res, searchPage } from "./helpers.js";
+import { existsSync, readdirSync } from "node:fs";
+import { fakeClock, fixture, hit, mockFetch, res, searchPage, tmpDir } from "./helpers.js";
 
 test("parseSince: dates, days, weeks and calendar months", () => {
   assert.equal(parseSince("2026-01-15", "2026-11-05"), "2026-01-15");
@@ -67,7 +68,7 @@ test("parseFormD extracts the issuer, offering, amounts, dates, people and signe
   assert.equal(r.year_of_inc, "2024");
   assert.equal(r.investors_count, "12");
   assert.deepEqual(r.securities, ["Equity", "Option"]);
-  assert.equal(r.website, "https://widgets.example.com/news");
+  assert.equal(r.website, "https://widgets.example.com");
   assert.equal(r.related_persons.length, 2);
   assert.deepEqual(r.related_persons[0], { first_name: "PAT", middle_name: "", last_name: "SAMPLE", relationships: ["Executive Officer", "Director"], clarification: "Chief Executive Officer" });
   assert.deepEqual(r.related_persons[1].relationships, ["Director"]);
@@ -113,11 +114,61 @@ test("searchFilings pages through results, unions by accession and records match
   assert.equal(f.calls.length, 3);
 });
 
-test("searchFilings stops at maxPerKeyword and says it was capped", async () => {
+test("a keyword over the cap splits the date range in halves until every window fits, so nothing is silently dropped", async () => {
   const clock = fakeClock();
-  const f = mockFetch(() => res(searchPage([hit("0001000000-26-000001", 1, "A"), hit("0001000000-26-000002", 2, "B")], 500)));
+  const f = mockFetch((u) => {
+    const p = new URL(u).searchParams;
+    const a = p.get("startdt"); const b = p.get("enddt");
+    const span = (Date.parse(b) - Date.parse(a)) / 86400000;
+    if (span >= 2) return res(searchPage(p.get("from") ? [] : [hit(`0001000000-26-${a.replace(/-/g, "").slice(2)}`, 1, `Co ${a}`)], 50));
+    return res(searchPage([hit(`0002000000-26-${a.replace(/-/g, "").slice(2)}`, 2, `Day ${a}`), hit(`0003000000-26-${a.replace(/-/g, "").slice(2)}`, 3, `Day2 ${a}`)], 2));
+  });
   const http = createHttp({ email: "a@b.co", fetchImpl: f, sleep: clock.sleep, now: clock.now });
-  const { perKeyword } = await searchFilings(http, { keywords: ["x"], startdt: "2026-01-01", enddt: "2026-02-01", maxPerKeyword: 2 });
+  const { hits, perKeyword } = await searchFilings(http, { keywords: ["x"], startdt: "2026-01-01", enddt: "2026-01-08", maxPerKeyword: 5 });
+  assert.equal(perKeyword[0].capped, false);
+  assert.ok(perKeyword[0].windows > 1);
+  assert.ok(hits.length >= 8, `windows were searched separately: ${hits.length} hits`);
+  const dates = f.calls.map((c) => new URL(c.url).searchParams.get("startdt"));
+  assert.ok(dates.includes("2026-01-01"));
+});
+
+test("a single day that still exceeds the cap is reported as capped", async () => {
+  const clock = fakeClock();
+  const f = mockFetch((u) => res(searchPage(new URL(u).searchParams.get("from") ? [] : [hit("0001000000-26-000001", 1, "A")], 500)));
+  const http = createHttp({ email: "a@b.co", fetchImpl: f, sleep: clock.sleep, now: clock.now });
+  const { perKeyword } = await searchFilings(http, { keywords: ["x"], startdt: "2026-01-01", enddt: "2026-01-01", maxPerKeyword: 2 });
   assert.equal(perKeyword[0].capped, true);
-  assert.equal(f.calls.length, 1);
+});
+
+test("a non-Form-D page served with 200 is never cached, and a bad cached entry is refetched", async () => {
+  const clock = fakeClock();
+  const dir = tmpDir();
+  let body = "<html>Request rate threshold exceeded</html>";
+  const f = mockFetch(() => res(body));
+  const http = createHttp({ email: "a@b.co", fetchImpl: f, sleep: clock.sleep, now: clock.now, cacheDir: dir });
+  await assert.rejects(() => fetchFiling(http, { cik: "1234567", accession: "0001234567-26-000001" }), /not a Form D document/);
+  assert.equal(existsSync(dir) ? readdirSync(dir).length : 0, 0, "nothing cached");
+  body = fixture("form-d-operating.xml");
+  const row = await fetchFiling(http, { cik: "1234567", accession: "0001234567-26-000001" });
+  assert.equal(row.issuer_name, "Example Widgets, Inc.");
+  const files = readdirSync(dir);
+  assert.equal(files.length, 1);
+  assert.ok(files.every((x) => !x.endsWith(".tmp")), "cache files are written atomically");
+  await fetchFiling(http, { cik: "1234567", accession: "0001234567-26-000001" });
+  assert.equal(f.calls.length, 2, "second read came from the cache");
+});
+
+test("an invalid numeric entity does not crash the parser", () => {
+  const r = parseFormD(fixture("form-d-operating.xml").replace("Example Widgets, Inc.", "Bad &#99999999999; Entity &#xD800; Co").replace("Example Widgets, Inc.", "x"), { accession: "a" });
+  assert.equal(r.issuer_name, "Bad Entity Co");
+});
+
+test("website: only a bare domain or a site root is kept; paths and queries are not", () => {
+  assert.equal(normalizeWebsite("https://example.com"), "https://example.com");
+  assert.equal(normalizeWebsite("https://example.com/"), "https://example.com");
+  assert.equal(normalizeWebsite("www.example.com"), "www.example.com");
+  assert.equal(normalizeWebsite("example.com"), "example.com");
+  for (const bad of ["https://example.com/news", "https://example.com/?a=1", "https://example.com/#x", "https://localhost", "not a url", ""]) assert.equal(normalizeWebsite(bad), "", bad);
+  const xml = fixture("form-d-operating.xml").replace("https://widgets.example.com", "https://widgets.example.com/press/2026");
+  assert.equal(parseFormD(xml, { accession: "a" }).website, "");
 });

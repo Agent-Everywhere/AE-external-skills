@@ -60,6 +60,27 @@ test("keywords come from a file, a preset name or a comma list; duplicates colla
   await assert.rejects(() => resolveKeywords(" , ", { presets: PRESETS }), ProfileError);
 });
 
+test("a keyword like C# survives; # comments are dropped only in files", async () => {
+  assert.deepEqual(await resolveKeywords("C#, F#, .NET", { presets: PRESETS }), ["C#", "F#", ".NET"]);
+  const file = join(tmpDir(), "kw.txt");
+  writeFileSync(file, "# comment\nC#\nrust # trailing comment\n");
+  assert.deepEqual(await resolveKeywords(file, { presets: PRESETS }), ["C#", "rust"]);
+});
+
+test("a bare word is a keyword, never a file name; files need an explicit path or file: true", async () => {
+  const dir = tmpDir();
+  writeFileSync(join(dir, "robotics"), "from-the-file\n");
+  const cwd = process.cwd();
+  process.chdir(dir);
+  try {
+    assert.deepEqual(await resolveKeywords("robotics", { presets: PRESETS }), ["robotics"]);
+    assert.deepEqual(await resolveKeywords("./robotics", { presets: PRESETS }), ["from-the-file"]);
+    assert.deepEqual(await resolveKeywords("robotics", { presets: PRESETS, file: true }), ["from-the-file"]);
+    await assert.rejects(() => resolveKeywords("./missing.txt", { presets: PRESETS }), /not found/);
+    await assert.rejects(() => resolveKeywords("missing.txt", { presets: PRESETS, file: true }), /not found/);
+  } finally { process.chdir(cwd); }
+});
+
 test("the two example presets ship as profiles/*.json that match the code, and carry no seller pitch", () => {
   assert.deepEqual(presetNames().sort(), ["ai-data", "physical-ai"]);
   for (const name of presetNames()) {
