@@ -4,3 +4,5 @@ __pycache__/
 /dist/
 salesnav_run_log.jsonl
 node_modules/
+.sec-funding-cache/
+sec-funding-signals.config.json
