@@ -259,6 +259,24 @@
         "inbox",
         "classic"
       ]
+    },
+    {
+      "name": "linkedin-job-signals",
+      "source": "./plugins/linkedin",
+      "version": "0.10.0",
+      "description": "Plain LinkedIn, no Sales Navigator needed. Find companies hiring for roles that signal a need for what you sell, from LinkedIn job postings: reads LinkedIn's public job pages (no sign-in, paced, capped), reads the posts, qualifies each company against your profile, and writes a full CSV plus an Apollo-ready account CSV with buyer titles and a one-line opener per company. Read-only. Runs on your own machine.",
+      "strict": false,
+      "skills": [
+        "./skills/linkedin-job-signals"
+      ],
+      "category": "sales",
+      "tags": [
+        "linkedin",
+        "jobs",
+        "hiring",
+        "signals",
+        "classic"
+      ]
     }
   ]
 }

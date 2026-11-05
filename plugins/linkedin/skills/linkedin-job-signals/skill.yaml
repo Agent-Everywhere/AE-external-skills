@@ -1,0 +1,9 @@
+# Per-skill manifest. Keep in step with .claude-plugin/marketplace.json (checked by tests).
+name: linkedin-job-signals
+version: 0.10.0
+category: sales
+# No files of its own: tools and docs come from the single engine skill next to this folder
+# ($CLAUDE_PLUGIN_ROOT/skills/linkedin, or ../linkedin). The main path reads LinkedIn's public job pages with the
+# stdlib script; the optional fallback snippet runs in the user's own signed-in tab.
+engine: linkedin
+runtimes: []

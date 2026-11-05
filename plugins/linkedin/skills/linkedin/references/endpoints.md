@@ -1,6 +1,6 @@
 # Plain LinkedIn endpoints (no Sales Navigator)
 
-What the three plain-LinkedIn skills read, from the user's own signed-in `www.linkedin.com` tab. The API is private,
+What the plain-LinkedIn skills read, from the user's own signed-in `www.linkedin.com` tab. The API is private,
 undocumented and changes without notice: treat every row as "worked on the date shown", and on a 400, 404 or 410 say
 so and fall back to reading the page. Every send (connection request, message) is a UI click after the user's typed
 approval of the exact batch; no programmatic send exists here and none may be built.
@@ -52,6 +52,24 @@ fixture `tests/fixtures/linkedin_classic/search_people_page.html` in the reposit
 | Free-account limit | LinkedIn shows a monthly "commercial use limit" for searches on free accounts; the snippet stops with `commercial_use_limit` when the page says so (wording UNVERIFIED) | UNVERIFIED |
 | Zero results | A page past the last result says "No results found" (wording UNVERIFIED); the snippet then returns `end_of_results` (or `no_results` on page 1) | UNVERIFIED |
 
+## Job postings (`linkedin-job-signals`)
+
+Two routes. The main one is LinkedIn's PUBLIC, logged-out job pages, read by `job_signals.py` with plain HTTPS GETs from
+the user's own connection: no sign-in, no cookie or token is sent or stored, a browser-like `User-Agent` and
+`Accept-Language`, 3 to 8 seconds between requests, no retries. The fallback is the signed-in voyager endpoint, read by
+`search_jobs.js` in the user's own tab when the public route is blocked.
+
+| What | Request | Status |
+|---|---|---|
+| Public job search, first page | `GET https://www.linkedin.com/jobs/search?keywords=<kw>&location=<place>&f_TPR=r<seconds>&sortBy=DD&position=1&pageNum=0`: server-rendered HTML, about 60 cards in `<ul class="jobs-search__results-list">`. Each card: `data-entity-urn="urn:li:jobPosting:<id>"`, `h3.base-search-card__title` (title), `h4.base-search-card__subtitle` with an `<a href=".../company/<slug>">` (company; some are `/school/<slug>`, which has no slug here), `span.job-search-card__location`, `<time datetime="YYYY-MM-DD">` (class `job-search-card__listdate` or `--new`) holding relative text such as "3 days ago". `f_TPR` is the posted-within window: `r86400` 24 hours, `r604800` week, `r2592000` 30 days (any `r<seconds>` is accepted). Keyword matching is loose: results include unrelated titles, so the skill filters titles locally | VERIFIED 2026-11-05 (200, cards parsed; one request from a home connection) |
+| Public job search, later pages | `GET https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords=...&location=...&f_TPR=...&sortBy=DD&start=<offset>`: an HTML fragment of the same `<li>` cards. `start` is the number of cards already read | UNVERIFIED: answered 429 on a first try from one connection, so the skill treats any 429 as a stop and never retries |
+| Public job post | `GET https://www.linkedin.com/jobs/view/<jobId>`: HTML with `h1.top-card-layout__title`, `a.topcard__org-name-link`, `span.topcard__flavor--bullet` (location), `span.posted-time-ago__text`, `figcaption.num-applicants__caption`, the description in `div.show-more-less-html__markup` and the criteria (seniority, employment type, function, industries) in `span.description__job-criteria-text`. 404 or 410 means the job is gone | VERIFIED 2026-11-05 (200, fields parsed) |
+| Blocks on the public route | HTTP 401, 403, 429, 999, a redirect to `/authwall`, `/login`, `/uas/` or a checkpoint, or a captcha page. The skill stops, locks the route for 24 hours and offers the signed-in fallback | UNVERIFIED (wording of the pages varies) |
+| Signed-in job search (fallback) | `GET /voyager/api/voyagerJobsDashJobCards?decorationId=com.linkedin.voyager.dash.deco.jobs.search.JobSearchCardsCollection-220&count=25&q=jobSearch&query=(origin:JOB_SEARCH_PAGE_OTHER_ENTRY,keywords:<kw>,locationUnion:(seoLocation:(location:<place>)),selectedFilters:(sortBy:List(DD),timePostedRange:List(r<seconds>)),spellCorrectionEnabled:true)&start=<n>`: normalized JSON, `data.paging.total`, `data.elements`, and `included[]` with `JobPostingCard` rows: `jobPostingTitle`, `jobPostingUrn` (`urn:li:fsd_jobPosting:<id>`), `primaryDescription.text` (company), `secondaryDescription.text` (location and workplace type), `footerItems[]` (type `LISTED_DATE`, `timeAt` in epoch milliseconds), and the company in `logo.attributes[].detailDataUnion.companyLogo` (`urn:li:fsd_company:<id>`). The response may also hold prefetched cards of the next page: `search_jobs.js` keeps only cards that `data.elements` names. Filters are `List(...)` values; the decoration's trailing number rotates (a 400 stops with `decoration_rotated`) | Endpoint and `JobPostingCard` fields from a prior capture (2026-04); the exact `footerItems` and `elements` shape is UNVERIFIED, so the snippet is tolerant |
+
+Company website and domain are not in either result. `qualify` accepts an optional `website` per company (from the
+post or the user); otherwise Apollo fills it from the company's LinkedIn URL or name.
+
 ## Replies and acceptance (`linkedin-replies`)
 
 Used by `poll.js`, first page of each, one call every 4 to 8 seconds.
@@ -93,5 +111,7 @@ operator defaults, aligned with the Sales Navigator plugin's KB 05 and KB 16.
 | Connection requests | 20 a day, 100 per rolling 7 days | One request per person; a free account may be limited to about 5 notes a month and about 200 characters per note |
 | Messages to 1st-degree connections | 40 a day, 3 per person | |
 | Search pages | 10 a day, 5 per run, 8 to 15 seconds apart | Free accounts hit a monthly "commercial use limit" on searches |
+| Public job pages (`linkedin-job-signals`) | 12 search pages and 30 posts a day, 6 and 10 per run, 3 to 8 seconds apart, no cookies | Stops 24 hours at the first 429, 999, 403, login wall or captcha |
+| Signed-in job search (fallback) | 10 pages a day, 5 per run, 8 to 15 seconds apart | Same stops as the people search |
 | Polls | 4 a day, at uneven times, 4 to 8 seconds between requests | |
 | New or long-idle account | Half of every cap above for the first two weeks | |
