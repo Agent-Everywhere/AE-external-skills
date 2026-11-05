@@ -41,10 +41,11 @@ it AND the sibling `linkedin` engine folder next to it (the tools live there; th
 
 ## Setup
 
-Needs Python 3 and a connection that can open linkedin.com. **The main path needs no LinkedIn account:** it reads the
-public, logged-out job pages from the user's own connection (no sign-in, no cookies sent or stored). Cowork's cloud
-workspace is more likely to be blocked than a home connection; if so, use the fallback in Phase 2. Never ask for, read
-or type a password; do not handle 2FA or captchas. Run commands from the user's project folder.
+Needs Python 3.9 or newer and a connection that can open linkedin.com. **The main path needs no LinkedIn account:** it
+reads the public, logged-out job pages from the user's own connection (no sign-in, no cookies sent or stored). This is
+unofficial, paced, and stops at the first block; LinkedIn's terms apply. Cowork's cloud workspace is more likely to be
+blocked than a home connection; if so, use the fallback in Phase 2. Never ask for, read or type a password; do not
+handle 2FA or captchas. Run commands from the user's project folder.
 
 ## Flow
 
@@ -65,7 +66,7 @@ running `init` again adds or retires searches without losing progress.
 3 to 8 seconds apart. Then `report --limit 10`, and show about 10 companies with why each matched (`why`), what was
 dropped (`dropped_by_title`; `report --all-titles` shows it) and any noise. Ask what is off, fix the profile, `init`, and
 repeat until the user is happy. Then the full run: `fetch` again (6 requests a call, 12 a day; `--pages 2` goes deeper).
-**If the public path stops (`stopped_reason` http_429, 403, 999, login_redirect, captcha), stop: do not retry for 24 hours.**
+**If the public path stops (`stopped_reason` http_429, 403, 999, login_redirect, captcha, suspect_layout), stop: do not retry for 24 hours.**
 Tell the user, and only if they agree use the signed-in fallback: `next-pages` prints params; write them to
 `linkedin-job-signals-work/params.json`, read that file back, paste its contents into `(` + the contents of
 `$ENGINE/scripts/search_jobs.js` + `)(` + the params, run it in the user's own signed-in linkedin.com tab, save the
@@ -98,8 +99,8 @@ file, then search people at those accounts by the buyer titles.
 - **Pacing and caps** are fixed in the script: 3 to 8 seconds between public requests, 12 search pages and 30 posts a
   rolling 24 hours (`cap KIND N` lowers; raising needs the user's OK and `--user-approved-raise`). Signed-in tab: 8 to 15
   seconds, 10 pages a day, 5 per run. Never edit the pauses down or run two at once.
-- **Stop for 24 hours** on HTTP 401, 403, 429, 999, a redirect to login, a checkpoint, a captcha or
-  `commercial_use_limit`. Do not retry, wait it out or switch tabs; tell the user.
+- **Stop for 24 hours** on HTTP 401, 403, 429, 999, any redirect, a checkpoint, a captcha or `suspect_layout` (an
+  unrecognised page). Do not retry, wait it out or switch tabs; tell the user.
 - **User-supplied values never go inside double quotes on a command line** (`$(...)`, backticks and `"` in them
   would run or break it). Put them in a file, as above; if you must pass one inline, use single quotes and write each `'`
   inside as `'\''`.
@@ -108,5 +109,4 @@ file, then search people at those accounts by the buyer titles.
 
 ## Files
 
-`$ENGINE/scripts/job_signals.py` (every command above), `search_jobs.js` (fallback), `$ENGINE/references/job_signal_presets.json`,
-`$ENGINE/references/endpoints.md` (what is verified and when).
+`$ENGINE/scripts/job_signals.py` (every command above), `search_jobs.js` (fallback), `$ENGINE/references/job_signal_presets.json`, `endpoints.md` (what is verified).

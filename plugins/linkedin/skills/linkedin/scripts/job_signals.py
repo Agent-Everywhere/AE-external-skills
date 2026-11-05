@@ -52,6 +52,7 @@ DELAY = (3.0, 8.0)                       # seconds between public requests, rand
 CAPS = {"public_search": 12, "public_detail": 30, "tab_search": 10}   # requests per rolling 24 hours
 RUN_MAX = {"public_search": 6, "public_detail": 10, "tab_search": 5}  # per command run
 TAB_PAGE = 25                            # signed-in tab: results per request
+TAB_LAST_PAGE = 40                       # signed-in tab: 25 a page, so 1000 results
 LAST_START = 975                         # LinkedIn serves at most about 1000 results per search
 FITS = ("strong", "maybe", "no")
 NO_LOCK_STOPS = {"already_running", "wrong_page", "bad_params", "end_of_results", "no_results", "network_error"}
@@ -224,16 +225,29 @@ def parse_cards(page):
     return rows
 
 
+def markup_inner(page):
+    """The HTML inside the description's markup div, balancing nested <div>s (a post may hold its own)."""
+    m = re.search(r'show-more-less-html__markup[^>]*>', page)
+    if not m:
+        return ""
+    depth = 1
+    for t in re.finditer(r"<(/?)div\b[^>]*>", page[m.end():], re.I):
+        depth += -1 if t.group(1) else 1
+        if depth == 0:
+            return page[m.end(): m.end() + t.start()]
+    return page[m.end():]
+
+
 def parse_detail(page):
     """The public job page: {title, company, location, text, criteria[], posted, applicants}."""
     def grab(pattern):
         g = re.search(pattern, page, re.S)
         return strip_tags(g.group(1)) if g else ""
 
-    d = re.search(r'show-more-less-html__markup[^>]*>(.*?)</div>', page, re.S)
+    inner = markup_inner(page)
     text = ""
-    if d:
-        raw = re.sub(r"<\s*(br|/p|/li|/ul|/h\d)\s*/?>", "\n", d.group(1), flags=re.I)
+    if inner:
+        raw = re.sub(r"<\s*(br|/p|/li|/ul|/h\d)\s*/?>", "\n", inner, flags=re.I)
         raw = htmllib.unescape(re.sub(r"<[^>]*>", " ", raw))
         text = "\n".join(re.sub(r"[ \t ]+", " ", ln).strip() for ln in raw.splitlines())
         text = re.sub(r"\n{3,}", "\n\n", re.sub(r"[\x00-\x08\x0b-\x1f\x7f]", " ", text)).strip()
@@ -246,6 +260,9 @@ def parse_detail(page):
             "criteria": crit[:6], "text": text[:MAX_TEXT]}
 
 
+EXPECTED = ("jobs-search__results-list", "base-search-card", "show-more-less-html", "top-card-layout", "topcard__")
+
+
 def block_reason(status, final_url, body):
     """Why a public request must stop the run, or None."""
     if status in (401, 403, 429, 999):
@@ -255,21 +272,33 @@ def block_reason(status, final_url, body):
         return "checkpoint"
     if re.search(r"authwall|/login|/uas/|/signup", final, re.I):
         return "login_redirect"
+    if 300 <= status < 400:
+        return "unexpected_redirect"
     if status != 200:
         return "http_%d" % status if status else "network_error"
-    if "base-search-card" not in body and "show-more-less-html" not in body and re.search(
-            r"captcha|security verification|unusual activity|sign in to continue", body[:200000], re.I):
+    # a captcha page only when none of the expected page containers is there AND its wording is
+    if not any(m in body for m in EXPECTED) and re.search(
+            r"captcha|security verification|unusual activity|are you a human", body[:200000], re.I):
         return "captcha"
     return None
 
 
-class Public:
-    """One paced, cookie-less GET at a time. No retries: the caller stops on any block."""
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A redirect is a stop (a login wall bounces this way), never a second, unpaced request."""
 
-    def __init__(self, base, fast):
+    def redirect_request(self, *a, **k):
+        return None
+
+
+class Public:
+    """One paced, cookie-less GET at a time. No retries and no redirects: the caller stops on any block.
+    `last` is the epoch time of the previous public request, kept in the ledger so the pause holds across runs."""
+
+    def __init__(self, base, fast, last=0.0):
         if not re.match(r"^(https://www\.linkedin\.com|http://(127\.0\.0\.1|localhost)(:\d+)?)$", base or ""):
             raise Fail("--base-url may only be https://www.linkedin.com (tests use a local server)")
-        self.base, self.fast, self.last = base, fast, 0.0
+        self.base, self.fast, self.last = base, fast, float(last or 0.0)
+        self.opener = urllib.request.build_opener(NoRedirect)   # no cookie processor: nothing is sent or kept
 
     def get(self, path, query=None):
         if not self.fast:
@@ -280,10 +309,11 @@ class Public:
         req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept-Language": "en-US,en;q=0.9",
                                                    "Accept": "text/html,application/xhtml+xml"})
         try:
-            with urllib.request.urlopen(req, timeout=30) as r:
+            with self.opener.open(req, timeout=30) as r:
                 out = (r.status, r.geturl(), r.read(4_000_000).decode("utf-8", errors="replace"))
         except urllib.error.HTTPError as e:
-            out = (e.code, url, "")
+            where = urllib.parse.urljoin(url, e.headers.get("Location", "")) if 300 <= e.code < 400 else url
+            out = (e.code, where, "")
         except (urllib.error.URLError, TimeoutError, OSError, ValueError):
             out = (0, url, "")
         self.last = time.time()
@@ -352,6 +382,9 @@ def stop_note(channel, reason):
     if reason in NO_LOCK_STOPS:
         return {"end_of_results": "that search has no more results", "no_results": "the search returned no jobs",
                 "network_error": "no answer from LinkedIn; nothing was read, try again later"}.get(reason, reason)
+    if reason == "suspect_layout":
+        return ("LinkedIn returned a page this parser does not recognise (a changed layout or a soft block). Nothing was "
+                "marked done. Stop for 24 hours, tell the user, and offer the signed-in tab fallback")
     if channel == "public":
         return ("LinkedIn's public pages are blocking this connection (%s). Stop. Do not retry for 24 hours. Tell the "
                 "user, and offer the signed-in tab fallback (`next-pages`, then `search_jobs.js`, then `merge`)" % reason)
@@ -484,6 +517,8 @@ def companies(prof, rows, led, det, all_titles=False):
     """Matched companies, ranked, with the reasons. Returns (list, counts)."""
     smap = search_map(led)
     name_key = {norm_name(r["company"]): "li:" + r["company_slug"].lower() for r in rows if r["company_slug"]}
+    # a saved fit follows the company when its key changes (a name-only company later seen with a LinkedIn slug)
+    fit_by_name = {v["name"]: v for v in led.get("fit", {}).values() if v.get("name")}
     groups, dropped = {}, {"title": 0, "post": 0}
     for r in rows:
         j = judge(prof, r, smap, det) if not all_titles else {"ok": True, "why": "all titles", "family": "general", "post": "not read"}
@@ -514,7 +549,7 @@ def companies(prof, rows, led, det, all_titles=False):
             if d and d.get("status") == "ok":
                 read += 1
                 ev += [e for e in evidence_of(prof, d.get("text", "")) if e not in ev]
-        fit = led.get("fit", {}).get(g["key"], {})
+        fit = led.get("fit", {}).get(g["key"]) or fit_by_name.get(norm_name(g["company"]), {})
         out.append({
             "key": g["key"], "company": g["company"], "linkedin_company_url": company_url(g["slug"]),
             "website": fit.get("website", ""), "open_roles": len(jobs),
@@ -592,16 +627,27 @@ def cmd_init(args):
     d, pf, lp, jp, dp = paths(args)
     prof = load_profile(args)
     now = now_of(args)
+    if args.drop_work and not args.force:
+        raise Fail("--drop-work only goes with --force")
     with locked(d, "job_signals.py"):
-        if os.path.exists(lp) and not args.force:
+        if os.path.exists(lp) and not args.drop_work:
             rows, led, det = load_work(args)
+            if args.force:     # start every search over; requests, stops, caps, jobs, posts and fit all stay
+                for s in led["searches"]:
+                    s.update(next_start=0, tab_next_start=0, done=False, tab_done=False)
             added, retired = sync_searches(led, prof)
             save_work(args, rows, led, det)
-            emit({"working_dir": d, "synced": True, "searches_added": added, "searches_retired": retired,
+            emit({"working_dir": d, "synced": True, "restarted": bool(args.force), "searches_added": added,
+                  "searches_retired": retired,
                   "searches": [s["id"] + ": " + s["keywords"] for s in led["searches"] if not s["retired"]]})
             return
         led = {"version": 1, "created": ts(now), "caps": dict(CAPS), "searches": [], "requests": [], "stops": [],
                "merges": {}, "fit": {}}
+        if os.path.exists(lp):   # --drop-work: jobs, posts and fit go, but the request log, caps and stop locks stay
+            old = load_json(lp)
+            for k in ("caps", "requests", "stops", "last_public"):
+                if k in old:
+                    led[k] = old[k]
         sync_searches(led, prof)
         save_work(args, [], led, {})
     emit({"working_dir": d, "searches": [s["id"] + ": " + s["keywords"] for s in led["searches"]], "caps": led["caps"]})
@@ -624,6 +670,7 @@ def cmd_fetch(args):
     made, per, reason = 0, {}, None
     with locked(d, "job_signals.py"):
         rows, led, det = load_work(args)
+        pub.last = led.get("last_public", 0.0)
         sync_searches(led, prof)
         stop = active_stop(led, "public", now)
         if stop:
@@ -646,15 +693,21 @@ def cmd_fetch(args):
                     break
                 touch_lock(args)
                 status, final, body = pub.search(s["keywords"], s["location"], s["days"], s["next_start"])
+                led["last_public"] = pub.last
                 made += 1
                 bad = block_reason(status, final, body)
+                cards = [] if bad else parse_cards(body)
+                if not bad and not cards and not (
+                        ("jobs-search__results-list" in body) if s["next_start"] <= 0
+                        else (not body.strip() or ("<html" not in body.lower() and len(body) < 2000))):
+                    bad = "suspect_layout"       # an empty page without the expected list is not "no more results"
                 request_entry(led, "public_search", now, search=s["id"], start=s["next_start"], result=bad or "ok")
                 s["requests"] += 1
                 if bad:
                     note_stop(led, "public", bad, now)
                     reason = bad
+                    save_work(args, rows, led, det)
                     break
-                cards = parse_cards(body)
                 added, _, _ = ingest(rows, cards, s["id"], now, "public")
                 info = per.setdefault(s["id"], {"cards": 0, "added": 0})
                 info["cards"] += len(cards)
@@ -680,9 +733,10 @@ def cmd_details(args):
     now = now_of(args)
     prof = load_profile(args)
     pub = Public(args.base_url, args.fast)
-    made, got, gone, reason = 0, 0, 0, None
+    made, got, gone, reason, empty_run = 0, 0, 0, None, 0
     with locked(d, "job_signals.py"):
         rows, led, det = load_work(args)
+        pub.last = led.get("last_public", 0.0)
         stop = active_stop(led, "public", now)
         if stop:
             emit({"made": 0, "reason": "stopped:" + stop["reason"], "locked_until": ts(parse_ts(stop["at"]) + DAY),
@@ -710,23 +764,34 @@ def cmd_details(args):
                 break
             touch_lock(args)
             status, final, body = pub.detail(jid)
+            led["last_public"] = pub.last
             made += 1
-            bad = None if status in (404, 410) else block_reason(status, final, body)
-            request_entry(led, "public_detail", now, job=jid, result=bad or ("gone" if status in (404, 410) else "ok"))
+            gone_page = status in (404, 410)
+            bad = None if gone_page else block_reason(status, final, body)
+            dd = None if (gone_page or bad) else parse_detail(body)
+            looks_like_post = bool(dd) and any(m in body for m in ("top-card-layout", "topcard__", "description__job-criteria"))
+            if dd is not None and not dd["text"]:
+                if not looks_like_post:
+                    bad = "suspect_layout"       # not a job page at all: store nothing for this job
+                else:
+                    empty_run += 1
+                    if empty_run >= 2:
+                        bad = "suspect_layout"   # two posts in a row without a description: the layout changed
+            request_entry(led, "public_detail", now, job=jid, result=bad or ("gone" if gone_page else "ok"))
+            if gone_page:
+                det[jid] = {"status": "gone", "fetched_at": ts(now)}
+                gone += 1
+            elif dd is not None and not dd["text"] and looks_like_post:
+                det[jid] = {"status": "no_text", "fetched_at": ts(now)}
+            elif dd is not None and dd["text"]:
+                det[jid] = dict(dd, status="ok", fetched_at=ts(now))
+                got += 1
+                empty_run = 0
             if bad:
                 note_stop(led, "public", bad, now)
                 reason = bad
+                save_work(args, rows, led, det)
                 break
-            if status in (404, 410):
-                det[jid] = {"status": "gone", "fetched_at": ts(now)}
-                gone += 1
-            else:
-                dd = parse_detail(body)
-                if not dd["text"]:
-                    det[jid] = {"status": "no_text", "fetched_at": ts(now)}
-                else:
-                    det[jid] = dict(dd, status="ok", fetched_at=ts(now))
-                    got += 1
             save_work(args, rows, led, det)
         save_work(args, rows, led, det)
         left = cap_left(led, "public_detail", now)
@@ -780,6 +845,7 @@ def cmd_qualify(args):
         cos, _ = companies(prof, rows, led, det)
         by_key = {c["key"]: c["key"] for c in cos}
         by_name = {norm_name(c["company"]): c["key"] for c in cos}
+        by_key_name = {c["key"]: c["company"] for c in cos}
         saved, unmatched = 0, []
         for it in items:
             if not isinstance(it, dict):
@@ -792,13 +858,13 @@ def cmd_qualify(args):
             if not key:
                 unmatched.append(ref)
                 continue
-            led.setdefault("fit", {})[key] = {"fit": fit, "reason": clean_text(it.get("reason"), 300),
+            led.setdefault("fit", {})[key] = {"name": norm_name(by_key_name.get(key, ref)), "fit": fit, "reason": clean_text(it.get("reason"), 300),
                                               "evidence": clean_text(it.get("evidence"), 500),
                                               "website": clean_site(it.get("website", "")), "at": ts(now)}
             saved += 1
         save_work(args, rows, led, det)
     emit({"saved": saved, "unmatched": unmatched,
-          "unqualified_left": len([c for c in cos if c["key"] not in led["fit"]])})
+          "unqualified_left": len([c for c in cos if c["key"] not in led["fit"] and not c["fit"]])})
 
 
 def cmd_status(args):
@@ -899,8 +965,12 @@ def cmd_next_pages(args):
                     i["status"], i["abandoned_at"] = "abandoned", ts(now)
         issue = next((i for i in led["requests"] if i["kind"] == "tab_search" and i["status"] == "open"), None)
         stop = active_stop(led, "tab", now)
-        s = next((x for x in led["searches"] if not x["retired"] and not x["tab_done"]
-                  and (not args.search or x["id"] == args.search)), None)
+        cands = [x for x in led["searches"] if not x["retired"] and not x["tab_done"]
+                 and (not args.search or x["id"] == args.search)]
+        for x in cands:
+            if x["tab_next_start"] // TAB_PAGE >= TAB_LAST_PAGE:
+                x["tab_done"] = True              # page 40 was the last LinkedIn serves for one search
+        s = next((x for x in cands if not x["tab_done"]), None)
         left = cap_left(led, "tab_search", now)
         reason, params = None, None
         if issue:
@@ -912,7 +982,7 @@ def cmd_next_pages(args):
         elif left <= 0:
             reason = "daily_cap_reached"
         else:
-            pages = max(1, min(args.pages, RUN_MAX["tab_search"], left, (LAST_START // TAB_PAGE + 1) - s["tab_next_start"] // TAB_PAGE))
+            pages = min(max(args.pages, 1), RUN_MAX["tab_search"], left, TAB_LAST_PAGE - s["tab_next_start"] // TAB_PAGE)
             e = request_entry(led, "tab_search", now, count=pages, status="open", search=s["id"], start=s["tab_next_start"])
             params = {"keywords": s["keywords"], "days": s["days"], "page_from": s["tab_next_start"] // TAB_PAGE + 1,
                       "pages": pages, "search": s["id"], "issue": e["id"]}
@@ -945,7 +1015,7 @@ def cmd_merge(args):
         issue.update(status="merged", count=max(attempted, read, 0), merged_at=ts(now))
         s["tab_next_start"] = max(s["tab_next_start"], issue["start"] + read * TAB_PAGE)
         stop = res.get("stopped_reason")
-        if stop in ("end_of_results", "no_results"):
+        if stop in ("end_of_results", "no_results") or s["tab_next_start"] // TAB_PAGE >= TAB_LAST_PAGE:
             s["tab_done"] = True
         if stop:
             note_stop(led, "tab", stop, now)
@@ -975,7 +1045,8 @@ def build_parser():
     p.add_argument("--force", action="store_true")
     p.add_argument("--check", action="store_true", help="validate profile.json (this is also the default)")
     p = add("init", cmd_init, help="create or sync the ledger from profile.json")
-    p.add_argument("--force", action="store_true", help="start the ledger over (jobs.csv is replaced too)")
+    p.add_argument("--force", action="store_true", help="start every search over (jobs, posts, fit, caps and stop locks stay)")
+    p.add_argument("--drop-work", action="store_true", help="with --force: also delete jobs, posts and fit (caps and stop locks stay)")
     p = add("fetch", cmd_fetch, help="read public search pages (paced, capped)")
     p.add_argument("--search", default=None)
     p.add_argument("--pages", type=int, default=1, help="requests per search this run (max 5)")

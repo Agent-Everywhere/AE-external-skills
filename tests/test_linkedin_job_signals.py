@@ -49,6 +49,7 @@ class Site:
         self.search_body = fx("search_page.html")
         self.fragment_body = fx("search_fragment.html")
         self.redirect_to = None
+        self.detail_override = None
         site = self
 
         class H(http.server.BaseHTTPRequestHandler):
@@ -74,6 +75,8 @@ class Site:
                 if self.path.startswith("/jobs-guest/jobs/api/seeMoreJobPostings/search"):
                     return self.reply(site.search_status, site.fragment_body if site.search_status == 200 else "")
                 m = re.match(r"/jobs/view/(\d+)", self.path)
+                if m and site.detail_override is not None:
+                    return self.reply(200, site.detail_override)
                 if m:
                     jid = m.group(1)
                     if jid == "4400000001":
@@ -114,7 +117,7 @@ class Work(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stderr)
         return json.loads(p.stdout)
 
-    def fail(self, *args, now=T0, code=2):
+    def refuses(self, *args, now=T0, code=2):   # not `fail`: unittest's sequence/dict asserts call self.refuses()
         p = self.raw(*args, now=now)
         self.assertEqual(p.returncode, code, p.stdout + p.stderr)
         return p
@@ -167,7 +170,7 @@ class PublicPageParsers(unittest.TestCase):
         self.assertEqual(rows[2]["title"], "Robot Teleoperator & Pilot")            # entities decoded
         undated = rows[6]
         self.assertEqual((undated["company"], undated["company_slug"], undated["listed_at"], undated["listed_text"]),
-                         ("Company F (Confidential)", "", "", ""))
+                         ("Company F (Confidential)", "", "", "4 days ago"))
 
     def test_fragment_and_empty_and_garbage(self):
         self.assertEqual([r["job_id"] for r in js.parse_cards(fx("search_fragment.html"))], ["4400000011"])
@@ -182,6 +185,8 @@ class PublicPageParsers(unittest.TestCase):
         self.assertIn("hiring 7 teleoperation operators", d["text"])
         self.assertIn("Operate humanoid robots remotely", d["text"])
         self.assertNotIn("<", d["text"])
+        self.assertIn("Perks: relocation support.", d["text"])         # text after a nested <div> is kept
+        self.assertIn("three sites", d["text"])
         self.assertEqual(js.parse_detail("<html></html>")["text"], "")
 
     def test_a_post_is_cut_at_a_fixed_length(self):
@@ -199,6 +204,12 @@ class PublicPageParsers(unittest.TestCase):
         self.assertEqual(b(0, "", ""), "network_error")
         self.assertIsNone(b(200, "https://www.linkedin.com/jobs/search", fx("search_page.html")))
         self.assertIsNone(b(200, "x", fx("search_empty.html")))
+        # a legitimate page that merely contains sign-in wording is not a block
+        self.assertIsNone(b(200, "x", fx("search_empty.html") + "<p>Sign in to continue to save jobs</p>"))
+        self.assertIsNone(b(200, "x", "<html>sign in to continue</html>"))
+        # a redirect is a stop, never followed
+        self.assertEqual(b(302, "https://www.linkedin.com/authwall?x=1", ""), "login_redirect")
+        self.assertEqual(b(302, "https://www.linkedin.com/somewhere", ""), "unexpected_redirect")
 
     def test_dates(self):
         d = js.iso_date
@@ -284,9 +295,9 @@ class ProfileCommands(Work):
         out = self.run_ok("profile", "--preset", "physical-ai-data")
         self.assertTrue(out["valid"])
         self.assertTrue((self.dir / "profile.json").is_file())
-        self.fail("profile", "--preset", "physical-ai-data")                  # never overwrites silently
+        self.refuses("profile", "--preset", "physical-ai-data")                  # never overwrites silently
         self.run_ok("profile", "--preset", "physical-ai-data", "--force")
-        self.fail("profile", "--preset", "nope")
+        self.refuses("profile", "--preset", "nope")
         init = self.run_ok("init")
         self.assertEqual(len(init["searches"]), 8)
         self.assertEqual(self.ledger()["caps"], {"public_search": 12, "public_detail": 30, "tab_search": 10})
@@ -300,7 +311,7 @@ class ProfileCommands(Work):
         retired = {s["keywords"]: s["retired"] for s in self.ledger()["searches"]}
         self.assertEqual(retired, {"teleoperation operator": False, "robot data collection": True, "humanoid data collection": False})
         (self.dir / "profile.json").write_text("{not json")
-        p = self.fail("status")
+        p = self.refuses("status")
         self.assertIn("not valid JSON", p.stderr)
 
     def test_presets_command_lists_the_examples_only(self):
@@ -386,10 +397,10 @@ class PublicFetch(Work):
         self.assertEqual((out["requests_made"], out["stopped_reason"]), (3, "daily_cap_reached"))
         self.assertEqual(self.run_ok("fetch", now=T_PLUS_1H)["requests_made"], 0)
         self.assertEqual(self.run_ok("fetch", now=T_PLUS_24H1)["requests_made"] > 0, True)
-        p = self.fail("cap", "public_search", "50")
+        p = self.refuses("cap", "public_search", "50")
         self.assertIn("--user-approved-raise", p.stderr)
         self.run_ok("cap", "public_search", "50", "--user-approved-raise")
-        self.fail("cap", "bogus", "3")
+        self.refuses("cap", "bogus", "3")
 
     def test_the_run_limit_is_six_requests(self):
         self.started(keywords=["k%d one" % i for i in range(8)])
@@ -403,6 +414,49 @@ class PublicFetch(Work):
                            capture_output=True, text=True, cwd=self.tmp)
         self.assertEqual(p.returncode, 2)
         self.assertIn("--base-url", p.stderr)
+
+    def test_a_redirect_is_not_followed(self):
+        self.started()
+        self.site.redirect_to = "/authwall?trk=x"
+        out = self.run_ok("fetch")
+        self.assertEqual(out["stopped_reason"], "login_redirect")
+        self.assertEqual([r["path"].split("?")[0] for r in self.site.requests], ["/jobs/search"])   # /authwall never requested
+        self.site.redirect_to = "/elsewhere"
+        self.assertEqual(self.run_ok("fetch", now=T_PLUS_24H1)["stopped_reason"], "unexpected_redirect")
+
+    def test_an_empty_page_without_the_results_list_is_a_suspect_layout_not_the_end(self):
+        self.started()
+        self.site.search_body = "<!DOCTYPE html><html><body><h1>Something changed</h1></body></html>"
+        out = self.run_ok("fetch")
+        self.assertEqual(out["stopped_reason"], "suspect_layout")
+        self.assertFalse(self.ledger()["searches"][0]["done"])
+        self.assertEqual(self.ledger()["stops"][0]["reason"], "suspect_layout")
+        self.assertIn("does not recognise", out["note"])
+
+    def test_a_later_page_ends_only_on_an_empty_fragment(self):
+        self.started()
+        self.run_ok("fetch")
+        self.site.fragment_body = "   \n"
+        out = self.run_ok("fetch", "--search", "s1")
+        self.assertEqual(out["per_search"]["s1"]["ended"], "end_of_results")
+        self.assertTrue(self.ledger()["searches"][0]["done"])
+        self.setUp()
+        self.started()
+        self.run_ok("fetch")
+        self.site.fragment_body = "<html><body>who knows</body></html>"
+        self.assertEqual(self.run_ok("fetch", "--search", "s1")["stopped_reason"], "suspect_layout")
+        self.assertFalse(self.ledger()["searches"][0]["done"])
+
+    def test_the_last_request_time_is_kept_in_the_ledger_and_the_pause_holds_across_runs(self):
+        from unittest import mock
+        self.started()
+        self.run_ok("fetch")
+        self.assertGreater(self.ledger()["last_public"], 0)
+        pub = js.Public(self.site.url, False, last=js.time.time())      # a run that starts right after another
+        with mock.patch.object(js.time, "sleep") as sleep, mock.patch.object(js.random, "uniform", return_value=5.0):
+            pub.get("/jobs/view/4400000001")
+        self.assertEqual(len(sleep.call_args_list), 1)
+        self.assertTrue(4.0 <= sleep.call_args[0][0] <= 5.0, sleep.call_args)
 
     def test_the_fetcher_has_a_randomised_pause_of_three_to_eight_seconds(self):
         self.assertEqual(js.DELAY, (3.0, 8.0))
@@ -459,7 +513,7 @@ class PostsFitAndExport(Work):
         self.assertTrue(any("post: confirmed" in w for w in a["why"]))
         text = self.run_ok("job-text", "4400000001")
         self.assertIn("hiring 7 teleoperation operators", text["untrusted_text"])
-        self.fail("job-text", "4400000999")
+        self.refuses("job-text", "4400000999")
         dets = json.loads((self.dir / "details.json").read_text())
         self.assertNotIn("cookie", json.dumps(dets).lower())
 
@@ -474,6 +528,57 @@ class PostsFitAndExport(Work):
         self.run_ok("cap", "public_detail", "2")
         out = self.run_ok("details", "--limit", "5", now=T_PLUS_1H)
         self.assertEqual((out["requests_made"], out["stopped_reason"]), (0, "daily_cap_reached"))
+
+    def test_a_page_that_is_not_a_job_page_is_never_stored_as_a_post(self):
+        self.fetched()
+        self.site.detail_override = fx("detail_interstitial.html")
+        out = self.run_ok("details", "--limit", "5")
+        self.assertEqual((out["stopped_reason"], out["requests_made"], out["posts_read"]), ("suspect_layout", 1, 0))
+        self.assertFalse((self.dir / "details.json").exists() and json.loads((self.dir / "details.json").read_text()))
+        self.assertEqual(self.run_ok("details", now=T_PLUS_1H)["reason"], "stopped:suspect_layout")
+
+    def test_two_job_pages_in_a_row_without_a_description_stop_the_run(self):
+        self.fetched()
+        self.site.detail_override = fx("detail_nodesc.html")
+        out = self.run_ok("details", "--limit", "5")
+        self.assertEqual((out["stopped_reason"], out["requests_made"]), ("suspect_layout", 2))
+        dets = json.loads((self.dir / "details.json").read_text())
+        self.assertEqual({v["status"] for v in dets.values()}, {"no_text"})
+
+    def test_init_force_keeps_stops_requests_fit_and_posts_and_drop_work_keeps_the_locks(self):
+        self.fetched()
+        self.run_ok("details", "--limit", "1")
+        self.run_ok("qualify", self.write("fit.json", [{"company": "Company A", "fit": "strong", "reason": "r"}]))
+        self.site.search_status = 429
+        self.run_ok("fetch", "--search", "s1", now=T_PLUS_1H)
+        n_requests = len(self.ledger()["requests"])
+        out = self.run_ok("init", "--force", now=T_PLUS_1H)
+        self.assertTrue(out["restarted"])
+        led = self.ledger()
+        self.assertEqual(len(led["requests"]), n_requests)
+        self.assertEqual(led["stops"][0]["reason"], "http_429")
+        self.assertIn("li:company-a", led["fit"])
+        self.assertEqual(led["searches"][0]["next_start"], 0)
+        self.assertEqual(len(self.jobs()), 7)
+        self.assertTrue(json.loads((self.dir / "details.json").read_text()))
+        self.assertEqual(self.run_ok("fetch", now=T_PLUS_1H)["reason"], "stopped:http_429")      # the lock survived
+        self.refuses("init", "--drop-work")
+        self.run_ok("init", "--force", "--drop-work", now=T_PLUS_1H)
+        led = self.ledger()
+        self.assertEqual((led["fit"], self.jobs(), led["stops"][0]["reason"]), ({}, [], "http_429"))
+        self.assertEqual(len(led["requests"]), n_requests)
+        self.assertEqual(json.loads((self.dir / "details.json").read_text()), {})
+
+    def test_a_saved_fit_follows_a_company_that_later_gets_a_linkedin_slug(self):
+        prof = js.validate_profile({"keywords": ["teleoperation operator"]})
+        row = {"job_id": "4400000007", "title": "Teleoperation Operator", "company": "Beta Robotics, Inc.", "company_slug": "",
+               "location": "", "listed_at": "2026-11-01", "listed_text": "", "dates_approx": "", "job_url": "u", "searches": "s1"}
+        led = {"searches": [{"id": "s1", "keywords": "teleoperation operator"}], "fit": {
+            "name:beta robotics": {"name": "beta robotics", "fit": "strong", "reason": "r", "evidence": "", "website": ""}}}
+        first = js.companies(prof, [row], led, {})[0][0]
+        self.assertEqual((first["key"], first["fit"]), ("name:beta robotics", "strong"))
+        later = js.companies(prof, [dict(row, company_slug="beta-robotics")], led, {})[0][0]
+        self.assertEqual((later["key"], later["fit"]), ("li:beta-robotics", "strong"))
 
     def test_a_block_while_reading_posts_stops_and_locks(self):
         self.fetched()
@@ -492,8 +597,8 @@ class PostsFitAndExport(Work):
         out = self.run_ok("qualify", f)
         self.assertEqual((out["saved"], out["unmatched"]), (2, ["Nobody Inc"]))
         self.assertEqual(out["unqualified_left"], 1)
-        self.fail("qualify", self.write("bad.json", [{"company": "Company A", "fit": "great"}]))
-        self.fail("qualify", self.write("bad2.json", {"x": 1}))
+        self.refuses("qualify", self.write("bad.json", [{"company": "Company A", "fit": "great"}]))
+        self.refuses("qualify", self.write("bad2.json", {"x": 1}))
         led = self.ledger()["fit"]["li:company-a"]
         self.assertEqual((led["fit"], led["website"]), ("strong", "company-a.example"))
         st = self.run_ok("status")
@@ -544,13 +649,13 @@ class PostsFitAndExport(Work):
         self.assertEqual(out["full_rows"], 1)
         raw = (self.tmp / "out" / "job-signals.companies.csv").read_text(encoding="utf-8-sig")
         self.assertIn("'=HYPERLINK", raw)
-        self.fail("export", "--where", "nope=x")
+        self.refuses("export", "--where", "nope=x")
 
     def test_an_undated_card_keeps_its_listed_text_and_approximate_flag(self):
         self.fetched()
         rows = {r["job_id"]: r for r in self.jobs()}
         undated = rows["4400000007"]
-        self.assertEqual((undated["listed_at"], undated["listed_text"], undated["dates_approx"]), ("2026-11-01", "4 days ago", "1"))
+        self.assertEqual((undated["listed_at"], undated["listed_text"], undated["dates_approx"]), ("2026-10-29", "4 days ago", "1"))
         self.assertEqual(rows["4400000001"]["dates_approx"], "")
 
     def test_jobs_csv_is_formula_guarded_on_disk_and_raw_in_memory(self):
@@ -597,9 +702,9 @@ class TabFallback(Work):
 
     def test_merge_needs_a_run_id_from_this_ledger_and_a_rows_list(self):
         self.started()
-        self.fail("merge", self.write("a.json", {"rows": [], "request": {"issue": "nope"}}))
-        self.fail("merge", self.write("b.json", {"nothing": 1}))
-        self.fail("merge", str(self.tmp / "absent.json"))
+        self.refuses("merge", self.write("a.json", {"rows": [], "request": {"issue": "nope"}}))
+        self.refuses("merge", self.write("b.json", {"nothing": 1}))
+        self.refuses("merge", str(self.tmp / "absent.json"))
 
     def test_a_tab_stop_locks_the_tab_channel_only(self):
         self.started()
@@ -607,6 +712,21 @@ class TabFallback(Work):
         self.run_ok("merge", self.write("r.json", tab_result(n["params"]["issue"], [], stopped="http_429", pages_read=0)))
         self.assertEqual(self.run_ok("next-pages", now=T_PLUS_1H)["reason"], "stopped:http_429")
         self.assertIsNone(self.run_ok("fetch", now=T_PLUS_1H)["stopped_reason"])    # the public channel is unaffected
+
+    def test_the_last_page_is_marked_done_and_never_issued_as_page_41(self):
+        self.started(keywords=["teleoperation operator", "robot teleoperator"])
+        led = self.ledger()
+        led["searches"][0]["tab_next_start"] = 975
+        led["searches"][1]["tab_next_start"] = 1000
+        (self.dir / "ledger.json").write_text(json.dumps(led))
+        n = self.run_ok("next-pages", "--search", "s2")
+        self.assertEqual((n["params"], n["reason"]), (None, "nothing_left"))
+        self.assertTrue(self.ledger()["searches"][1]["tab_done"])
+        n = self.run_ok("next-pages", "--pages", "5")
+        self.assertEqual((n["params"]["search"], n["params"]["page_from"], n["params"]["pages"]), ("s1", 40, 1))
+        self.run_ok("merge", self.write("r.json", tab_result(n["params"]["issue"], [tab_row("4400000201")], search="s1", page_from=40)))
+        self.assertTrue(self.ledger()["searches"][0]["tab_done"])
+        self.assertEqual(self.run_ok("next-pages", now=T_PLUS_1H)["reason"], "nothing_left")
 
     def test_abandoned_runs_still_count_against_the_cap(self):
         self.started()
@@ -728,6 +848,14 @@ class SkillPackaging(unittest.TestCase):
         idx = [self.text.find(w) for w in order]
         self.assertTrue(all(i >= 0 for i in idx), idx)
         self.assertEqual(idx, sorted(idx))
+
+    def test_the_docs_state_python_the_disclaimer_and_only_real_stops(self):
+        self.assertIn("Python 3.9 or newer", self.flat)
+        self.assertIn("unofficial", self.flat.lower())
+        self.assertIn("stops at the first block", self.flat)
+        self.assertNotIn("commercial_use_limit", self.flat)
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("That is unofficial: it sends no cookies", readme)
 
     def test_public_path_first_and_the_tab_is_only_a_fallback(self):
         self.assertLess(self.flat.find("public"), self.flat.find("signed-in"))
