@@ -314,6 +314,12 @@ ship the CLI; it installs it inside the box by cloning this repo.
   file, CSV, Google Drive) and only ask for missing fields.
 - **Standard hand-off files.** Skills in the same workflow share CSV columns so a user can start
   at any step.
+- **No AE backend (Andi 2026-11-02).** Skills run only on the vendor's own endpoints or the user's own
+  signed-in browser. They never depend on a hosted LinkedIn API (such as Unipile), a hosted cloud
+  browser, or any other service we run.
+- **Naming: `linkedin-*` vs `salesnav-*`.** Plain LinkedIn and Sales Navigator are different products.
+  `linkedin-*` skills need no seat; `salesnav-*` skills need a Sales Navigator seat. A Sales Nav skill
+  never carries a plain-LinkedIn name.
 - **Safe by default.** Read-only unless the skill's purpose is to act; outward actions (sending,
   posting) require the user's approval and documented limits.
 - **Scripts:** Python 3 standard library only, no network, tested under `tests/`. (The `tests/`
