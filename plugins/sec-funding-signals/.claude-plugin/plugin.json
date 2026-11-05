@@ -1,0 +1,10 @@
+{
+  "name": "sec-funding-signals",
+  "version": "0.1.0",
+  "description": "CLI + skill: find companies in your target space that just raised money, from public SEC Form D filings on EDGAR, with the executives named in each filing, as CSVs ready for Apollo and LinkedIn outreach. Unofficial; needs Node 20+.",
+  "author": {
+    "name": "Agent Everywhere",
+    "url": "https://github.com/Agent-Everywhere"
+  },
+  "keywords": ["sec", "edgar", "form-d", "funding", "prospecting", "sales"]
+}

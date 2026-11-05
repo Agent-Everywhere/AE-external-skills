@@ -21,7 +21,7 @@ SEMVER = r"\d+\.\d+\.\d+"
 # skill dir -> marketplace plugin name, where they differ ("claude-" is a reserved plugin prefix)
 PLUGIN_NAMES = {"claude-desktop": "desktop-cowork"}
 # multi-skill plugins under plugins/ besides sales-navigator (checked in their own test files)
-OTHER_PLUGINS = ["quickbooks", "sourcewell", "linkedin-emails"]
+OTHER_PLUGINS = ["quickbooks", "sourcewell", "sec-funding-signals", "linkedin-emails"]
 # plain-LinkedIn (no Sales Navigator) job plugins: one skill each, all sharing the plugins/linkedin source folder
 # (their own checks live in tests/test_linkedin_classic.py)
 CLASSIC_PLUGINS = ["linkedin-find-people", "linkedin-outreach", "linkedin-replies"]
@@ -246,7 +246,7 @@ class IntentPlugins(unittest.TestCase):
     def test_readme_has_a_what_do_you_want_to_do_table(self):
         head = self.readme.split("## What's in here", 1)[0]
         self.assertIn("## What do you want to do?", head)
-        for name in list(INTENT_PLUGINS) + ["linkedin-emails", "quickbooks", "sourcewell"]:
+        for name in list(INTENT_PLUGINS) + ["linkedin-emails", "quickbooks", "sourcewell", "sec-funding-signals"]:
             with self.subTest(plugin=name):
                 folder = self.entries[name]["source"].removeprefix("./")
                 self.assertIn("Install the %s skill from "

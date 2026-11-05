@@ -26,7 +26,7 @@ trap 'rm -rf "$stage"' EXIT
 (cd "$src" && tar -cf - \
   --exclude='.DS_Store' --exclude='.git' --exclude='.gitignore' --exclude='.gitattributes' \
   --exclude='.github' --exclude='__pycache__' --exclude='*.pyc' --exclude='node_modules' \
-  --exclude='tests' --exclude='*.log' --exclude='*.swp' .) | (cd "$stage" && tar -xf -)
+  --exclude='tests' --exclude='.sec-funding-cache' --exclude='sec-funding-signals.config.json' --exclude='*.log' --exclude='*.swp' .) | (cd "$stage" && tar -xf -)
 
 # marketplace.json is the version source of truth. Generate plugin.json when the plugin folder lacks one;
 # when it has one, its version must equal marketplace.json's.
@@ -73,7 +73,7 @@ cp "$out/$name.zip" "$out/$name.plugin"
 listing="$(unzip -Z1 "$out/$name.zip")"
 grep -qx '.claude-plugin/plugin.json' <<<"$listing" \
   || { echo "error: .claude-plugin/plugin.json not at zip root" >&2; exit 1; }
-if junk="$(grep -E '(^|/)(\.DS_Store|\.git[^/]*|__pycache__|node_modules|tests)(/|$)' <<<"$listing")"; then
+if junk="$(grep -E '(^|/)(\.DS_Store|\.git[^/]*|__pycache__|node_modules|tests|\.sec-funding-cache)(/|$)' <<<"$listing")"; then
   echo "error: dev junk found in zip:" >&2; echo "$junk" >&2; exit 1
 fi
 size="$(wc -c < "$out/$name.zip" | tr -d ' ')"

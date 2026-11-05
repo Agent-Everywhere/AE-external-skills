@@ -1,0 +1,82 @@
+<?xml version="1.0"?>
+<edgarSubmission>
+    <schemaVersion>X0708</schemaVersion>
+    <submissionType>D</submissionType>
+    <testOrLive>LIVE</testOrLive>
+    <primaryIssuer>
+        <cik>0001234567</cik>
+        <entityName>Example Widgets, Inc.</entityName>
+        <issuerAddress>
+            <street1>1 SAMPLE WAY</street1>
+            <city>AUSTIN</city>
+            <stateOrCountry>TX</stateOrCountry>
+            <stateOrCountryDescription>TEXAS</stateOrCountryDescription>
+            <zipCode>78701</zipCode>
+        </issuerAddress>
+        <jurisdictionOfInc>DELAWARE</jurisdictionOfInc>
+        <entityType>Corporation</entityType>
+        <yearOfInc>
+            <withinFiveYears>true</withinFiveYears>
+            <value>2024</value>
+        </yearOfInc>
+    </primaryIssuer>
+    <relatedPersonsList>
+        <relatedPersonInfo>
+            <relatedPersonName>
+                <firstName>PAT</firstName>
+                <lastName>SAMPLE</lastName>
+            </relatedPersonName>
+            <relatedPersonAddress><street1>1 Sample Way</street1><city>Austin</city><stateOrCountry>TX</stateOrCountry></relatedPersonAddress>
+            <relatedPersonRelationshipList>
+                <relationship>Executive Officer</relationship>
+                <relationship>Director</relationship>
+            </relatedPersonRelationshipList>
+            <relationshipClarification>Chief Executive Officer</relationshipClarification>
+        </relatedPersonInfo>
+        <relatedPersonInfo>
+            <relatedPersonName>
+                <firstName>Jordan</firstName>
+                <middleName>Q</middleName>
+                <lastName>Example</lastName>
+            </relatedPersonName>
+            <relatedPersonRelationshipList>
+                <relationship>Director</relationship>
+            </relatedPersonRelationshipList>
+            <relationshipClarification></relationshipClarification>
+        </relatedPersonInfo>
+    </relatedPersonsList>
+    <offeringData>
+        <industryGroup>
+            <industryGroupType>Other Technology</industryGroupType>
+        </industryGroup>
+        <issuerSize><revenueRange>Decline to Disclose</revenueRange></issuerSize>
+        <federalExemptionsExclusions><item>06b</item></federalExemptionsExclusions>
+        <typeOfFiling>
+            <newOrAmendment><isAmendment>false</isAmendment></newOrAmendment>
+            <dateOfFirstSale><value>2026-09-15</value></dateOfFirstSale>
+        </typeOfFiling>
+        <typesOfSecuritiesOffered>
+            <isEquityType>true</isEquityType>
+            <isOptionToAcquireType>true</isOptionToAcquireType>
+        </typesOfSecuritiesOffered>
+        <offeringSalesAmounts>
+            <totalOfferingAmount>5000000</totalOfferingAmount>
+            <totalAmountSold>2500000</totalAmountSold>
+            <totalRemaining>2500000</totalRemaining>
+            <clarificationOfResponse>Round led by existing investors. Details at https://widgets.example.com</clarificationOfResponse>
+        </offeringSalesAmounts>
+        <investors>
+            <hasNonAccreditedInvestors>false</hasNonAccreditedInvestors>
+            <totalNumberAlreadyInvested>12</totalNumberAlreadyInvested>
+        </investors>
+        <signatureBlock>
+            <signature>
+                <issuerName>Example Widgets, Inc.</issuerName>
+                <signatureName>Pat Sample</signatureName>
+                <nameOfSigner>Pat Sample</nameOfSigner>
+                <signatureTitle>CEO</signatureTitle>
+                <signatureDate>2026-09-28</signatureDate>
+            </signature>
+        </signatureBlock>
+    </offeringData>
+</edgarSubmission>

@@ -1,0 +1,52 @@
+{
+  "name": "ai-data",
+  "offer": "FILL IN: what you sell, in one or two sentences",
+  "icp": {
+    "description": "Companies building AI data, evaluation and model products that just raised money",
+    "industries": [
+      "artificial intelligence",
+      "data services",
+      "software"
+    ],
+    "stages": [
+      "seed",
+      "series A",
+      "series B"
+    ],
+    "raise_size": "any disclosed amount",
+    "geography": ""
+  },
+  "keywords": [
+    "AI training data",
+    "data annotation",
+    "LLM evaluation",
+    "vertical AI",
+    "foundation model"
+  ],
+  "excludes": {
+    "terms": [],
+    "companies": []
+  },
+  "min_amount": null,
+  "max_amount": null,
+  "states": [],
+  "qualify_rules": {
+    "strong": [
+      "The issuer's own product or service is clearly in the target space (it builds or sells it, not just uses it)."
+    ],
+    "maybe": [
+      "Name or industry hints at the target space but the business is unclear: confirm on the company's website."
+    ],
+    "no": [
+      "Holding company, investment vehicle or service business with no product in the target space.",
+      "Matches an exclusion (existing customer or competitor)."
+    ]
+  },
+  "buyer_titles": [
+    "CEO",
+    "Founder",
+    "CTO",
+    "Head of Data",
+    "Head of AI"
+  ]
+}
