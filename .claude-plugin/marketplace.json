@@ -192,6 +192,24 @@
       ]
     },
     {
+      "name": "sec-funding-signals",
+      "source": "./plugins/sec-funding-signals",
+      "version": "0.1.0",
+      "description": "CLI + skill: find companies in your target space that just raised money from public SEC Form D filings (no login), with the executives named in each filing, as CSVs ready for Apollo and LinkedIn outreach. Unofficial; needs Node 20+.",
+      "strict": false,
+      "skills": [
+        "./skills/sec-funding-signals"
+      ],
+      "category": "sales",
+      "tags": [
+        "sec",
+        "edgar",
+        "form-d",
+        "funding",
+        "prospecting"
+      ]
+    },
+    {
       "name": "linkedin-emails",
       "source": "./plugins/linkedin-emails",
       "version": "0.1.0",

@@ -1,0 +1,54 @@
+{
+  "name": "physical-ai",
+  "offer": "FILL IN: what you sell, in one or two sentences",
+  "icp": {
+    "description": "Companies building robots and other physical AI systems that just raised money",
+    "industries": [
+      "robotics",
+      "autonomous systems",
+      "industrial automation"
+    ],
+    "stages": [
+      "seed",
+      "series A",
+      "series B"
+    ],
+    "raise_size": "any disclosed amount",
+    "geography": ""
+  },
+  "keywords": [
+    "robot*",
+    "humanoid",
+    "embodied AI",
+    "autonom*",
+    "teleoperation",
+    "robot learning",
+    "manipulation"
+  ],
+  "excludes": {
+    "terms": [],
+    "companies": []
+  },
+  "min_amount": null,
+  "max_amount": null,
+  "states": [],
+  "qualify_rules": {
+    "strong": [
+      "The issuer's own product or service is clearly in the target space (it builds or sells it, not just uses it)."
+    ],
+    "maybe": [
+      "Name or industry hints at the target space but the business is unclear: confirm on the company's website."
+    ],
+    "no": [
+      "Holding company, investment vehicle or service business with no product in the target space.",
+      "Matches an exclusion (existing customer or competitor)."
+    ]
+  },
+  "buyer_titles": [
+    "CEO",
+    "Founder",
+    "CTO",
+    "VP Engineering",
+    "Head of Operations"
+  ]
+}
