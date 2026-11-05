@@ -24,7 +24,7 @@ PLUGIN_NAMES = {"claude-desktop": "desktop-cowork"}
 OTHER_PLUGINS = ["quickbooks", "sourcewell", "sec-funding-signals", "linkedin-emails"]
 # plain-LinkedIn (no Sales Navigator) job plugins: one skill each, all sharing the plugins/linkedin source folder
 # (their own checks live in tests/test_linkedin_classic.py)
-CLASSIC_PLUGINS = ["linkedin-find-people", "linkedin-outreach", "linkedin-replies"]
+CLASSIC_PLUGINS = ["linkedin-find-people", "linkedin-outreach", "linkedin-replies", "linkedin-job-signals"]
 # install-by-intent plugins: one job each, all sharing the sales-navigator source folder (plugin name -> skill folder)
 INTENT_PLUGINS = {"salesnav-find-people": "salesnav-tam-people", "salesnav-find-companies": "salesnav-tam-accounts",
                   "salesnav-split-big-search": "salesnav-tam-tracker", "salesnav-outreach": "salesnav-outreach",

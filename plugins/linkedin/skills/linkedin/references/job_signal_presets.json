@@ -1,0 +1,110 @@
+{
+  "presets": {
+    "physical-ai-data": {
+      "description": "Example profile: companies hiring robotics and embodied-AI data roles (data collection, teleoperation, robot data, annotation for robotics). Copy it, then set offer, icp and qualify_rules for your own market.",
+      "offer": "",
+      "icp": {},
+      "keywords": [
+        "teleoperation operator",
+        "robot teleoperator",
+        "robot data collection",
+        "data collection technician robotics",
+        "robot data specialist",
+        "robotics data annotation",
+        "embodied AI data",
+        "humanoid data collection"
+      ],
+      "location": "",
+      "days": 30,
+      "title_exclude": [
+        "dispatch", "\\b911\\b", "telecommunicat", "emergency", "public safety", "police", "paramedic", "call ?taker",
+        "\\bsales\\b", "recruit", "\\bintern\\b"
+      ],
+      "title_include": [],
+      "families": [
+        {
+          "name": "Teleoperation and data collection",
+          "title_regex": [
+            "tele-?operat", "data[- ]collect", "demonstration", "(robot|robotic)s?\\s+(operator|technician|data)",
+            "collection (operator|technician|specialist)"
+          ],
+          "buyer_titles": ["Head of Data Operations", "Robot Learning Lead", "Head of Embodied AI", "Director of Data Collection"]
+        },
+        {
+          "name": "Robot data and annotation",
+          "title_regex": [
+            "(robot|robotic|embodied|humanoid).{0,40}(annotat|label|data)",
+            "(annotat|label)\\w*.{0,40}(robot|embodied|sensor|teleop)"
+          ],
+          "buyer_titles": ["Head of Data", "Head of Data Annotation", "ML Data Operations Manager", "Robot Learning Lead"]
+        }
+      ],
+      "description_include": ["robot", "embodied", "humanoid", "autonom", "teleop", "manipulation"],
+      "description_exclude": ["\\b911\\b", "emergency (call|dispatch)", "public safety answering", "law enforcement"],
+      "exclude_companies": [],
+      "evidence_terms": ["teleoperation", "demonstration", "manipulation", "humanoid", "fleet", "simulation", "sensor", "shifts", "scale"],
+      "buyer_titles": ["Head of Data"],
+      "qualify_rules": [
+        "strong: builds or trains robots or embodied-AI models and is hiring two or more data roles",
+        "maybe: robotics or AI company with one matching role, or the post is vague about the data work",
+        "no: not a robotics or AI builder (staffing agency, public agency, unrelated industry), or a listed exclusion"
+      ]
+    },
+    "ai-domain-experts": {
+      "description": "Example profile: AI companies hiring domain-expert and human-data roles (AI trainer, RLHF, model evaluation, subject matter experts, data annotation). Copy it, then set offer, icp and qualify_rules for your own market.",
+      "offer": "",
+      "icp": {},
+      "keywords": [
+        "AI trainer",
+        "RLHF",
+        "model evaluation specialist",
+        "subject matter expert AI training",
+        "medical expert AI training data",
+        "legal expert AI training",
+        "finance expert AI training data",
+        "coding expert AI trainer",
+        "data annotation specialist",
+        "AI tutor"
+      ],
+      "location": "",
+      "days": 30,
+      "title_exclude": ["recruit", "talent acquisition", "\\bsales\\b", "account executive", "marketing", "\\bintern\\b", "dispatch"],
+      "title_include": [],
+      "families": [
+        {
+          "name": "AI trainer and RLHF",
+          "title_regex": ["ai (model )?(trainer|tutor)", "rlhf", "human feedback", "data trainer"],
+          "buyer_titles": ["Head of Human Data", "Head of Data Operations", "AI Training Lead", "Director of Post-Training"]
+        },
+        {
+          "name": "Model evaluation",
+          "title_regex": ["(model|llm|ai) evaluat", "\\bevals?\\b", "red[- ]team", "quality rater"],
+          "buyer_titles": ["Head of Evaluation", "Head of Human Data", "Head of Data Operations", "Director of AI Quality"]
+        },
+        {
+          "name": "Domain expert",
+          "title_regex": [
+            "subject matter expert", "domain expert", "\\bSME\\b",
+            "(medical|clinical|legal|finance|financial|coding|software|math\\w*|physics|chemistry).{0,40}(expert|specialist|reviewer|annotator|trainer)"
+          ],
+          "buyer_titles": ["Head of Human Data", "Head of Expert Network", "Head of Data Operations"]
+        },
+        {
+          "name": "Data annotation",
+          "title_regex": ["annotat", "label+ing", "data (quality|specialist)"],
+          "buyer_titles": ["Head of Data Operations", "Head of Human Data", "Data Annotation Manager"]
+        }
+      ],
+      "description_include": ["\\bAI\\b", "\\bLLM", "large language model", "machine learning", "model training", "RLHF", "generative"],
+      "description_exclude": [],
+      "exclude_companies": [],
+      "evidence_terms": ["RLHF", "evaluation", "rubric", "prompt", "annotation", "fine-tun", "post-training", "domain"],
+      "buyer_titles": ["Head of Human Data"],
+      "qualify_rules": [
+        "strong: an AI or model-building company hiring two or more expert or human-data roles",
+        "maybe: an AI company with one matching role, or a company that uses AI but is not building models",
+        "no: staffing or marketplace intermediaries, schools, or a listed exclusion"
+      ]
+    }
+  }
+}

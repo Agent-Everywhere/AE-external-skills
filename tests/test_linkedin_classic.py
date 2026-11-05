@@ -21,10 +21,11 @@ SKILLS = PLUGIN / "skills"
 ENGINE = SKILLS / "linkedin"
 SCRIPTS = ENGINE / "scripts"
 JOBS = {"linkedin-find-people": "linkedin-find-people", "linkedin-outreach": "linkedin-outreach",
-        "linkedin-replies": "linkedin-replies"}
+        "linkedin-replies": "linkedin-replies", "linkedin-job-signals": "linkedin-job-signals"}
 FIND = SCRIPTS / "find_people.py"
 OUTREACH = SCRIPTS / "outreach.py"
 REPLIES = SCRIPTS / "replies.py"
+JOB_SIGNALS = SCRIPTS / "job_signals.py"   # its own tests: tests/test_linkedin_job_signals.py
 SEARCH_JS = SCRIPTS / "search_people.js"
 POLL_JS = SCRIPTS / "poll.js"
 EMAILS = ROOT / "plugins" / "linkedin-emails" / "skills" / "linkedin-emails" / "scripts" / "emails.py"
@@ -1546,7 +1547,8 @@ class ClassicLinkedinPackaging(unittest.TestCase):
             self.assertEqual(sorted(p.name for p in (SKILLS / name).iterdir() if p.name != ".DS_Store"),
                              ["SKILL.md", "skill.yaml"])
         for rel in ("scripts/li_common.py", "scripts/find_people.py", "scripts/outreach.py", "scripts/replies.py",
-                    "scripts/search_people.js", "scripts/poll.js", "references/endpoints.md", "skill.yaml"):
+                    "scripts/search_people.js", "scripts/poll.js", "scripts/job_signals.py", "scripts/search_jobs.js",
+                    "references/endpoints.md", "references/job_signal_presets.json", "skill.yaml"):
             self.assertTrue((ENGINE / rel).is_file(), rel)
         for path in PLUGIN.rglob("*"):
             self.assertNotIn("__pycache__", path.parts)
@@ -1710,7 +1712,7 @@ class ClassicLinkedinPackaging(unittest.TestCase):
             self.assertIn(piece, out)
 
     def test_every_flag_a_skill_names_exists_in_the_scripts(self):
-        source = "".join(p.read_text(encoding="utf-8") for p in (FIND, OUTREACH, REPLIES))
+        source = "".join(p.read_text(encoding="utf-8") for p in (FIND, OUTREACH, REPLIES, JOB_SIGNALS))
         for name in JOBS:
             for flag in set(re.findall(r"`?(--[a-z][a-z-]+)", skill_text(name))):
                 if flag in ("--now",):
