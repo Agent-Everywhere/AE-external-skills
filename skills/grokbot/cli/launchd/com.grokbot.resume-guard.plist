@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.grokbot.resume-guard</string>
+  <!-- Re-enables allowlisted routines that Grok Bot disabled. The allowlist is ~/.grokbot/resume-allow.txt
+       (one "<agent> | <routine id or name>" per line). Quiet when nothing changed; exits 1 (logged) on any error. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>exec ~/.local/bin/grokbot automations resume-guard --allow "$HOME/.grokbot/resume-allow.txt"</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>900</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>__HOME__/Library/Logs/grokbot-resume-guard.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/Library/Logs/grokbot-resume-guard.log</string>
+</dict>
+</plist>

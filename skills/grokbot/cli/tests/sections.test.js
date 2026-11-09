@@ -1,3 +1,4 @@
+import "./_isolate.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { assignAgents, createSection, deleteSection, findSection, moveSection, normalizeSections, pruneSections, renameSection, sectionIdByAgent, sectionsDiff } from "../src/sections.js";

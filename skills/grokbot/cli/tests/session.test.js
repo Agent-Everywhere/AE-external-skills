@@ -1,3 +1,4 @@
+import "./_isolate.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
@@ -49,4 +50,20 @@ test("redact covers hyphen/snake-case secret keys and nested bodies", async () =
   const out = redact('{"cursor-access-token":"abc","x-anyrun-network-token":"n1","gateway_token":"g","api_key":"k","name":"ok"}');
   assert.ok(!/abc|n1|"g"|"k"/.test(out) && out.includes('"name":"ok"'));
   assert.deepEqual(redactValue({ a: { refreshToken: "r", list: [{ Cookie: "c", ok: 1 }] }, msg: "Bearer x.y.z" }), { a: { refreshToken: "<redacted>", list: [{ Cookie: "<redacted>", ok: 1 }] }, msg: "Bearer <redacted>" });
+});
+
+test("descriptor file version bumps keep working (v3 in app 0.79, unknown future versions with the same entry shape)", () => {
+  const enc = (o) => encryptSafeStorage(JSON.stringify(o), key);
+  const dec = { decrypt: (c) => decryptSafeStorage(c, key) };
+  for (const version of [2, 3, 4]) {
+    const file = { version, entries: { scope: { savedAtMs: 5, encrypted: enc({ baseUrl: "https://h.example/", token: "t", headers: { "x-anyrun-network-token": "n" } }) } } };
+    const d = parseDescriptorFile(file, dec);
+    assert.equal(d.baseUrl, "https://h.example");
+    assert.equal(d.fileVersion, version);
+    assert.equal(d.entryCount, 1);
+  }
+  // a wrapper without entries (or the legacy single-blob shape) is still not mistaken for a v2+ file
+  assert.equal(parseDescriptorFile({ version: 3 }, dec), null);
+  assert.equal(parseDescriptorFile({ version: 3, entries: "nope" }, dec), null);
+  assert.equal(parseDescriptorFile({ encrypted: enc({ baseUrl: "https://legacy/", token: "t" }) }, dec).fileVersion, null);
 });

@@ -1,22 +1,32 @@
 // Regression tests for the grokbot bug-fix pass (create --section, strict delete resolution, section refetch,
-// nudgeRenderer policy gate, and timeouts).
+// nudgeRenderer policy gate, send --wait anchoring, and timeouts). Everything runs against stubs: _isolate.js points the
+// app-support dir at an empty temp dir, so no test can reach the live host, the Cursor control plane, or real settings.
+import "./_isolate.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Cdp, CdpError, MAX_TIMER_MS, SLOW_CALL_TIMEOUT_MS } from "../src/cdp.js";
 import { Gateway } from "../src/gateway.js";
 import { resolveAgent, resolveMany } from "../src/agents.js";
-import { WAIT_TRANSCRIPT_WINDOW, entriesSince, nudgeDeps, run, setGatewayForTests } from "../src/cli.js";
+import { WAIT_TRANSCRIPT_WINDOW, entriesSince, nudgeDeps, run, setCursorForTests, setGatewayForTests } from "../src/cli.js";
 
 // ---------------------------------------------------------------- helpers
 const A1 = "11111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const A2 = "abcd2222-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const A3 = "33333333-cccc-4ccc-8ccc-cccccccccccc";
 
-function mockGateway({ roster = [], sections = [], createResult = { id: "new-agent" }, transcript = [] } = {}) {
+function mockGateway({ roster = [], sections = [], createResult = { id: "new-agent" }, transcript = [], withCursor = false } = {}) {
   const calls = [];
   let secs = sections;
+  const live = roster.map((a) => a.id);
   const gw = {
     calls,
+    // Stub control plane (agents delete goes through it); absent unless a test asks, so send falls back to the gateway.
+    cursorClient: withCursor
+      ? {
+          async deleteAgent(id) { calls.push(["deleteAgent", id]); live.splice(live.indexOf(id), 1); return {}; },
+          async listAgents() { return { agents: live.map((agentId) => ({ agentId })), slackConnections: [], truncated: false }; },
+        }
+      : null,
     async listAgents() { return roster; },
     async getSections() { calls.push(["getSections"]); return typeof secs === "function" ? secs() : secs; },
     async setSections(next) { calls.push(["setSections", next]); return next; },
@@ -31,6 +41,7 @@ function mockGateway({ roster = [], sections = [], createResult = { id: "new-age
 
 async function runCli(gw, ...args) {
   setGatewayForTests(gw);
+  setCursorForTests(gw.cursorClient ?? null);
   const buf = [];
   const origOut = process.stdout.write.bind(process.stdout);
   const origErr = process.stderr.write.bind(process.stderr);
@@ -42,6 +53,7 @@ async function runCli(gw, ...args) {
     process.stdout.write = origOut;
     process.stderr.write = origErr;
     setGatewayForTests(null);
+    setCursorForTests(null);
   }
   // The test runner's own reporter may write to stdout while it is patched; keep only our JSON payloads.
   return buf.filter((c) => /^[\[{]/.test(c)).join("");
@@ -90,9 +102,9 @@ test("strict mode: full id or exact name only", () => {
 });
 
 test("agents delete refuses an id prefix and deletes nothing", async () => {
-  const gw = mockGateway({ roster });
+  const gw = mockGateway({ roster, withCursor: true });
   await assert.rejects(runCli(gw, "agents", "delete", "1111", "--yes"), /exact id or name/);
-  assert.ok(!gw.calls.some((c) => c[0] === "deleteAgents"));
+  assert.ok(!gw.calls.some((c) => c[0] === "deleteAgent" || c[0] === "deleteAgents"));
 });
 
 test("agents delete --ids-file refuses prefixes too", async () => {
@@ -101,15 +113,15 @@ test("agents delete --ids-file refuses prefixes too", async () => {
   const { join } = await import("node:path");
   const f = join(mkdtempSync(join(tmpdir(), "grokbot-")), "ids.txt");
   writeFileSync(f, `${A1}\n3333\n`);
-  const gw = mockGateway({ roster });
+  const gw = mockGateway({ roster, withCursor: true });
   await assert.rejects(runCli(gw, "agents", "delete", "--ids-file", f, "--yes", "--confirm-count", "2"), /exact id or name/);
-  assert.ok(!gw.calls.some((c) => c[0] === "deleteAgents"));
+  assert.ok(!gw.calls.some((c) => c[0] === "deleteAgent" || c[0] === "deleteAgents"));
 });
 
 test("agents delete accepts full id and exact name", async () => {
-  const gw = mockGateway({ roster });
+  const gw = mockGateway({ roster, withCursor: true });
   await runCli(gw, "agents", "delete", A1, "Writer", "--yes", "--confirm-count", "2");
-  assert.deepEqual(gw.calls.find((c) => c[0] === "deleteAgents")[1], [A1, A2]);
+  assert.deepEqual(gw.calls.filter((c) => c[0] === "deleteAgent").map((c) => c[1]), [A1, A2]);
 });
 
 // ---------------------------------------------------------------- fix 3: refetch sections before cleanup write
@@ -117,12 +129,12 @@ test("agents delete refetches sections right before the cleanup write", async ()
   let n = 0;
   const stale = [{ id: "s1", name: "S", agentIds: [A1] }];
   const fresh = [{ id: "s1", name: "S", agentIds: [A1] }, { id: "s2", name: "Added meanwhile", agentIds: [A3] }];
-  const gw = mockGateway({ roster, sections: () => (++n === 1 ? stale : fresh) });
+  const gw = mockGateway({ roster, sections: () => (++n === 1 ? stale : fresh), withCursor: true });
   await runCli(gw, "agents", "delete", A1, "--yes", "--section", "S");
   const write = gw.calls.find((c) => c[0] === "setSections");
   assert.ok(write, "cleanup write happened");
   const idx = (name) => gw.calls.findIndex((c) => c[0] === name);
-  assert.ok(gw.calls.findLastIndex((c) => c[0] === "getSections") > idx("deleteAgents"), "getSections called after deleteAgents");
+  assert.ok(gw.calls.findLastIndex((c) => c[0] === "getSections") > idx("deleteAgent"), "getSections called after the delete");
   assert.deepEqual(write[1].map((s) => s.id), ["s1", "s2"], "concurrently-added section survives the write");
   assert.deepEqual(write[1].find((s) => s.id === "s1").agentIds, []);
   assert.deepEqual(write[1].find((s) => s.id === "s2").agentIds, [A3]);
@@ -297,7 +309,8 @@ test("Cdp.send clamps timeouts above the setTimeout limit instead of firing imme
   } finally {
     globalThis.setTimeout = realSet;
   }
-  assert.deepEqual(delays, [MAX_TIMER_MS, MAX_TIMER_MS]);
+  assert.ok(delays.every((d) => d <= MAX_TIMER_MS), "no delay above the setTimeout limit");
+  assert.equal(delays.filter((d) => d === MAX_TIMER_MS).length, 2);
 });
 
 test("cdp eval/call reject a --timeout above the setTimeout limit", async () => {

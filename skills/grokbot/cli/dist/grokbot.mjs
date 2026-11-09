@@ -737,15 +737,15 @@ ${itemIndentStr}`);
           }
           let sumChunks = [chunks.shift()];
           let sumWidth = this.displayWidth(sumChunks[0]);
-          chunks.forEach((chunk) => {
-            const visibleWidth = this.displayWidth(chunk);
+          chunks.forEach((chunk2) => {
+            const visibleWidth = this.displayWidth(chunk2);
             if (sumWidth + visibleWidth <= width) {
-              sumChunks.push(chunk);
+              sumChunks.push(chunk2);
               sumWidth += visibleWidth;
               return;
             }
             wrappedLines.push(sumChunks.join(""));
-            const nextChunk = chunk.trimStart();
+            const nextChunk = chunk2.trimStart();
             sumChunks = [nextChunk];
             sumWidth = this.displayWidth(nextChunk);
           });
@@ -3343,7 +3343,10 @@ var {
 } = import_index.default;
 
 // src/cli.js
-import { readFileSync as readFileSync3, writeFileSync } from "node:fs";
+import { readFileSync as readFileSync4, writeFileSync as writeFileSync4 } from "node:fs";
+
+// src/cursor.js
+import { randomUUID } from "node:crypto";
 
 // src/session.js
 import crypto from "node:crypto";
@@ -3401,7 +3404,7 @@ function descriptorPath() {
 function parseDescriptorFile(json, { accountScope = null, decrypt = decryptSafeStorage } = {}) {
   const wrapped = typeof json === "string" ? JSON.parse(json) : json;
   let entries;
-  if (wrapped.version === 2) {
+  if (typeof wrapped.version === "number" && wrapped.version >= 2 && wrapped.entries && typeof wrapped.entries === "object") {
     entries = Object.entries(wrapped.entries ?? {}).filter(([, v]) => v && typeof v.encrypted === "string");
   } else if (typeof wrapped.encrypted === "string") {
     entries = [["default", { encrypted: wrapped.encrypted, savedAtMs: 0 }]];
@@ -3421,6 +3424,7 @@ function parseDescriptorFile(json, { accountScope = null, decrypt = decryptSafeS
     accountScope: scope,
     savedAtMs: entry.savedAtMs ?? null,
     entryCount: Object.keys(wrapped.entries ?? {}).length || 1,
+    fileVersion: typeof wrapped.version === "number" ? wrapped.version : null,
     baseUrl: String(desc.baseUrl).replace(/\/$/, ""),
     token: String(desc.token),
     headers: normalizeHeaders(desc.headers),
@@ -3602,15 +3606,15 @@ async function resolveGatewaySession({ accountScope = null, prefer = "auto", fet
 }
 function describeSessionSources() {
   const out2 = { appBundle: existsSync(APP_BUNDLE), appVersion: appVersion(), descriptor: null, secrets: null, home: null };
-  const dp = descriptorPath();
-  if (existsSync(dp)) {
-    const st = statSync(dp);
+  const descPath = descriptorPath();
+  if (existsSync(descPath)) {
+    const st = statSync(descPath);
     let wrapped = null;
     try {
-      wrapped = JSON.parse(readFileSync(dp, "utf8"));
+      wrapped = JSON.parse(readFileSync(descPath, "utf8"));
     } catch {
     }
-    out2.descriptor = { path: dp, modifiedAt: st.mtime.toISOString(), version: wrapped?.version ?? null, entries: wrapped?.entries ? Object.keys(wrapped.entries).length : wrapped?.encrypted ? 1 : 0 };
+    out2.descriptor = { path: descPath, modifiedAt: st.mtime.toISOString(), version: wrapped?.version ?? null, entries: wrapped?.entries ? Object.keys(wrapped.entries).length : wrapped?.encrypted ? 1 : 0 };
   }
   const sp = secretsPath();
   if (existsSync(sp)) {
@@ -3674,11 +3678,11 @@ var CursorClient = class {
       teamId: this.auth.teamId ?? null
     };
   }
-  async rpc(method, body = {}, { service = this.service, headers = {} } = {}) {
+  async rpc(method, body = {}, { service = this.service, headers = {}, signal } = {}) {
     const url = `${this.baseUrl}/${service}/${method}`;
     const extra = { ...headers };
     if (this.auth.teamId && !extra["x-cursor-team-id"]) extra["x-cursor-team-id"] = String(this.auth.teamId);
-    const res = await this.fetch(url, { method: "POST", headers: cursorHeaders(this.auth.accessToken, extra), body: JSON.stringify(body ?? {}) });
+    const res = await this.fetch(url, { method: "POST", headers: cursorHeaders(this.auth.accessToken, extra), body: JSON.stringify(body ?? {}), ...signal ? { signal } : {} });
     const text = await res.text();
     let data;
     try {
@@ -3692,9 +3696,56 @@ var CursorClient = class {
     }
     return data;
   }
-  async listAgents({ includeTeamAgents = true, role } = {}) {
-    const r = await this.rpc("ListGrokBotAgents", { includeTeamAgents, ...role ? { role } : {} });
-    return { agents: r.agents ?? [], slackConnections: r.slackConnections ?? [] };
+  // `truncated` mirrors ListGrokBotAgentsResponse.truncated: true means the page is not the whole roster, so absence from it proves nothing.
+  async listAgents({ includeTeamAgents = true, role, signal } = {}) {
+    const r = await this.rpc("ListGrokBotAgents", { includeTeamAgents, ...role ? { role } : {} }, signal ? { signal } : {});
+    return { agents: r.agents ?? [], slackConnections: r.slackConnections ?? [], truncated: Boolean(r.truncated) };
+  }
+  // Read-only. Routines of server-hosted agents live here (the box gateway's listAllAutomations is empty for them).
+  // Each row is {automationId, recordJson (JSON string with prompt/trigger/isEnabled/...), viewerPermissions}.
+  async listAccountAutomations(agentIds) {
+    const r = await this.rpc("ListGrokBotAccountAutomations", { agentIds });
+    return r.agents ?? [];
+  }
+  async listAgentAutomations(agentId) {
+    const r = await this.rpc("ListGrokBotAgentAutomations", { agentId });
+    return r.automations ?? [];
+  }
+  // Read-only helpers for usage and per-agent backup. Usage lives on DashboardService, not GrokBotService.
+  dashboard(method) {
+    return this.rpc(method, {}, { service: "aiserver.v1.DashboardService" });
+  }
+  // allSettled: one failing read must not hide the others. `errors` maps RPC name -> message.
+  async usage() {
+    const calls = { status: "GetSandUsageStatus", period: "GetCurrentPeriodUsage", access: "GetSandAccessStatus", cycle: "GetMonthlyBillingCycle" };
+    const settled = await Promise.allSettled(Object.values(calls).map((m) => this.dashboard(m)));
+    const out2 = { errors: {} };
+    Object.entries(calls).forEach(([key, method], i) => {
+      const r = settled[i];
+      if (r.status === "fulfilled") out2[key] = r.value;
+      else out2.errors[method] = String(r.reason?.message ?? r.reason).replace(/^grokbot:\s*/, "").slice(0, 160);
+    });
+    if (Object.keys(out2.errors).length === settled.length) throw new CursorRpcError(`usage unavailable: ${Object.values(out2.errors)[0]}`);
+    return out2;
+  }
+  async listAgentSkills(agentId) {
+    return (await this.rpc("ListGrokBotAgentSkills", { agentId })).skills ?? [];
+  }
+  // includeMcpConfig stays false: custom MCP config can carry env/credentials and is never exported.
+  getAgentPlugins(agentId) {
+    return this.rpc("GetGrokBotAgentPlugins", { agentId, includeMcpConfig: false });
+  }
+  getAgentAccess(agentId) {
+    return this.rpc("GetGrokBotAgentAccess", { agentId });
+  }
+  /** One page of transcript entries, newest first; `beforeSeq` pages backwards. */
+  async listTranscriptEntries(agentId, { limit = 200, beforeSeq } = {}) {
+    const r = await this.rpc("ListGrokBotTranscriptEntries", { agentId, limit, ...beforeSeq !== void 0 ? { beforeSeq: String(beforeSeq) } : {} });
+    return r.entries ?? [];
+  }
+  // WRITE. Returns the agent's full automation rows after the change.
+  async setAutomationEnabled(agentId, automationId, isEnabled) {
+    return (await this.rpc("SetGrokBotAgentAutomationEnabled", { agentId, automationId, isEnabled })).automations ?? [];
   }
   deleteAgent(id) {
     return this.rpc("DeleteGrokBotAgent", { id });
@@ -3741,6 +3792,107 @@ var CursorClient = class {
     if (!Array.isArray(stored)) throw new CursorRpcError("UpdateGrokBotUserRuntimeSettings returned no sidebarSections", { method: "UpdateGrokBotUserRuntimeSettings", data: r });
     return stored;
   }
+  // Whole per-user runtime settings object (pins, sections, auto-review rules, main agent, ...). Read-only.
+  async getRuntimeSettings() {
+    const r = await this.rpc("GetGrokBotUserRuntimeSettings", {});
+    return r?.settings ?? {};
+  }
+  // Pins moved from the host `pinnedAgentIds` setting to the runtime store in the 0.79 app: the app reads
+  // settings.pinnedAgents.agentIds and only falls back to the host list when the server holds none (null here).
+  async getPinnedAgents() {
+    const pa = (await this.getRuntimeSettings()).pinnedAgents;
+    if (!pa || typeof pa !== "object") return null;
+    return Array.isArray(pa.agentIds) ? pa.agentIds : [];
+  }
+  // Proto3 JSON drops an empty `agentIds`, so a successful write of [] comes back as `pinnedAgents: {}` or without the
+  // key. Only a reply with no `settings` at all is treated as "the server did not store it".
+  async setPinnedAgents(ids) {
+    const r = await this.rpc("UpdateGrokBotUserRuntimeSettings", { pinnedAgents: { agentIds: ids } });
+    if (!r?.settings || typeof r.settings !== "object") throw new CursorRpcError("UpdateGrokBotUserRuntimeSettings returned no settings", { method: "UpdateGrokBotUserRuntimeSettings", data: r });
+    const stored = r.settings.pinnedAgents?.agentIds;
+    return Array.isArray(stored) ? stored : [];
+  }
+  // Auto-review rules are structured now: { isEnabled, allowInstructions[], blockInstructions[] } (+ server-derived
+  // approvalMode fields on read). null when the server has none.
+  async getAutoReview() {
+    const v = (await this.getRuntimeSettings()).autoReviewInstructions;
+    return v && typeof v === "object" ? v : null;
+  }
+  async setAutoReview({ isEnabled, allowInstructions, blockInstructions }) {
+    const body = { autoReviewInstructions: { isEnabled: Boolean(isEnabled), allowInstructions, blockInstructions } };
+    const r = await this.rpc("UpdateGrokBotUserRuntimeSettings", body);
+    const stored = r?.settings?.autoReviewInstructions;
+    if (!stored || typeof stored !== "object") throw new CursorRpcError("UpdateGrokBotUserRuntimeSettings returned no autoReviewInstructions", { method: "UpdateGrokBotUserRuntimeSettings", data: r });
+    return stored;
+  }
+  // Read-only. The control plane holds todos/tasks for server-hosted agents; the box gateway returns [] for them.
+  async listAgentTodos(agentId) {
+    return (await this.rpc("ListGrokBotAgentTodos", { agentId })).todos ?? [];
+  }
+  async listAgentTasks(agentId, { includeRecentlyDone = false } = {}) {
+    const r = await this.rpc("ListGrokBotAgentTasks", { agentId, ...includeRecentlyDone ? { includeRecentlyDone: true } : {} });
+    return r ?? {};
+  }
+  // ---- Slack (operator-only; GrokBotService install flow + DashboardService workspace links). Writes are marked.
+  // Dashboard requests here take no Cursor team id: the live account answers `{}`.
+  dashboardRpc(method, body = {}) {
+    return this.rpc(method, body, { service: "aiserver.v1.DashboardService" });
+  }
+  getSlackInstallState(agentId, { signal } = {}) {
+    return this.rpc("GetGrokBotSlackInstallState", { agentId }, { signal });
+  }
+  async listSlackWorkspaces() {
+    const r = await this.dashboardRpc("ListSlackLinkedWorkspaces");
+    return { workspaces: r.workspaces ?? [], canLinkAnotherWorkspace: Boolean(r.canLinkAnotherWorkspace) };
+  }
+  getSlackUserSettings() {
+    return this.dashboardRpc("GetSlackUserSettings");
+  }
+  // Mints an install attempt and returns the Slack OAuth URL (does not change the link state by itself).
+  getSlackInstallUrl({ reconnectSlackTeamId } = {}) {
+    return this.dashboardRpc("GetSlackInstallUrl", reconnectSlackTeamId ? { reconnectSlackTeamId } : {});
+  }
+  startSlackConnect(agentId) {
+    return this.rpc("StartGrokBotSlackConnect", { agentId });
+  }
+  // WRITE: consumes a one-time claim and links the Slack workspace to this account.
+  claimSlackConnect(claim) {
+    return this.rpc("ClaimGrokBotSlackConnect", { claim });
+  }
+  // WRITE: creates/replaces the agent's Slack app in a workspace.
+  installSlackApp(agentId, { slackTeamId, replaceExistingApp = false } = {}) {
+    return this.rpc("InstallGrokBotSlackApp", { agentId, ...slackTeamId ? { slackTeamId } : {}, ...replaceExistingApp ? { replaceExistingApp: true } : {} });
+  }
+  // WRITE: updates the agent's Slack app manifest.
+  reinstallSlackApp(agentId) {
+    return this.rpc("ReinstallGrokBotSlackApp", { agentId });
+  }
+  // WRITE: removes the agent's Slack app from its workspace (forgetIfUnreachable drops the record even if Slack cannot be reached).
+  uninstallSlackApp(agentId, { forgetIfUnreachable = false } = {}) {
+    return this.rpc("UninstallGrokBotSlackApp", { agentId, ...forgetIfUnreachable ? { forgetIfUnreachable: true } : {} });
+  }
+  // WRITE: unlinks one Slack workspace from the account (every Slack-delivered routine for it stops).
+  unlinkSlackAccess(slackTeamId) {
+    return this.dashboardRpc("UnlinkSlackAccess", { slackTeamId });
+  }
+  // WRITE: points one routine at a linked Slack workspace. Returns the refreshed workspace list.
+  async setAutomationSlackWorkspace(automationId, slackTeamId) {
+    const r = await this.dashboardRpc("SetSandAutomationSlackWorkspace", { automationId, slackTeamId });
+    return r.workspaces ?? [];
+  }
+  // WRITE: deletes a control-plane routine (the box gateway's deleteAgentAutomation is a silent no-op for these).
+  // Returns the agent's remaining automation rows.
+  async deleteAutomation(agentId, automationId, timeZone) {
+    return (await this.rpc("DeleteGrokBotAgentAutomation", { agentId, automationId, ...timeZone ? { timeZone } : {} })).automations ?? [];
+  }
+  // WRITE: sends a user message to an agent through the control plane. Since app 0.79 the host gateway's `sendPrompt`
+  // answers 502 "A Sand box session may not make this request on this endpoint" to a Mac-side caller. Reply:
+  // { dispatched, mode (e.g. ACCEPTED_TEMPORAL), workflowId?, delivery?, refusal? }.
+  async sendUserMessage(agentId, text, { messageId = randomUUID(), sentAtMs = Date.now(), replyToId } = {}) {
+    const body = { agentId, messageId, text, sentAtMs: String(sentAtMs), ...replyToId ? { replyToId } : {} };
+    const r = await this.rpc("SendGrokBotUserMessage", body);
+    return { ...r, messageId, sentAtMs };
+  }
   runtimeCapabilities() {
     return this.rpc("GetGrokBotRuntimeCapabilities", {});
   }
@@ -3752,6 +3904,7 @@ import { promisify } from "node:util";
 var execFileP = promisify(execFile);
 var DEFAULT_CDP_PORT = Number(process.env.GROKBOT_CDP_PORT || 9340);
 var APP_PROCESS_NAME = "Grok Bot";
+var MAX_TIMER_MS = 2 ** 31 - 1;
 var CdpError = class extends Error {
   constructor(message, extra = {}) {
     super(message);
@@ -3759,7 +3912,6 @@ var CdpError = class extends Error {
     Object.assign(this, extra);
   }
 };
-var MAX_TIMER_MS = 2 ** 31 - 1;
 async function cdpVersion(port = DEFAULT_CDP_PORT, { timeoutMs = 1500 } = {}) {
   try {
     const res = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(timeoutMs) });
@@ -3833,6 +3985,18 @@ async function ensureDebugApp({ port = DEFAULT_CDP_PORT, restart = false } = {})
   if (!ok) throw new CdpError(`Grok Bot did not expose CDP on port ${port} within 30s.`);
   return { ...await appState(port), relaunched: true };
 }
+var LEGACY_DESKTOP_READS = {
+  "agent.getPinnedAgents": { path: "main.getHostPinnedAgents", args: [] },
+  "cursorAccount.getStatus": { path: "main.getCursorAuthStatus", args: [] },
+  getBoxHostPhase: { path: "main.getBoxHostPhase", args: [] }
+};
+var SIDEBAR_SECTIONS_EXPR = "window.desktop.main.getCursorAuthStatus().then((s) => window.desktop.main.getHostSidebarSections({ accountSlot: s.authId ?? null }))";
+function resolveDesktopCall(path, args = []) {
+  if (path === "agent.getSidebarSections" && args.length === 0) return { path: "main.getHostSidebarSections", args, expr: SIDEBAR_SECTIONS_EXPR };
+  const alias = LEGACY_DESKTOP_READS[path];
+  if (!alias) return { path, args };
+  return { path: alias.path, args: args.length ? args : alias.args };
+}
 var DEFAULT_SEND_TIMEOUT_MS = 3e4;
 var SLOW_CALL_TIMEOUT_MS = 12e4;
 var SLOW_DESKTOP_PATH = /(restart|relaunch|reload|quit|update|install|signin|signout|login|logout|authenticate|boxhost)/i;
@@ -3840,24 +4004,24 @@ var Cdp = class _Cdp {
   constructor(ws, { timeoutMs = DEFAULT_SEND_TIMEOUT_MS } = {}) {
     this.ws = ws;
     this.id = 0;
-    this.timeoutMs = timeoutMs;
     this.pending = /* @__PURE__ */ new Map();
     this.listeners = /* @__PURE__ */ new Set();
+    this.timeoutMs = timeoutMs;
     this.closed = false;
     ws.onmessage = (ev) => {
-      let msg;
+      let msg2;
       try {
-        msg = JSON.parse(typeof ev.data === "string" ? ev.data : ev.data.toString());
+        msg2 = JSON.parse(typeof ev.data === "string" ? ev.data : ev.data.toString());
       } catch {
         return;
       }
-      if (msg.id && this.pending.has(msg.id)) {
-        const entry = this.pending.get(msg.id);
-        this.pending.delete(msg.id);
+      if (msg2.id && this.pending.has(msg2.id)) {
+        const entry = this.pending.get(msg2.id);
+        this.pending.delete(msg2.id);
         clearTimeout(entry.timer);
-        entry.settle(msg);
-      } else if (msg.method) {
-        for (const l of this.listeners) l(msg);
+        entry.settle(msg2);
+      } else if (msg2.method) {
+        for (const l of this.listeners) l(msg2);
       }
     };
     ws.onclose = () => this.rejectAll(new CdpError("CDP websocket closed"));
@@ -3897,7 +4061,7 @@ var Cdp = class _Cdp {
         this.pending.delete(id);
         reject(new CdpError(`${method}: timed out after ${timeoutMs}ms`));
       }, timeoutMs);
-      this.pending.set(id, { timer, reject, settle: (msg) => msg.error ? reject(new CdpError(`${method}: ${msg.error.message}`)) : resolve(msg.result) });
+      this.pending.set(id, { timer, reject, settle: (msg2) => msg2.error ? reject(new CdpError(`${method}: ${msg2.error.message}`)) : resolve(msg2.result) });
       try {
         this.ws.send(JSON.stringify({ id, method, params }));
       } catch (err) {
@@ -3915,11 +4079,22 @@ var Cdp = class _Cdp {
     }
     return r.result?.value;
   }
-  /** Call a method on window.desktop by dotted path, e.g. "agent.getSidebarSections". */
-  callDesktop(path, args = [], { timeoutMs } = {}) {
-    const expr = `window.desktop.${path}(...${JSON.stringify(args)})`;
-    const t = timeoutMs ?? (SLOW_DESKTOP_PATH.test(path) ? Math.max(SLOW_CALL_TIMEOUT_MS, this.timeoutMs) : void 0);
-    return this.evaluate(expr, { timeoutMs: t });
+  /** Call a method on window.desktop by dotted path, e.g. "main.getHostSidebarSections". Legacy 0.47 read paths are aliased. */
+  async callDesktop(path, args = [], { timeoutMs } = {}) {
+    const call = resolveDesktopCall(path, args);
+    const t = timeoutMs ?? (SLOW_DESKTOP_PATH.test(path) ? Math.max(SLOW_CALL_TIMEOUT_MS, this.timeoutMs ?? 0) : void 0);
+    try {
+      return await this.evaluate(call.expr ?? `window.desktop.${call.path}(...${JSON.stringify(call.args)})`, { timeoutMs: t });
+    } catch (err) {
+      if (/not a function|undefined \(reading/.test(String(err.message)) && /^(agent|cursorAccount)\./.test(path)) {
+        err.message += ` (window.desktop is namespaced under main.* since app 0.79; try \`grokbot cdp keys main\`)`;
+      }
+      throw err;
+    }
+  }
+  /** Ask the renderer to read the sidebar sections (the cheap way to make the app re-read them). */
+  sidebarSections() {
+    return this.evaluate(SIDEBAR_SECTIONS_EXPR);
   }
   desktopKeys(path = "") {
     return this.evaluate(`Object.keys(window.desktop${path ? "." + path : ""})`);
@@ -3931,9 +4106,9 @@ var Cdp = class _Cdp {
     return this.evaluate("document.body.innerText");
   }
   async screenshot(path, { format = "png" } = {}) {
-    const { writeFileSync: writeFileSync2 } = await import("node:fs");
+    const { writeFileSync: writeFileSync5 } = await import("node:fs");
     const r = await this.send("Page.captureScreenshot", { format });
-    writeFileSync2(path, Buffer.from(r.data, "base64"));
+    writeFileSync5(path, Buffer.from(r.data, "base64"));
     return path;
   }
   close() {
@@ -3948,7 +4123,10 @@ function sleep(ms) {
 }
 
 // src/gateway.js
-import { randomUUID } from "node:crypto";
+import { randomUUID as randomUUID2 } from "node:crypto";
+import { chmodSync, mkdirSync, readFileSync as readFileSync2, renameSync, writeFileSync } from "node:fs";
+import { homedir as homedir2 } from "node:os";
+import { dirname, join as join2 } from "node:path";
 
 // src/output.js
 function printJson(value, { redactSecrets = true } = {}) {
@@ -4131,6 +4309,31 @@ function sectionsDiff(before, after) {
 }
 
 // src/gateway.js
+var userSections = (list) => list.filter((x) => !BUILTIN_SECTION_IDS.has(x.id));
+var sectionsKey = (list) => JSON.stringify(list.map((x) => [x.id, x.name, x.agentIds ?? []]));
+var defaultSnapshotPath = () => process.env.GROKBOT_SECTIONS_SYNC_FILE || join2(homedir2(), ".grokbot", "sections-sync.json");
+function readSnapshotFile(path) {
+  try {
+    const v = JSON.parse(readFileSync2(path, "utf8"));
+    return v && typeof v.key === "string" ? v : null;
+  } catch {
+    return null;
+  }
+}
+function writeSnapshotFile(path, snapshot) {
+  mkdirSync(dirname(path), { recursive: true });
+  const tmp = `${path}.${process.pid}.${randomUUID2().slice(0, 8)}.tmp`;
+  writeFileSync(tmp, JSON.stringify(snapshot, null, 2) + "\n", { mode: 384 });
+  chmodSync(tmp, 384);
+  renameSync(tmp, path);
+}
+var syncSnapshot = (sections) => ({ at: (/* @__PURE__ */ new Date()).toISOString(), key: sectionsKey(userSections(normalizeSections(sections))) });
+var cleanRules = (v) => Array.isArray(v) ? v.filter((x) => typeof x === "string" && x.trim() !== "") : [];
+function normalizeAutoReview(raw) {
+  if (typeof raw === "string") return { isEnabled: raw.trim() === "" ? null : true, allowInstructions: raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean), blockInstructions: [], legacy: true };
+  if (!raw || typeof raw !== "object") return { isEnabled: null, allowInstructions: [], blockInstructions: [] };
+  return { isEnabled: typeof raw.isEnabled === "boolean" ? raw.isEnabled : null, allowInstructions: cleanRules(raw.allowInstructions), blockInstructions: cleanRules(raw.blockInstructions) };
+}
 var GatewayError = class extends Error {
   constructor(message, extra = {}) {
     super(redact(message));
@@ -4139,15 +4342,24 @@ var GatewayError = class extends Error {
     this.exitCode = extra.status === 401 || extra.status === 403 ? 2 : 1;
   }
 };
+function fetchFailure(err) {
+  const c = err?.cause;
+  const detail = c?.code ?? c?.message;
+  return detail ? `${err.message} (${detail})` : err.message;
+}
 var Gateway = class {
   // `runtime` (optional CursorClient-like): when set, sidebar sections are read/written on the Cursor control plane.
-  constructor(session, { fetchImpl = fetch, timeoutMs = 6e4, runtime = null } = {}) {
+  constructor(session, { fetchImpl = fetch, timeoutMs = 6e4, runtime = null, snapshotPath = null } = {}) {
     if (!session?.baseUrl || !session?.token) throw new GatewayError("Gateway session is missing baseUrl or token.");
     this.session = { ...session, baseUrl: String(session.baseUrl).replace(/\/+$/, "") };
     this.fetch = fetchImpl;
     this.timeoutMs = timeoutMs;
     this.runtime = runtime;
+    this.snapshotPath = snapshotPath ?? defaultSnapshotPath();
     this._sectionsBase = void 0;
+    this.pinsHostOnly = false;
+    this.autoReviewHostOnly = false;
+    this.hostOnly = false;
     this.lastSectionsMirror = null;
     this._roster = null;
   }
@@ -4174,7 +4386,7 @@ var Gateway = class {
         signal: ctrl.signal
       });
     } catch (err) {
-      throw new GatewayError(`${command}: ${err.name === "AbortError" ? `timed out after ${timeoutMs}ms` : err.message}`, { command });
+      throw new GatewayError(`${command}: ${err.name === "AbortError" ? `timed out after ${timeoutMs}ms` : fetchFailure(err)}`, { command });
     } finally {
       clearTimeout(timer);
     }
@@ -4201,7 +4413,7 @@ var Gateway = class {
       return JSON.parse(text);
     } catch (err) {
       if (err instanceof GatewayError) throw err;
-      throw new GatewayError(`health: ${err.name === "AbortError" ? `timed out after ${timeoutMs}ms` : err.message}`, { command: "health" });
+      throw new GatewayError(`health: ${err.name === "AbortError" ? `timed out after ${timeoutMs}ms` : fetchFailure(err)}`, { command: "health" });
     } finally {
       clearTimeout(timer);
     }
@@ -4242,10 +4454,6 @@ var Gateway = class {
     this._roster = null;
     return this.call("deleteAgents", { ids, ...allowEmptyRoster ? { allowEmptyRoster: true } : {} });
   }
-  deleteAgent(id) {
-    this._roster = null;
-    return this.call("deleteAgent", { id });
-  }
   duplicateAgent(id) {
     this._roster = null;
     return this.call("duplicateAgent", { id });
@@ -4257,10 +4465,6 @@ var Gateway = class {
   setUnread(id, isUnread) {
     this._roster = null;
     return this.call("setAgentUnread", { id, isUnread: Boolean(isUnread) });
-  }
-  setNotifications(id, isEnabled) {
-    this._roster = null;
-    return this.call("setAgentNotificationsEnabled", { id, isEnabled: Boolean(isEnabled) });
   }
   setNotifyOnUpdates(id, isEnabled) {
     this._roster = null;
@@ -4274,7 +4478,7 @@ var Gateway = class {
   }
   createGroup({ name, description, memberAgentIds }) {
     this._roster = null;
-    return this.call("createGroup", { name, ...description !== void 0 ? { description } : {}, memberAgentIds, clientNonce: randomUUID() });
+    return this.call("createGroup", { name, ...description !== void 0 ? { description } : {}, memberAgentIds, clientNonce: randomUUID2() });
   }
   setGroupMembers(id, memberAgentIds) {
     this._roster = null;
@@ -4282,7 +4486,7 @@ var Gateway = class {
   }
   // ------------------------------------------------------------ conversation
   sendPrompt(agentId, prompt, extra = {}) {
-    const body = { agentId, prompt, clientNonce: extra.clientNonce ?? randomUUID() };
+    const body = { agentId, prompt, clientNonce: extra.clientNonce ?? randomUUID2() };
     if (extra.replyToId) body.replyToId = extra.replyToId;
     if (extra.richText) body.richText = extra.richText;
     if (extra.attachmentPaths) body.attachmentPaths = extra.attachmentPaths;
@@ -4313,8 +4517,15 @@ var Gateway = class {
   searchMedia(query, limit = 50) {
     return this.call("searchMedia", { query, limit });
   }
-  memories(id) {
-    return this.call("getAgentMemories", { id });
+  // Per-agent work lists. The host argument names differ per command (checked live against host 00b0aa1).
+  todos(id) {
+    return this.call("getAgentTodos", { id });
+  }
+  tasks(agentId) {
+    return this.call("getAgentTasks", { agentId });
+  }
+  searchConversation(agentId, query, limit = 50) {
+    return this.call("searchConversation", { agentId, query, limit });
   }
   // ------------------------------------------------------------ host settings (sections, pins, models)
   getHostSettings() {
@@ -4327,7 +4538,9 @@ var Gateway = class {
     if (this.runtime) {
       const raw = await this.runtime.getSidebarSections();
       this._sectionsBase = raw;
-      return normalizeSections(raw);
+      const got = normalizeSections(raw);
+      if (userSections(got).length === 0) await this._warnIfHostHoldsLayout();
+      return got;
     }
     const s = await this.getHostSettings();
     return normalizeSections(s?.sidebarSections);
@@ -4340,24 +4553,126 @@ var Gateway = class {
       await this._mirrorSections(Array.isArray(stored) ? stored : sections, base);
       return normalizeSections(stored);
     }
+    this.hostOnly = true;
     const r = await this.setHostSettings({ sidebarSections: sections });
     return normalizeSections(Array.isArray(r?.sidebarSections) ? r.sidebarSections : sections);
   }
+  // Both stores side by side. The app reads the runtime store; agents in the box can only write the host mirror
+  // (they hold no Cursor auth), so the two can drift until a Mac runs syncHostToRuntime(). `runtime`/`drift` are null
+  // when there is no runtime client; `snapshot` is what the last sync/mirror pushed ({ at, key }) or null.
+  async sectionStores() {
+    const hs = await this.getHostSettings();
+    const host = normalizeSections(hs?.sidebarSections);
+    const snapshot = readSnapshotFile(this.snapshotPath);
+    if (!this.runtime) return { runtime: null, host, drift: null, snapshot };
+    const runtime = normalizeSections(await this.runtime.getSidebarSections());
+    return { runtime, host, drift: sectionsKey(userSections(runtime)) !== sectionsKey(userSections(host)), snapshot };
+  }
+  // Mac-side: push the host mirror (what agents wrote) into the app store. Never wipes the app from an empty mirror, and
+  // refuses (unless force) when both sides moved since the last sync: the app has edits the mirror does not know about.
+  // `auto` (launchd): a real conflict is not an error. The app copy is kept, nothing is written, and the result is
+  // { changed:false, reason:"conflict", newConflict, runtime, host }; newConflict is true only the first time this exact
+  // runtime/host pair is seen (recorded as `conflictKey` in the snapshot file), so the caller logs it once.
+  async syncHostToRuntime({ force = false, auto = false } = {}) {
+    if (!this.runtime) throw new GatewayError("sections sync needs Cursor sign-in (no app store reachable from here).", { reason: "no-runtime" });
+    const rawRuntime = await this.runtime.getSidebarSections();
+    const runtimeAll = normalizeSections(rawRuntime);
+    const hs = await this.getHostSettings();
+    const hostAll = normalizeSections(hs?.sidebarSections);
+    const snapshot = readSnapshotFile(this.snapshotPath);
+    const hostUser = userSections(hostAll);
+    const hostKey = sectionsKey(hostUser);
+    const runtimeKey = sectionsKey(userSections(runtimeAll));
+    if (hostUser.length === 0) {
+      throw new GatewayError("Refusing to sync: the host mirror has no sections (an empty mirror would wipe the app's layout).", { reason: "empty-host" });
+    }
+    if (hostKey === runtimeKey) {
+      if (snapshot?.key !== hostKey || snapshot?.conflictKey) writeSnapshotFile(this.snapshotPath, syncSnapshot(hostUser));
+      return { ok: true, changed: false, before: runtimeAll, after: runtimeAll };
+    }
+    if (!force) {
+      if (!snapshot) {
+        throw new GatewayError(
+          "Refusing to sync: no sync snapshot exists, so there is no way to tell whether the app has edits the host mirror lacks. Review the diff (`grokbot sections sync --dry-run`), then re-run with --force.",
+          { reason: "no-snapshot" }
+        );
+      }
+      if (hostKey === snapshot.key) return { ok: true, changed: false, reason: "host-unchanged", before: runtimeAll, after: runtimeAll };
+      if (runtimeKey !== snapshot.key) {
+        if (auto) {
+          const conflictKey = JSON.stringify([hostKey, runtimeKey]);
+          const newConflict = snapshot.conflictKey !== conflictKey;
+          if (newConflict) {
+            try {
+              writeSnapshotFile(this.snapshotPath, { ...snapshot, conflictKey });
+            } catch (e) {
+              process.stderr.write(`grokbot: warning: could not record the sync conflict: ${e?.message ?? e}
+`);
+            }
+          }
+          return { ok: true, changed: false, reason: "conflict", newConflict, runtime: userSections(runtimeAll), host: hostUser, before: runtimeAll, after: runtimeAll };
+        }
+        throw new GatewayError(
+          "Refusing to sync: both the app and the host mirror changed since the last sync (app-side edits would be overwritten). Re-run with --force to push the mirror anyway.",
+          { reason: "conflict" }
+        );
+      }
+    }
+    const next = [...hostUser];
+    const bucketIdx = runtimeAll.findIndex((x) => BUILTIN_SECTION_IDS.has(x.id));
+    if (bucketIdx >= 0) next.splice(Math.min(bucketIdx, next.length), 0, runtimeAll[bucketIdx]);
+    const stored = await this.runtime.setSidebarSections(next, rawRuntime);
+    this._sectionsBase = stored;
+    const after = normalizeSections(Array.isArray(stored) ? stored : next);
+    let snapshotWritten = true;
+    try {
+      writeSnapshotFile(this.snapshotPath, syncSnapshot(after));
+    } catch (e) {
+      snapshotWritten = false;
+      process.stderr.write(`grokbot: warning: pushed to the app store but could not record the sync snapshot: ${e?.message ?? e}
+`);
+    }
+    return { ok: true, changed: true, snapshotWritten, before: runtimeAll, after };
+  }
+  // Read path: the server list is what the app shows, so report it honestly, but say so on stderr when it is empty
+  // while host settings still hold a layout (e.g. a machine whose sections never reached the server), so an
+  // empty `sections list` / `sections export` is never mistaken for "no layout anywhere". Host read errors are ignored.
+  async _warnIfHostHoldsLayout() {
+    try {
+      const host = userSections(normalizeSections((await this.getHostSettings())?.sidebarSections));
+      if (host.length > 0) {
+        process.stderr.write(
+          `grokbot: warning: server sections are empty while host settings hold ${host.length}; see \`grokbot settings get sidebarSections\`
+`
+        );
+      }
+    } catch {
+    }
+  }
   // Best-effort mirror for older hosts/apps that still read host settings. Never fails setSections, but never
-  // silent either: the outcome is recorded in this.lastSectionsMirror and failures warn on stderr. Skipped when the
-  // server layout was empty (only built-in buckets) while the host already has a layout, so we do not clobber it.
+  // silent either: the outcome is recorded in this.lastSectionsMirror, and skips and failures warn on stderr.
+  // Skipped whenever the host holds a non-empty layout that differs from the server layout we edited (`base`):
+  // the host copy has diverged, and overwriting it would destroy the only copy of that layout. This holds on every
+  // later command too, not just the first edit after an empty server list.
   async _mirrorSections(sections, base) {
     try {
-      const serverEmpty = normalizeSections(base).every((x) => BUILTIN_SECTION_IDS.has(x.id));
-      if (serverEmpty) {
-        const host = await this.getHostSettings();
-        if (Array.isArray(host?.sidebarSections) && host.sidebarSections.length > 0) {
-          this.lastSectionsMirror = { ok: false, skipped: true, reason: "server sections empty while host sections are non-empty" };
-          return;
-        }
+      const host = userSections(normalizeSections((await this.getHostSettings())?.sidebarSections));
+      if (host.length > 0 && sectionsKey(host) !== sectionsKey(userSections(normalizeSections(base)))) {
+        const reason = `host settings hold ${host.length} section(s) that differ from the server list`;
+        this.lastSectionsMirror = { ok: false, skipped: true, reason };
+        process.stderr.write(`grokbot: warning: ${reason}; host mirror skipped (see \`grokbot settings get sidebarSections\`)
+`);
+        return;
       }
       await this.setHostSettings({ sidebarSections: sections });
       this.lastSectionsMirror = { ok: true };
+      try {
+        writeSnapshotFile(this.snapshotPath, syncSnapshot(sections));
+      } catch (e) {
+        this.lastSectionsMirror = { ok: true, snapshotWritten: false };
+        process.stderr.write(`grokbot: warning: host mirror written but could not record the sync snapshot: ${e?.message ?? e}
+`);
+      }
     } catch (e) {
       const reason = e?.message ?? String(e);
       this.lastSectionsMirror = { ok: false, reason };
@@ -4365,13 +4680,59 @@ var Gateway = class {
 `);
     }
   }
+  // Pins: the app (0.79+) reads/writes the Cursor runtime store (settings.pinnedAgents) and only falls back to the host
+  // `pinnedAgentIds` setting when the server holds none. Host settings are a stale mirror, so read the runtime first.
   async getPinned() {
+    if (this.runtime) {
+      const ids = await this.runtime.getPinnedAgents();
+      if (ids) return ids;
+    }
     const s = await this.getHostSettings();
     return Array.isArray(s?.pinnedAgentIds) ? s.pinnedAgentIds : [];
   }
   async setPinned(ids) {
+    if (this.runtime) {
+      const stored = await this.runtime.setPinnedAgents(ids);
+      try {
+        await this.setHostSettings({ pinnedAgentIds: stored });
+      } catch (e) {
+        const why = e?.message ?? String(e);
+        if (stored.length === 0) {
+          throw new GatewayError(`pins were cleared in the Cursor store, but mirroring the empty list to host settings failed (${why}); the app falls back to the stale host list until it is cleared there too`, { reason: "pins-mirror-failed" });
+        }
+        process.stderr.write(`grokbot: warning: host pins mirror failed: ${why}
+`);
+      }
+      return stored;
+    }
+    this.pinsHostOnly = true;
     const r = await this.setHostSettings({ pinnedAgentIds: ids });
     return Array.isArray(r?.pinnedAgentIds) ? r.pinnedAgentIds : ids;
+  }
+  // Auto-review rules: structured { isEnabled, allowInstructions[], blockInstructions[] } in both the runtime store and
+  // host settings (0.79+; the 0.47 host setting was a free-form string, which normalizeAutoReview still reads).
+  async getAutoReview() {
+    if (this.runtime) {
+      const v = await this.runtime.getAutoReview();
+      if (v) return normalizeAutoReview(v);
+    }
+    return normalizeAutoReview((await this.getHostSettings())?.autoReviewInstructions);
+  }
+  async setAutoReview(value) {
+    const body = { isEnabled: value.isEnabled, allowInstructions: value.allowInstructions, blockInstructions: value.blockInstructions };
+    if (this.runtime) {
+      const stored = normalizeAutoReview(await this.runtime.setAutoReview(body));
+      try {
+        await this.setHostSettings({ autoReviewInstructions: body });
+      } catch (e) {
+        process.stderr.write(`grokbot: warning: host auto-review mirror failed: ${e?.message ?? e}
+`);
+      }
+      return stored;
+    }
+    this.autoReviewHostOnly = true;
+    const r = await this.setHostSettings({ autoReviewInstructions: body });
+    return normalizeAutoReview(r?.autoReviewInstructions ?? body);
   }
   // ------------------------------------------------------------ automations / misc
   listAutomations() {
@@ -4393,18 +4754,18 @@ var Gateway = class {
       buf += decoder.decode(value, { stream: true });
       let idx;
       while ((idx = buf.indexOf("\n\n")) >= 0) {
-        const chunk = buf.slice(0, idx);
+        const chunk2 = buf.slice(0, idx);
         buf = buf.slice(idx + 2);
-        const evt = parseSse(chunk);
+        const evt = parseSse(chunk2);
         if (evt) yield evt;
       }
     }
   }
 };
-function parseSse(chunk) {
+function parseSse(chunk2) {
   const evt = { event: "message", data: "", id: null };
   let any = false;
-  for (const line of chunk.split("\n")) {
+  for (const line of chunk2.split("\n")) {
     if (!line || line.startsWith(":")) continue;
     any = true;
     const i = line.indexOf(":");
@@ -4424,9 +4785,9 @@ function parseSse(chunk) {
 }
 
 // src/local.js
-import { existsSync as existsSync2, readdirSync, readFileSync as readFileSync2, statSync as statSync2 } from "node:fs";
-import { join as join2 } from "node:path";
-var PERSISTENCE_DIR = join2(APP_SUPPORT, "sand-client-persistence");
+import { existsSync as existsSync2, readdirSync, readFileSync as readFileSync3, statSync as statSync2 } from "node:fs";
+import { join as join3 } from "node:path";
+var PERSISTENCE_DIR = join3(APP_SUPPORT, "sand-client-persistence");
 var B32 = "abcdefghijklmnopqrstuvwxyz234567";
 function b32decode(s) {
   const clean = s.toLowerCase().replace(/=+$/, "");
@@ -4469,7 +4830,7 @@ function listSlices() {
       key = b32decode(f.slice(0, -5));
     } catch {
     }
-    const st = statSync2(join2(PERSISTENCE_DIR, f));
+    const st = statSync2(join3(PERSISTENCE_DIR, f));
     return { file: f, key, size: st.size, modifiedAt: st.mtime.toISOString() };
   }).filter((s) => s.key).sort((a, b) => a.key.localeCompare(b.key));
 }
@@ -4479,9 +4840,9 @@ function parseSliceKey(key) {
   return { accountId: m[1] ? decodeURIComponent(m[1]) : null, slice: m[2] };
 }
 function readSlice(key) {
-  const p = join2(PERSISTENCE_DIR, b32encode(key) + ".blob");
+  const p = join3(PERSISTENCE_DIR, b32encode(key) + ".blob");
   if (!existsSync2(p)) return null;
-  const parsed = JSON.parse(readFileSync2(p, "utf8"));
+  const parsed = JSON.parse(readFileSync3(p, "utf8"));
   return parsed?.value ?? parsed;
 }
 function accountIds() {
@@ -4535,16 +4896,701 @@ function extractText(e) {
   return "";
 }
 function daemonLogPath() {
-  return join2(GROKBOT_HOME, "local-exec-daemon.log");
+  return join3(GROKBOT_HOME, "local-exec-daemon.log");
 }
 function desktopStatus() {
-  const p = join2(APP_SUPPORT, "desktop-status.json");
+  const p = join3(APP_SUPPORT, "desktop-status.json");
   if (!existsSync2(p)) return null;
   try {
-    return JSON.parse(readFileSync2(p, "utf8"));
+    return JSON.parse(readFileSync3(p, "utf8"));
   } catch {
     return null;
   }
+}
+
+// src/routines.js
+import { mkdirSync as mkdirSync2, writeFileSync as writeFileSync2 } from "node:fs";
+import { join as join4 } from "node:path";
+var iso = (ms) => ms && Number(ms) > 0 ? new Date(Number(ms)).toISOString() : null;
+var ACCOUNT_CHUNK = 50;
+var LEAF_FIELDS = ["type", "schedule", "cron", "timezone", "timing", "event", "eventName"];
+var WINDOW_FIELDS = ["earlyMinutes", "lateMinutes"];
+var isPrimitive = (v) => ["string", "number", "boolean"].includes(typeof v);
+function flattenTrigger(trigger) {
+  if (!trigger || typeof trigger !== "object") return [];
+  if (Array.isArray(trigger.listeners)) return trigger.listeners.flatMap(flattenTrigger);
+  const leaf = {};
+  for (const k of LEAF_FIELDS) if (isPrimitive(trigger[k])) leaf[k] = trigger[k];
+  if (trigger.window && typeof trigger.window === "object") {
+    const w = {};
+    for (const k of WINDOW_FIELDS) if (typeof trigger.window[k] === "number") w[k] = trigger.window[k];
+    if (Object.keys(w).length) leaf.window = w;
+  }
+  return [leaf];
+}
+function normalizeRecord(agent, automationId, rec) {
+  const triggers = flattenTrigger(rec.trigger);
+  const lastRun = Array.isArray(rec.runs) && rec.runs.length > 0 ? rec.runs[rec.runs.length - 1] : null;
+  return {
+    agentId: agent.agentId,
+    agentName: agent.name ?? null,
+    automationId: automationId ?? rec.id ?? null,
+    name: rec.name ?? rec.id ?? null,
+    enabled: rec.isEnabled !== false,
+    trigger: rec.trigger?.type ?? triggers[0]?.type ?? null,
+    triggers,
+    schedule: typeof rec.schedule === "string" ? rec.schedule : triggers.find((t) => t.schedule)?.schedule ?? null,
+    triggerDescription: typeof rec.triggerDescription === "string" ? rec.triggerDescription : null,
+    prompt: typeof rec.prompt === "string" ? rec.prompt : "",
+    provenance: rec.provenance ?? null,
+    createdAt: iso(rec.createdAt),
+    lastRunAt: iso(rec.lastRunAt),
+    lastRunStatus: lastRun?.status ?? null,
+    nextRunAt: iso(rec.nextRunAt)
+  };
+}
+function normalizeRoutine(agent, row) {
+  const rec = typeof row.recordJson === "string" ? JSON.parse(row.recordJson) : row.recordJson;
+  if (!rec || typeof rec !== "object") throw new Error("recordJson is not an object");
+  return normalizeRecord(agent, row.automationId, rec);
+}
+function stubRoutine(agent, row, err) {
+  return { agentId: agent.agentId, agentName: agent.name ?? null, automationId: row?.automationId ?? null, name: null, enabled: null, trigger: null, triggers: [], schedule: null, prompt: "", malformed: true, error: String(err?.message ?? err), raw: row };
+}
+function matchAgents(agents, ref) {
+  if (!ref) return agents;
+  const r = String(ref).toLowerCase();
+  const exact = agents.filter((a) => a.agentId?.toLowerCase() === r || String(a.id) === r || a.name?.toLowerCase() === r);
+  if (exact.length) return exact;
+  const found = agents.filter((a) => a.agentId?.toLowerCase().startsWith(r) || a.name?.toLowerCase().includes(r));
+  if (found.length === 0) throw new UsageError(`No agent matches "${ref}".`);
+  return found;
+}
+var dedupeAgents = (agents) => [...new Map(agents.filter((a) => a.agentId).map((a) => [a.agentId, a])).values()];
+var chunk = (arr, n) => Array.from({ length: Math.ceil(arr.length / n) }, (_, i) => arr.slice(i * n, i * n + n));
+async function listRoutines(cursor2, { agent, gateway: gateway2, warn = (m) => process.stderr.write(m + "\n") } = {}) {
+  const universe = dedupeAgents((await cursor2.listAgents()).agents);
+  const serverIds = new Set(universe.map((a) => a.agentId));
+  let gwRows = [];
+  if (gateway2) {
+    try {
+      const r = await gateway2.listAutomations();
+      gwRows = Array.isArray(r) ? r.filter((x) => x?.agentId && x.automation && typeof x.automation === "object") : [];
+      if (gwRows.some((x) => !serverIds.has(x.agentId))) {
+        const names = /* @__PURE__ */ new Map();
+        try {
+          for (const a of await gateway2.listAgents()) names.set(a.id, a.name);
+        } catch {
+        }
+        for (const id of new Set(gwRows.map((x) => x.agentId))) if (!serverIds.has(id)) universe.push({ agentId: id, name: names.get(id) ?? null });
+      }
+    } catch (e) {
+      warn(`grokbot: gateway automations unavailable, using control plane only: ${e.message}`);
+    }
+  }
+  const agents = matchAgents(universe, agent);
+  const errors = [];
+  const routines = [];
+  const perAgent = [];
+  const seen = /* @__PURE__ */ new Set();
+  const push = (a, row, make) => {
+    let entry;
+    try {
+      entry = make();
+    } catch (e) {
+      entry = stubRoutine(a, row, e);
+      const msg2 = `malformed routine ${row?.automationId ?? "(no id)"} for agent ${a.name ?? a.agentId}: ${entry.error}`;
+      errors.push(msg2);
+      warn(`grokbot: ${msg2}`);
+    }
+    const key = `${a.agentId}:${entry.automationId ?? JSON.stringify(row)}`;
+    if (seen.has(key)) return 0;
+    seen.add(key);
+    routines.push(entry);
+    return 1;
+  };
+  const groups = /* @__PURE__ */ new Map();
+  const cpAgents = agents.filter((a) => serverIds.has(a.agentId));
+  for (const ids of chunk(cpAgents.map((a) => a.agentId), ACCOUNT_CHUNK)) {
+    for (const g of await cursor2.listAccountAutomations(ids)) groups.set(g.agentId, g);
+  }
+  for (const a of agents) {
+    let count = 0;
+    if (serverIds.has(a.agentId)) {
+      const g = groups.get(a.agentId);
+      const rows = !g || g.unavailable || g.readIndividually ? await cursor2.listAgentAutomations(a.agentId) : g.automations ?? [];
+      for (const row of rows) count += push(a, row, () => normalizeRoutine(a, row));
+    }
+    for (const x of gwRows) if (x.agentId === a.agentId) count += push(a, x, () => normalizeRecord(a, x.automation.id ?? x.automationId, x.automation));
+    perAgent.push({ agentId: a.agentId, name: a.name ?? null, count });
+  }
+  return { routines, agents: perAgent, errors };
+}
+async function resolveRoutine(cursor2, agentRef, ref) {
+  const { routines } = await listRoutines(cursor2, {});
+  const a = String(agentRef).toLowerCase();
+  const live = routines.filter((r) => !r.malformed && (r.agentId?.toLowerCase() === a || r.agentName?.toLowerCase() === a));
+  const agentIds = new Set(live.map((r) => r.agentId));
+  if (agentIds.size > 1) throw new UsageError(`"${agentRef}" matches ${agentIds.size} agents with routines; use the full agent id.`);
+  const q = String(ref).toLowerCase();
+  const hit = live.filter((r) => r.automationId?.toLowerCase() === q || r.name?.toLowerCase() === q);
+  if (hit.length !== 1) throw new UsageError(hit.length === 0 ? `No routine "${ref}" on agent "${agentRef}" (exact agent id/name and routine id/name only).` : `"${ref}" matches ${hit.length} routines; use the automation id.`);
+  return hit[0];
+}
+async function toggleRoutine(cursor2, agentRef, ref, enabled, { yes = false } = {}) {
+  const r = await resolveRoutine(cursor2, agentRef, ref);
+  const word = (on) => on ? "enabled" : "disabled";
+  const target = `${r.agentName ?? r.agentId} / ${r.name} (${r.automationId}): ${word(r.enabled)} -> ${word(enabled)}`;
+  const base = { agentId: r.agentId, automationId: r.automationId, name: r.name, enabled };
+  if (r.enabled === enabled) return { ...base, changed: false, confirmed: true, target: `${target} (already ${word(enabled)}, nothing sent)` };
+  if (!yes) throw new UsageError(`${target}
+Re-run with --yes to apply.`);
+  await cursor2.setAutomationEnabled(r.agentId, r.automationId, enabled);
+  const after = await resolveRoutine(cursor2, r.agentId, r.automationId);
+  if (after.enabled !== enabled) {
+    const err = new Error(`${target}
+Write accepted but the routine is still ${word(after.enabled)}.`);
+    err.exitCode = 1;
+    throw err;
+  }
+  return { ...base, changed: true, confirmed: true, target: `${target} (confirmed by re-read)` };
+}
+async function deleteRoutine(cursor2, agentRef, ref, { yes = false, timeZone } = {}) {
+  const r = await resolveRoutine(cursor2, agentRef, ref);
+  const target = `${r.agentName ?? r.agentId} / ${r.name} (${r.automationId}), prompt ${r.prompt.length} chars`;
+  const base = { agentId: r.agentId, automationId: r.automationId, name: r.name };
+  if (!yes) throw new UsageError(`DELETE ${target}
+This cannot be undone (back up with \`grokbot automations export <dir>\`). Re-run with --yes to apply.`);
+  await cursor2.deleteAutomation(r.agentId, r.automationId, timeZone);
+  let routines;
+  try {
+    ({ routines } = await listRoutines(cursor2, { agent: r.agentId }));
+  } catch (e) {
+    return { ...base, deleted: true, confirmed: false, target: `deleted ${target} (unconfirmed: the re-read failed: ${String(e?.message ?? e).slice(0, 160)})` };
+  }
+  if (routines.some((x) => x.automationId === r.automationId)) {
+    const err = new Error(`DELETE ${target}
+Write accepted but the routine is still listed.`);
+    err.exitCode = 1;
+    throw err;
+  }
+  return { ...base, deleted: true, confirmed: true, target: `deleted ${target} (confirmed by re-read)` };
+}
+async function setRoutineSlackWorkspace(cursor2, agentRef, ref, teamId, { yes = false } = {}) {
+  const r = await resolveRoutine(cursor2, agentRef, ref);
+  const { workspaces } = await cursor2.listSlackWorkspaces();
+  const known = workspaces.find((w) => w.slackTeamId === teamId);
+  if (!known) throw new UsageError(`Slack workspace "${teamId}" is not linked to this account. Linked: ${workspaces.map((w) => `${w.slackTeamId}${w.displayName ? ` (${w.displayName})` : ""}`).join(", ") || "(none)"}.`);
+  const target = `${r.agentName ?? r.agentId} / ${r.name} (${r.automationId}) -> Slack workspace ${teamId}${known.displayName ? ` (${known.displayName})` : ""}`;
+  const base = { agentId: r.agentId, automationId: r.automationId, name: r.name, slackTeamId: teamId };
+  if (!yes) throw new UsageError(`${target}
+Re-run with --yes to apply.`);
+  const fail = (why) => {
+    const err = new Error(`${target}
+${why}`);
+    err.exitCode = 1;
+    return err;
+  };
+  const before = known.sandAutomationCount;
+  const after = await cursor2.setAutomationSlackWorkspace(r.automationId, teamId);
+  let reread;
+  try {
+    reread = (await cursor2.listSlackWorkspaces()).workspaces;
+  } catch (e) {
+    throw fail(`Write accepted but could not be confirmed: re-read failed (${String(e?.message ?? e)}).`);
+  }
+  const row = reread.find((w) => w.slackTeamId === teamId);
+  if (!row) throw fail(`Write accepted but Slack workspace ${teamId} is not in the linked workspaces on re-read.`);
+  const replied = after.find((w) => w.slackTeamId === teamId);
+  if (!replied) throw fail(`The server's reply did not include Slack workspace ${teamId}; not confirmed.`);
+  const nBefore = before === void 0 || before === null ? NaN : Number(before);
+  const nAfter = row.sandAutomationCount === void 0 || row.sandAutomationCount === null ? NaN : Number(row.sandAutomationCount);
+  const truncated = Boolean(known.sandAutomationCountTruncated || row.sandAutomationCountTruncated);
+  const confirmed = !truncated && Number.isFinite(nBefore) && Number.isFinite(nAfter) && nAfter > nBefore;
+  const note = confirmed ? `confirmed: the workspace's routine count rose ${nBefore} -> ${nAfter}` : "NOT confirmed: the workspace's routine count did not rise (or is unavailable/truncated), so the write cannot be verified; check the routine in the app";
+  return { ...base, changed: true, confirmed, workspace: { slackTeamId: row.slackTeamId, displayName: row.displayName ?? null, sandAutomationCount: row.sandAutomationCount ?? null }, target: `set ${target} (${note})` };
+}
+async function resumeGuard(cursor2, entries, { dryRun = false } = {}) {
+  const { routines } = await listRoutines(cursor2, {});
+  const live = routines.filter((r) => !r.malformed);
+  const results = [];
+  const writes = [];
+  const seen = /* @__PURE__ */ new Set();
+  const hintFor = (entry) => {
+    const q = entry.routine.toLowerCase();
+    const a = entry.agent?.toLowerCase();
+    const near = live.filter(
+      (r) => (!a || r.agentId?.toLowerCase().startsWith(a) || r.agentName?.toLowerCase().includes(a)) && (r.automationId?.toLowerCase().startsWith(q) || r.name?.toLowerCase().includes(q))
+    );
+    return near.length ? `; did you mean ${near.slice(0, 3).map((r) => `"${r.agentName ?? r.agentId} | ${r.name}" (${r.automationId})`).join(", ")}?` : "";
+  };
+  for (const entry of entries) {
+    const q = entry.routine.toLowerCase();
+    let pool = live;
+    if (entry.agent) {
+      const a = entry.agent.toLowerCase();
+      pool = live.filter((r2) => r2.agentId?.toLowerCase() === a || r2.agentName?.toLowerCase() === a);
+    }
+    const hit = pool.filter((r2) => r2.automationId?.toLowerCase() === q || r2.name?.toLowerCase() === q);
+    if (hit.length === 0) {
+      results.push({ entry, status: "not-found", error: `no routine matches "${entry.routine}"${entry.agent ? ` on agent "${entry.agent}"` : ""} exactly${dryRun ? hintFor(entry) : ""}` });
+      continue;
+    }
+    if (hit.length > 1) {
+      results.push({ entry, status: "ambiguous", error: `"${entry.routine}"${entry.agent ? ` on "${entry.agent}"` : ""} matches ${hit.length} routines; use the automation id` });
+      continue;
+    }
+    const r = hit[0];
+    const row = { entry, agentId: r.agentId, agentName: r.agentName, automationId: r.automationId, name: r.name };
+    const key = `${r.agentId}:${r.automationId}`;
+    if (seen.has(key)) {
+      results.push({ ...row, status: "duplicate" });
+      continue;
+    }
+    seen.add(key);
+    if (r.enabled !== false) {
+      results.push({ ...row, status: "enabled" });
+      continue;
+    }
+    if (dryRun) {
+      results.push({ ...row, status: "would-resume" });
+      continue;
+    }
+    const res = { ...row, status: "resumed" };
+    results.push(res);
+    writes.push(res);
+  }
+  for (const res of writes) {
+    try {
+      await cursor2.setAutomationEnabled(res.agentId, res.automationId, true);
+    } catch (e) {
+      res.status = "failed";
+      res.error = String(e?.message ?? e);
+    }
+  }
+  if (writes.some((w) => w.status === "resumed")) {
+    const after = (await listRoutines(cursor2, {})).routines;
+    for (const res of writes) {
+      if (res.status !== "resumed") continue;
+      const now = after.find((x) => x.agentId === res.agentId && x.automationId === res.automationId);
+      if (!now || now.enabled !== true) {
+        res.status = "failed";
+        res.error = now ? "write accepted but the routine is still disabled" : "routine vanished after the write";
+      }
+    }
+  }
+  const resumed = results.filter((r) => r.status === "resumed").length;
+  const errors = results.filter((r) => ["not-found", "ambiguous", "failed"].includes(r.status)).length;
+  return { results, resumed, errors };
+}
+var slug = (s) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "agent";
+function fence(text) {
+  const longest = Math.max(2, ...[...text.matchAll(/`+/g)].map((m) => m[0].length));
+  return "`".repeat(longest + 1);
+}
+function renderAgentMarkdown(agent, routines) {
+  const lines = [`# ${agent.name ?? agent.agentId}`, "", `- agentId: ${agent.agentId}`, `- routines: ${routines.length}`, ""];
+  for (const r of routines) {
+    if (r.malformed) {
+      const f2 = fence(JSON.stringify(r.raw, null, 2));
+      lines.push(`## ${r.automationId ?? "(unknown id)"} (UNPARSEABLE)`, "", `- error: ${r.error}`, "", f2 + "json", JSON.stringify(r.raw, null, 2), f2, "");
+      continue;
+    }
+    lines.push(`## ${r.name}`, "");
+    lines.push(`- automationId: ${r.automationId}`);
+    lines.push(`- enabled: ${r.enabled}`);
+    lines.push(`- trigger: ${r.trigger}${r.triggerDescription ? ` (${r.triggerDescription})` : ""}`);
+    for (const t of r.triggers) {
+      const bits = [t.type, t.schedule, t.timing && `timing=${t.timing}`, t.window && `window=-${t.window.earlyMinutes ?? 0}m/+${t.window.lateMinutes ?? 0}m`];
+      lines.push(`  - ${bits.filter(Boolean).join(" ")}`);
+    }
+    if (r.schedule) lines.push(`- schedule: ${r.schedule}`);
+    if (r.lastRunAt) lines.push(`- lastRun: ${r.lastRunAt}${r.lastRunStatus ? ` (${r.lastRunStatus})` : ""}`);
+    if (r.nextRunAt) lines.push(`- nextRun: ${r.nextRunAt}`);
+    const f = fence(r.prompt);
+    lines.push("", "### Prompt", "", f + "text", r.prompt, f, "");
+  }
+  return lines.join("\n");
+}
+function exportRoutines(dir, { routines, agents }) {
+  mkdirSync2(dir, { recursive: true, mode: 448 });
+  const written = [];
+  for (const a of agents) {
+    const mine = routines.filter((r) => r.agentId === a.agentId);
+    if (mine.length === 0) continue;
+    const file = join4(dir, `${slug(a.name)}-${a.agentId.slice(0, 8)}.md`);
+    writeFileSync2(file, renderAgentMarkdown(a, mine), { mode: 384 });
+    written.push({ agentId: a.agentId, name: a.name, count: mine.length, file });
+  }
+  return written;
+}
+
+// src/slack.js
+function enumName(value) {
+  if (value == null || value === "") return "UNSPECIFIED";
+  return String(value).replace(/^.*?(?:OUTCOME|STATUS)_/, "");
+}
+var OK = /* @__PURE__ */ new Set(["INSTALLED", "REMOVED", "UPDATED", "UP_TO_DATE", "STARTED", "CLAIMED"]);
+var NEEDS_HUMAN = /* @__PURE__ */ new Set(["PENDING_ADMIN_APPROVAL", "WORKSPACE_REQUIRED", "NOT_CONNECTED", "MANAGER_REAUTH_REQUIRED", "RECREATE_REQUIRED", "INSUFFICIENT_SCOPES", "THROTTLED", "WRONG_CURSOR_ACCOUNT"]);
+var WHY = {
+  PENDING_ADMIN_APPROVAL: "the workspace admin must approve the app request; re-run after approval (install is idempotent)",
+  WORKSPACE_REQUIRED: "more than one Slack workspace is linked; pass --workspace <teamId> (see `grokbot slack workspaces`)",
+  NOT_CONNECTED: "no Slack workspace is linked for this agent; run `grokbot slack connect <agent>` or `grokbot slack link-url`",
+  MANAGER_REAUTH_REQUIRED: "the Slack manager authorization expired; reconnect with `grokbot slack link-url --reconnect <teamId>`",
+  INSUFFICIENT_SCOPES: "the stored Slack authorization lacks scopes; reconnect with `grokbot slack link-url --reconnect <teamId>`",
+  INSTALL_CONFLICT: "the agent already has a Slack app in another workspace; add --replace to swap it",
+  RATELIMITED: "Slack rate-limited the request; retry later",
+  SLACK_REJECTED: "Slack rejected the request",
+  UNSUPPORTED_HARNESS: "this agent's harness does not support Slack",
+  NOT_PUBLISHED: "the agent is not published, so it cannot get a Slack app",
+  WORKSPACE_NOT_ALLOWED: "the workspace is not allowed for this account or team",
+  RECREATE_REQUIRED: "the app cannot be updated in place; uninstall and install it again",
+  THROTTLED: "reinstall is throttled; retry later",
+  UP_TO_DATE: "nothing to update",
+  INVALID: "the claim is invalid or already used",
+  WRONG_CURSOR_ACCOUNT: "the Slack connection was started from a different Cursor account"
+};
+function summarizeSlackOutcome(verb, resp = {}) {
+  const outcome = enumName(resp.outcome);
+  const alreadyGone = verb === "uninstall" && outcome === "NOT_CONNECTED";
+  const ok = OK.has(outcome) || alreadyGone;
+  const needsHuman = !ok && NEEDS_HUMAN.has(outcome);
+  const details = {};
+  for (const k of ["slackTeamId", "workspaceName", "slackTeamName", "previousWorkspaceName", "slackError", "retryAfterSeconds", "approvalRequestFiled", "appRemoved", "previousAppForgotten", "retrying", "forgotten"]) {
+    if (resp[k] !== void 0 && resp[k] !== null && resp[k] !== false) details[k] = resp[k];
+  }
+  const workspaces = Array.isArray(resp.workspaces) ? resp.workspaces.map((w) => ({ slackTeamId: w.slackTeamId, name: w.slackTeamName ?? null })) : void 0;
+  if (workspaces?.length) details.workspaces = workspaces;
+  const url = resp.oauthAuthorizeUrl ?? resp.url ?? null;
+  let message = `${verb}: ${outcome}`;
+  if (resp.workspaceName || resp.slackTeamName) message += ` (${resp.workspaceName ?? resp.slackTeamName})`;
+  if (alreadyGone) message += " - nothing was installed or connected, so there is nothing to remove";
+  else if (WHY[outcome] && !(ok && outcome !== "UP_TO_DATE")) message += ` - ${WHY[outcome]}`;
+  if (outcome === "UNSPECIFIED") message += " - the server returned no outcome";
+  if (resp.slackError) message += `
+  slack error: ${resp.slackError}`;
+  if (resp.retryAfterSeconds) message += `
+  retry after ${resp.retryAfterSeconds}s`;
+  if (workspaces?.length) message += `
+  workspaces: ${workspaces.map((w) => `${w.slackTeamId}${w.name ? ` (${w.name})` : ""}`).join(", ")}`;
+  if (url) message += `
+  open: ${url}`;
+  return { outcome, ok, needsHuman, exitCode: ok ? 0 : needsHuman ? 4 : 1, message, url, details };
+}
+function parseAllowlist(text) {
+  const entries = [];
+  String(text).split(/\r?\n/).forEach((raw, i) => {
+    const line = raw.replace(/(^|\s)#.*$/, "").trim();
+    if (!line) return;
+    const bar = line.indexOf("|");
+    if (bar < 0) entries.push({ line: i + 1, agent: null, routine: line });
+    else {
+      const agent = line.slice(0, bar).trim();
+      const routine = line.slice(bar + 1).trim();
+      if (!agent || !routine) throw new Error(`allowlist line ${i + 1}: expected "<agent> | <routine>" or a bare routine id`);
+      entries.push({ line: i + 1, agent, routine });
+    }
+  });
+  return entries;
+}
+function appWorkspaces(state = {}) {
+  return (Array.isArray(state.workspaces) ? state.workspaces : []).filter((w) => w?.slackTeamId).map((w) => ({ slackTeamId: w.slackTeamId, name: w.slackTeamName ?? null, managerAuthUpdatedAtMs: Number(w.managerAuthUpdatedAtMs) || 0 }));
+}
+function unionAppWorkspaces(states) {
+  const byTeam = /* @__PURE__ */ new Map();
+  for (const st of states) {
+    for (const w of appWorkspaces(st)) {
+      const cur = byTeam.get(w.slackTeamId);
+      if (!cur || w.managerAuthUpdatedAtMs > cur.managerAuthUpdatedAtMs) byTeam.set(w.slackTeamId, { ...w, name: w.name ?? cur?.name ?? null });
+    }
+  }
+  return [...byTeam.values()];
+}
+function installBaseline(state = {}) {
+  return { teams: new Map(appWorkspaces(state).map((w) => [w.slackTeamId, w.managerAuthUpdatedAtMs])), connected: enumName(state.status) === "CONNECTED" };
+}
+function newWorkspaces(state, baseline) {
+  return appWorkspaces(state).map((w) => ({ ...w, isNewTeam: !baseline.teams.has(w.slackTeamId) })).filter((w) => w.isNewTeam || w.managerAuthUpdatedAtMs > baseline.teams.get(w.slackTeamId));
+}
+var defaultSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function pollOnce(client, agentId, ms) {
+  const ctrl = new AbortController();
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      ctrl.abort();
+      reject(new Error(`GetGrokBotSlackInstallState timed out after ${ms}ms`));
+    }, ms);
+  });
+  const read = Promise.resolve().then(() => client.getSlackInstallState(agentId, { signal: ctrl.signal }));
+  read.catch(() => {
+  });
+  try {
+    return await Promise.race([read, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+async function waitForSlackWorkspace(client, agentId, baseline, { intervalMs = 5e3, timeoutMs = 6e5, requestTimeoutMs = 15e3, maxFailures = 5, targetTeam, requireNewTeam = false, sleep: sleep2 = defaultSleep, now = Date.now, onPoll, onError } = {}) {
+  const deadline = now() + timeoutMs;
+  let failures = 0;
+  let lastState = null;
+  for (; ; ) {
+    let state = null;
+    try {
+      state = await pollOnce(client, agentId, Math.max(1, Math.min(requestTimeoutMs, deadline - now())));
+      failures = 0;
+    } catch (e) {
+      failures += 1;
+      onError?.(e, failures, maxFailures);
+      if (failures >= maxFailures) {
+        const err = new Error(`connect --wait: ${failures} consecutive install-state reads failed (last: ${e.message}). The connect URL may still be valid: check \`grokbot slack status --agent ${agentId}\` and use \`grokbot slack install ${agentId} --yes\` once the workspace is recorded.`);
+        err.exitCode = 1;
+        throw err;
+      }
+    }
+    if (state) {
+      lastState = state;
+      let fresh = newWorkspaces(state, baseline);
+      if (targetTeam) fresh = fresh.filter((w) => w.slackTeamId === targetTeam);
+      else if (requireNewTeam) fresh = fresh.filter((w) => w.isNewTeam);
+      const connected = enumName(state.status) === "CONNECTED";
+      if (fresh.length || connected && !baseline.connected) return { done: true, timedOut: false, state, newWorkspaces: fresh, connected };
+    }
+    const left = deadline - now();
+    if (left <= 0) return { done: false, timedOut: true, state: lastState, newWorkspaces: [], connected: false };
+    onPoll?.(left);
+    await sleep2(Math.min(intervalMs, left));
+  }
+}
+async function mapLimit(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (next < items.length) {
+        const i = next++;
+        results[i] = await fn(items[i]);
+      }
+    })
+  );
+  return results;
+}
+
+// src/backup.js
+import { appendFileSync, mkdirSync as mkdirSync3, renameSync as renameSync2, writeFileSync as writeFileSync3 } from "node:fs";
+import { createHash } from "node:crypto";
+import { join as join5 } from "node:path";
+var SECRET_KEY = /token|secret|key|password|credential|authorization|cookie|^env$|^headers$/i;
+function scrubKeys(value) {
+  if (Array.isArray(value)) return value.map(scrubKeys);
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, SECRET_KEY.test(k) ? "<redacted>" : scrubKeys(v)]));
+  return value;
+}
+var slug2 = (s) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "agent";
+var agentFile = (a) => `${slug2(a.name)}-${a.agentId.slice(0, 8)}`;
+var writeJson = (file, value) => writeFileSync3(file, JSON.stringify(value, null, 2) + "\n", { mode: 384 });
+var DIR_MODE = { recursive: true, mode: 448 };
+var PT = "America/Los_Angeles";
+var ptTime = (ms) => ms ? new Intl.DateTimeFormat("en-US", { timeZone: PT, month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(Number(ms))) : "?";
+var ptDate = (ms) => ms ? new Intl.DateTimeFormat("en-US", { timeZone: PT, month: "short", day: "numeric", year: "numeric" }).format(new Date(Number(ms))) : "?";
+var isoMs = (v) => num(v) ? new Date(num(v)).toISOString() : null;
+var usd = (cents) => cents == null ? "?" : `$${(Number(cents) / 100).toFixed(2)}`;
+function untilText(ms, now) {
+  const d = Number(ms) - now;
+  if (!Number.isFinite(d)) return "";
+  if (d <= 0) return "now";
+  const h = Math.floor(d / 36e5);
+  return h >= 24 ? `${Math.floor(h / 24)}d ${h % 24}h` : `${h}h ${Math.floor(d % 36e5 / 6e4)}m`;
+}
+var num = (v) => {
+  const n = v === null || v === void 0 || v === "" ? NaN : Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+var pct = (spent, limit) => {
+  const s = num(spent);
+  const l = num(limit);
+  return s !== null && l !== null && l > 0 ? Math.round(s / l * 1e3) / 10 : null;
+};
+function summarizeUsage({ status = {}, period = {}, access = {}, cycle = {}, errors = {} }, now = Date.now()) {
+  const plan = period.planUsage ?? {};
+  const lim = period.spendLimitUsage ?? {};
+  const resetMs = num(Date.parse(status.nextResetTimestampUtc ?? ""));
+  const startMs = num(Date.parse(status.currentPeriodStart ?? ""));
+  return {
+    plan: { name: status.cursorPlanName ?? null, label: status.grokPlanLabel ?? null },
+    access: { state: access.state ?? null, blockReason: access.blockReason ?? null },
+    window: {
+      percentUsed: num(status.usagePercent),
+      hasAvailableUsage: status.hasAvailableUsage ?? null,
+      onDemandEnabled: status.onDemandSettings?.enabled ?? null,
+      startsAt: startMs ? new Date(startMs).toISOString() : null,
+      resetsAt: resetMs ? new Date(resetMs).toISOString() : null,
+      resetsAtPT: resetMs ? ptTime(resetMs) : null,
+      resetsIn: resetMs ? untilText(resetMs, now) : null
+    },
+    billingCycle: { start: isoMs(cycle.startDateEpochMillis), end: isoMs(cycle.endDateEpochMillis) },
+    included: {
+      spentCents: num(plan.totalSpend),
+      limitCents: num(plan.limit),
+      remainingCents: num(plan.remaining),
+      percentOfLimit: pct(plan.totalSpend, plan.limit),
+      serverMessage: period.displayMessage ?? null
+    },
+    personalLimit: { usedCents: num(lim.individualUsed), limitCents: num(lim.individualLimit), remainingCents: num(lim.individualRemaining), type: lim.limitType ?? null },
+    units: "cents",
+    unavailable: errors
+  };
+}
+function formatUsage(u) {
+  const w = u.window;
+  const lines = [
+    `Plan:            ${[u.plan.name, u.plan.label].filter(Boolean).join(" / ") || "?"}   access ${String(u.access.state ?? "?").replace("SAND_ACCESS_STATE_", "")}`,
+    `Allowance window: ${w.percentUsed ?? "?"}% used${w.hasAvailableUsage === false ? " (none available)" : w.percentUsed >= 100 ? w.onDemandEnabled ? " (included allowance exhausted; on-demand enabled)" : " (included allowance exhausted)" : ""}`,
+    `Resets:          ${w.resetsAtPT ?? "?"}${w.resetsIn ? ` (in ${w.resetsIn})` : ""}`,
+    `Billing cycle:   ${ptDate(Date.parse(u.billingCycle.start ?? ""))} to ${ptDate(Date.parse(u.billingCycle.end ?? ""))}`,
+    `Included spend:  ${usd(u.included.spentCents)} of ${usd(u.included.limitCents)}${u.included.percentOfLimit != null ? ` (${u.included.percentOfLimit}%)` : ""}, ${usd(u.included.remainingCents)} left`
+  ];
+  if (u.included.serverMessage) lines.push(`                 server says: "${u.included.serverMessage}"`);
+  if (u.personalLimit.limitCents !== null && u.personalLimit.limitCents !== void 0) lines.push(`Personal cap:    ${usd(u.personalLimit.usedCents)} of ${usd(u.personalLimit.limitCents)} used, ${usd(u.personalLimit.remainingCents)} left`);
+  for (const [method, why] of Object.entries(u.unavailable ?? {})) lines.push(`Unavailable:     ${method} (${why})`);
+  return lines.join("\n") + "\n";
+}
+var msg = (e) => String(e?.message ?? e).replace(/^grokbot:\s*/, "").slice(0, 160);
+async function exportAgents(dir, { cursor: cursor2, gateway: gateway2, warn = (m) => process.stderr.write(m + "\n"), now = () => (/* @__PURE__ */ new Date()).toISOString() }) {
+  mkdirSync3(dir, DIR_MODE);
+  const { agents } = await cursor2.listAgents();
+  const seen = /* @__PURE__ */ new Set();
+  const files = [];
+  const notes = /* @__PURE__ */ new Map();
+  const sections = [
+    ["skills", (a) => cursor2.listAgentSkills(a.agentId)],
+    ["plugins", (a) => cursor2.getAgentPlugins(a.agentId)],
+    ["access", (a) => cursor2.getAgentAccess(a.agentId)]
+  ];
+  for (const a of agents) {
+    if (!a.agentId || seen.has(a.agentId)) continue;
+    seen.add(a.agentId);
+    const doc = { exportedAt: now(), agentId: a.agentId, profile: scrubKeys(a) };
+    const skipped = {};
+    for (const [name, fn] of sections) {
+      try {
+        doc[name] = scrubKeys(await fn(a));
+      } catch (e) {
+        skipped[name] = msg(e);
+      }
+    }
+    if (Object.keys(skipped).length) {
+      doc.skipped = skipped;
+      for (const [k, v] of Object.entries(skipped)) {
+        const key = `${k}: ${v}`;
+        (notes.get(key) ?? notes.set(key, []).get(key)).push(a.name ?? a.agentId);
+      }
+    }
+    const file = join5(dir, `${agentFile(a)}.json`);
+    writeJson(file, doc);
+    files.push({ agentId: a.agentId, name: a.name ?? null, file, skipped: Object.keys(skipped) });
+  }
+  for (const [key, names] of notes) warn(`grokbot: skipped ${key} (${names.length === 1 ? names[0] : `${names.length} agents`})`);
+  const workflows = await exportWorkflows(dir, { gateway: gateway2, agents: [...seen], warn });
+  return { files, workflows };
+}
+async function exportWorkflows(dir, { gateway: gateway2, agents, warn }) {
+  if (!gateway2) {
+    warn("grokbot: workflows skipped (no gateway session)");
+    return { written: 0, listed: 0, skipped: "no gateway session" };
+  }
+  let rows = null;
+  let lastErr = null;
+  for (const id of agents) {
+    try {
+      rows = await gateway2.call("getAgentWorkflows", { id });
+      break;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  if (!Array.isArray(rows)) {
+    warn(`grokbot: workflows skipped (${msg(lastErr ?? "no agents")})`);
+    return { written: 0, listed: 0, skipped: msg(lastErr ?? "no agents") };
+  }
+  const wdir = join5(dir, "workflows");
+  mkdirSync3(wdir, DIR_MODE);
+  const index = [];
+  let written = 0;
+  for (const w of rows) {
+    index.push({ id: w.id, name: w.name, source: w.source, pluginId: w.pluginId ?? null, description: w.description ?? null });
+    if (w.source !== "workflow") continue;
+    const { body = "", ...meta } = scrubKeys(w);
+    const front = Object.entries(meta).filter(([, v]) => v !== null && v !== "" && !(Array.isArray(v) && v.length === 0)).map(([k, v]) => `${k}: ${JSON.stringify(v)}`);
+    writeFileSync3(join5(wdir, `${slug2(w.id)}-${createHash("sha256").update(String(w.id)).digest("hex").slice(0, 8)}.md`), `---
+${front.join("\n")}
+---
+${w.body ?? ""}
+`, { mode: 384 });
+    written++;
+  }
+  writeJson(join5(wdir, "INDEX.json"), index);
+  return { written, listed: rows.length };
+}
+var MAX_PAGES = 2e3;
+function parseSince(v) {
+  const n = v === void 0 || v === null || v === "" ? 0 : Number(v);
+  if (!Number.isInteger(n) || n < 0) throw new UsageError(`--since must be a non-negative integer seq, got "${v}".`);
+  return n;
+}
+async function fetchTranscript(cursor2, agentId, { since = 0, limit = 200, maxPages = MAX_PAGES } = {}) {
+  const bySeq = /* @__PURE__ */ new Map();
+  let before;
+  for (let pages = 0; ; pages++) {
+    if (pages >= maxPages) throw new Error(`transcript paging exceeded ${maxPages} pages; refusing to loop`);
+    const page = await cursor2.listTranscriptEntries(agentId, { limit, beforeSeq: before });
+    if (page.length === 0) break;
+    let minSeq = Infinity;
+    for (const e of page) {
+      const s = Number(e.seq);
+      if (!Number.isFinite(s)) continue;
+      minSeq = Math.min(minSeq, s);
+      if (s > since) bySeq.set(s, e);
+    }
+    if (!Number.isFinite(minSeq)) break;
+    if (minSeq <= since + 1 || minSeq <= 1 || before !== void 0 && minSeq >= before) break;
+    before = minSeq;
+  }
+  return [...bySeq.entries()].sort((x, y) => x[0] - y[0]).map(([, e]) => e);
+}
+function withBodyJson(e) {
+  if (typeof e.body !== "string" || e.body === "") return e;
+  try {
+    return { ...e, bodyJson: JSON.parse(Buffer.from(e.body, "base64").toString("utf8")) };
+  } catch {
+    return e;
+  }
+}
+async function exportTranscripts(dir, { cursor: cursor2, agent, since = 0, warn = (m) => process.stderr.write(m + "\n") }) {
+  since = parseSince(since);
+  mkdirSync3(dir, DIR_MODE);
+  const all = [...new Map((await cursor2.listAgents()).agents.filter((a) => a.agentId).map((a) => [a.agentId, a])).values()];
+  const files = [];
+  for (const a of matchAgents(all, agent)) {
+    try {
+      const entries = await fetchTranscript(cursor2, a.agentId, { since });
+      const file = join5(dir, `${agentFile(a)}.jsonl`);
+      if (entries.length > 0) {
+        const text = entries.map((e) => JSON.stringify(withBodyJson(e))).join("\n") + "\n";
+        if (since > 0) appendFileSync(file, text, { mode: 384 });
+        else {
+          const tmp = `${file}.tmp-${process.pid}`;
+          writeFileSync3(tmp, text, { mode: 384 });
+          renameSync2(tmp, file);
+        }
+      }
+      files.push({ agentId: a.agentId, name: a.name ?? null, entries: entries.length, lastSeq: entries.length ? Number(entries[entries.length - 1].seq) : since, file: entries.length ? file : null });
+    } catch (e) {
+      warn(`grokbot: ${a.name ?? a.agentId}: transcript skipped (${msg(e)})`);
+    }
+  }
+  return files;
 }
 
 // src/agents.js
@@ -4652,25 +5698,33 @@ function agentState(a) {
 }
 
 // src/cli.js
-import { createHash } from "node:crypto";
+import { createHash as createHash2 } from "node:crypto";
 
 // src/policy.js
-import { appendFileSync, mkdirSync } from "node:fs";
-import { dirname, join as join3 } from "node:path";
-import { homedir as homedir2 } from "node:os";
+import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync4 } from "node:fs";
+import { dirname as dirname2, join as join6 } from "node:path";
+import { homedir as homedir3 } from "node:os";
 var DENIED_FOR_AGENTS = [
-  // agents/sections delete + groups members are ALLOWED under agent policy.
-  // Deletes still need --yes / --confirm-count. Keep low-level surfaces denied.
+  // sections delete + groups members ALLOWED under agent policy (still --yes / --confirm-count gated).
+  // `agents delete` is not denied here but cannot run: it needs a Cursor client the agent policy lacks. Keep low-level surfaces denied.
   "agents duplicate",
   "agents interrupt",
   "sections import",
+  "sections sync",
+  // Mac-only: pushes the host mirror into the app store (needs Cursor auth)
   "pins clear",
   "settings set",
   "gw",
   "cursor",
   "cdp",
   "app",
-  "automations"
+  "automations",
+  // incl. enable/disable/delete/slack-workspace/resume-guard (writes)
+  "slack",
+  // install-flow reads and writes go straight to the control plane
+  "agents export",
+  // control-plane + gateway backup reads
+  "transcripts"
 ];
 function resolvePolicy(env = process.env) {
   if (isInsideBox(env)) return "agent";
@@ -4693,30 +5747,35 @@ function isDenied(path, policy) {
 }
 function auditPath(env = process.env) {
   const box = boxGatewaySession(env);
-  if (box) return join3(dirname(box.path), "grokbot-audit.jsonl");
+  if (box) return join6(dirname2(box.path), "grokbot-audit.jsonl");
   if (env.GROKBOT_AUDIT_LOG) return env.GROKBOT_AUDIT_LOG;
-  return join3(homedir2(), ".grokbot", "grokbot-audit.jsonl");
+  return join6(homedir3(), ".grokbot", "grokbot-audit.jsonl");
 }
 function audit(record, env = process.env) {
   try {
     const p = auditPath(env);
-    mkdirSync(dirname(p), { recursive: true, mode: 448 });
-    appendFileSync(p, JSON.stringify(redactValue({ ts: (/* @__PURE__ */ new Date()).toISOString(), ...record })) + "\n", { mode: 384 });
+    mkdirSync4(dirname2(p), { recursive: true, mode: 448 });
+    appendFileSync2(p, JSON.stringify(redactValue({ ts: (/* @__PURE__ */ new Date()).toISOString(), ...record })) + "\n", { mode: 384 });
   } catch {
   }
+}
+function redactArgv(path, argv) {
+  if (path !== "slack claim" || !Array.isArray(argv)) return argv;
+  const i = argv.indexOf("claim");
+  return argv.map((a, n) => i >= 0 && n > i && !String(a).startsWith("-") ? "<redacted>" : a);
 }
 function enforce(cmd, argv, env = process.env) {
   const policy = resolvePolicy(env);
   const path = commandPath(cmd);
   if (isDenied(path, policy)) {
-    audit({ policy, path, argv, decision: "denied" }, env);
+    audit({ policy, path, argv: redactArgv(path, argv), decision: "denied" }, env);
     const err = new UsageError(
-      `"${path}" is not available under the agent policy. Agents may organize and delete agents/sections (with --yes gates) but not reach below the host gateway (gw/cursor/cdp/app); use "grokbot auto-review" for auto-review rules. A human runs denied commands from the Mac with GROKBOT_POLICY=operator.`
+      `"${path}" is not available under the agent policy. Agents may organize agents/sections (sections delete needs --yes gates; agents cannot delete agents) but not reach below the host gateway (gw/cursor/cdp/app); use "grokbot auto-review" for auto-review rules. A human runs denied commands from the Mac with GROKBOT_POLICY=operator.`
     );
     err.exitCode = 77;
     throw err;
   }
-  if (policy === "agent") audit({ policy, path, argv, decision: "allowed" }, env);
+  if (policy === "agent") audit({ policy, path, argv: redactArgv(path, argv), decision: "allowed" }, env);
   return policy;
 }
 
@@ -4726,20 +5785,82 @@ var _gw = null;
 async function gateway(opts) {
   if (_gw) return _gw;
   const session = await resolveGatewaySession({ accountScope: opts.account ?? null, prefer: opts.ensure ? "ensure" : "auto" });
-  let runtime = null;
-  try {
-    const auth = loadCursorAuth({ accountScope: opts.account ?? null });
-    if (auth) runtime = new CursorClient(auth);
-  } catch {
-  }
-  _gw = new Gateway(session, { runtime });
+  _gw = new Gateway(session, { runtime: runtimeClientFor(opts) });
   return _gw;
 }
-var nudgeDeps = { appState, connect: (o) => Cdp.connect(o) };
+function runtimeClientFor(opts = {}, env = process.env) {
+  if (resolvePolicy(env) === "agent") return null;
+  try {
+    const auth = loadCursorAuth({ accountScope: opts.account ?? null });
+    return auth ? new CursorClient(auth) : null;
+  } catch {
+    return null;
+  }
+}
+async function optionalGateway(cmd) {
+  try {
+    return await gateway(cmd.optsWithGlobals());
+  } catch (e) {
+    process.stderr.write(`grokbot: gateway unavailable, listing control-plane routines only: ${e.message}
+`);
+    return null;
+  }
+}
+var localTimeZone = () => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || void 0;
+  } catch {
+    return void 0;
+  }
+};
+var _slackPollMs = null;
+var SLACK_TEAM_ID = /^[TE][A-Z0-9]{5,}$/;
+var SLACK_STATE_CONCURRENCY = 6;
+var _cursorForTests = null;
 function cursor(opts) {
+  if (_cursorForTests) return _cursorForTests;
   const auth = loadCursorAuth({ accountScope: opts.account ?? null });
   if (!auth) throw new UsageError("No Cursor account found in the Grok Bot secret store. Sign in to Grok Bot first.");
   return new CursorClient(auth);
+}
+function controlPlaneClient(opts, env = process.env) {
+  if (resolvePolicy(env) === "agent") return null;
+  try {
+    return cursor(opts);
+  } catch {
+    return null;
+  }
+}
+async function sendMessage(opts, gw, agent, prompt, { replyToId } = {}, { cursorClient } = {}) {
+  let c = cursorClient ?? null;
+  if (!c && resolvePolicy() !== "agent") {
+    try {
+      c = cursor(opts);
+    } catch {
+      c = null;
+    }
+  }
+  if (c) {
+    const sentAt = Date.now();
+    const r = await c.sendUserMessage(agent.id, prompt, { sentAtMs: sentAt, replyToId });
+    if (r.dispatched !== true || r.refusal) {
+      const err = new Error(`send refused by the control plane: ${enumName(r.refusal) !== "UNSPECIFIED" ? enumName(r.refusal) : "dispatched=false"}`);
+      err.exitCode = 1;
+      throw err;
+    }
+    return { via: "control-plane", dispatched: r.dispatched, mode: r.mode ? String(r.mode).replace(/^.*?MODE_/, "") : null, workflowId: r.workflowId ?? null, messageId: r.messageId, sentAt };
+  }
+  try {
+    return { via: "gateway", ...await gw.sendPrompt(agent.id, prompt, { replyToId }) };
+  } catch (e) {
+    if (e?.status === 502 && /may not make this request/i.test(e.message)) {
+      const err = new Error(`${e.message}
+The host (app 0.79+) only accepts sendPrompt from a session it considers the agent's own; ${resolvePolicy() === "agent" ? "an operator can send from the Mac (`grokbot agents send`), which uses the control plane" : "sign in to Grok Bot so grokbot can send through the control plane"}.`);
+      err.exitCode = 1;
+      throw err;
+    }
+    throw e;
+  }
 }
 function globalOpts(cmd) {
   let c = cmd;
@@ -4751,7 +5872,7 @@ function out(cmd, value, human) {
   else process.stdout.write(typeof human === "function" ? human(value) : human ?? String(value) + "\n");
 }
 function readLines(file) {
-  return readFileSync3(file, "utf8").split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
+  return readFileSync4(file, "utf8").split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
 }
 var selectionOptions = (cmd) => cmd.option("--name <glob>", "name glob, case-insensitive (e.g. 'test-*')").option("--match <text>", "substring in name/description/title").option("--regex <re>", "name regex").option("--hidden", "only agents hidden from the sidebar").option("--all", "include hidden agents").option("--groups", "only group chats").option("--no-groups", "exclude group chats").option("--running", "only agents mid-turn").option("--idle", "only agents not mid-turn").option("--unread", "only agents with unread messages").option("--awaiting", "only agents awaiting a user response").option("--idle-for <dur>", "no activity for at least <dur> (30m, 12h, 7d, 2w)").option("--created-before <dur>", "created more than <dur> ago").option("--created-after <dur>", "created within the last <dur>").option("--section <ref>", "in section (id or name), or 'none' for unsectioned").option("--ids-file <file>", "file with one agent id/name per line");
 function selectionFromOpts(o, sections) {
@@ -4795,6 +5916,23 @@ async function selectAgents(gw, refs, o, { requireSome = true, strict = false } 
   if (requireSome && rows.length === 0) throw new UsageError("No agents matched.");
   return { rows, roster, sections };
 }
+var CONTROL_PLANE_LIST_TIMEOUT_MS = 5e3;
+async function readControlPlaneRoster(c, { timeoutMs } = {}) {
+  const r = await c.listAgents(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {});
+  const live = new Set((r.agents ?? []).map((a) => a.agentId).filter(Boolean));
+  return { live, truncated: Boolean(r.truncated), complete: !r.truncated && live.size > 0 };
+}
+async function staleHostAgentIds(opts, roster) {
+  const c = controlPlaneClient(opts);
+  if (!c) return /* @__PURE__ */ new Set();
+  try {
+    const { live, complete } = await readControlPlaneRoster(c, { timeoutMs: CONTROL_PLANE_LIST_TIMEOUT_MS });
+    if (!complete) return /* @__PURE__ */ new Set();
+    return new Set(roster.filter((a) => !live.has(a.id)).map((a) => a.id));
+  } catch {
+    return /* @__PURE__ */ new Set();
+  }
+}
 function agentTable(rows, sections = []) {
   const byAgent = sectionIdByAgent(sections);
   const secName = new Map(sections.map((s) => [s.id, s.name]));
@@ -4806,7 +5944,7 @@ function agentTable(rows, sections = []) {
     { label: "active", get: (a) => relTime(a.lastActivityAt ?? a.updatedAt) },
     { label: "created", get: (a) => relTime(a.createdAt) },
     { label: "section", get: (a) => secName.get(byAgent.get(a.id)) ?? "" },
-    { label: "flags", get: (a) => [a.isGroup && "group", a.isHiddenFromSidebar && "hidden", a.awaitingUserResponse && "awaiting"].filter(Boolean).join(",") },
+    { label: "flags", get: (a) => [a.isGroup && "group", a.isHiddenFromSidebar && "hidden", a.awaitingUserResponse && "awaiting", a.deletedOnControlPlane && "(deleted?)"].filter(Boolean).join(",") },
     { key: "lastMessagePreview", label: "last message", max: 48 }
   ]);
 }
@@ -4830,10 +5968,6 @@ async function confirmDestructive(cmd, rows, o, { verb, noun = "agent", requireC
     throw err;
   }
   return true;
-}
-function tailEntries(data) {
-  const entries = Array.isArray(data) ? data : data?.entries ?? data?.rows ?? data?.items ?? data?.transcript ?? [];
-  return Array.isArray(entries) ? entries : [];
 }
 var WAIT_TRANSCRIPT_WINDOW = 200;
 var FALLBACK_TAIL = 20;
@@ -4875,6 +6009,10 @@ function cdpTimeoutMs(o) {
   if (ms > MAX_TIMER_MS) throw new UsageError(`--timeout is too large (max ${Math.floor(MAX_TIMER_MS / 1e3)} seconds; got "${o.timeout}").`);
   return ms;
 }
+function tailEntries(data) {
+  const entries = Array.isArray(data) ? data : data?.entries ?? data?.rows ?? data?.items ?? data?.transcript ?? [];
+  return Array.isArray(entries) ? entries : [];
+}
 function formatEntry(e) {
   const flat = transcriptText({ entries: [e] })[0];
   const when = e.createdAt ?? e.at ?? e.timestamp ?? e.createdAtMs;
@@ -4882,20 +6020,61 @@ function formatEntry(e) {
   const text = flat?.text ?? "";
   return `${when ? new Date(Number(when)).toISOString().slice(11, 19) : "        "} ${String(who).padEnd(10)} ${text.replace(/\s+/g, " ").slice(0, 400)}`;
 }
+var PINS_HOST_ONLY_NOTE = "grokbot: note: wrote the host pins setting only (no Cursor sign-in here). The 0.79+ app reads pins from the Cursor runtime store first and ignores this list while it holds any, so the app may not show the change; pin from the Mac (`grokbot pins add`) or the app UI.\n";
+var HOST_ONLY_NOTE = "grokbot: note: wrote the host mirror only (no Cursor sign-in here). The app shows it after the Mac runs `grokbot sections sync` (auto-sync runs every 2 min). Check with `grokbot sections verify`.\n";
+function describeSectionStores(stores) {
+  const hostUser = userSections(stores.host);
+  const snapshot = stores.snapshot ?? null;
+  const unknown = !stores.runtime && !snapshot;
+  const mirrorMatchesSnapshot = unknown ? null : snapshot ? sectionsKey(hostUser) === snapshot.key : hostUser.length === 0;
+  const diff = stores.runtime ? sectionsDiff(userSections(stores.runtime), hostUser) : null;
+  const inSync = unknown ? null : stores.runtime ? stores.drift === false : mirrorMatchesSnapshot;
+  const state = inSync === null ? "unknown" : inSync ? "in-sync" : "pending";
+  return { runtime: stores.runtime, host: stores.host, drift: stores.drift, snapshot, mirrorMatchesSnapshot, diff, inSync, state };
+}
+function sectionsSyncMode(o) {
+  return o.dryRun || !o.auto && !o.yes ? "preview" : "apply";
+}
+function renderSectionStores(d) {
+  const col = (list) => (list.length ? userSections(list).map((s, i) => `  ${i + 1}. ${s.name} (${pluralize(s.agentIds.length, "agent")})`).join("\n") : "  (none)") + "\n";
+  let t = "";
+  if (d.runtime) t += `app store (Cursor runtime):
+${col(d.runtime)}`;
+  t += `host mirror:
+${col(d.host)}`;
+  if (d.runtime) {
+    t += d.drift ? `DRIFT (app -> host mirror):
+${d.diff.map((x) => "  " + x).join("\n")}${d.diff.length ? "\n" : "  (same sections, different order)\n"}` : "in sync\n";
+  } else if (d.state === "unknown") {
+    t += "app store not reachable from here; sync state unknown (the Mac auto-syncs every 2 min; check there with `grokbot sections verify`)\n";
+  } else {
+    t += `app store not reachable from here; host mirror shown; last Mac sync ${d.snapshot?.at ?? "never"}; mirror matches last sync: ${d.mirrorMatchesSnapshot ? "yes" : "no"}
+`;
+  }
+  return t;
+}
+async function showSectionStores(cmd, gw, { setExit }) {
+  const d = describeSectionStores(await gw.sectionStores());
+  out(cmd, { ...d, inSync: d.inSync }, renderSectionStores(d));
+  if (setExit && d.inSync === false) process.exitCode = 1;
+}
 async function writeSections(cmd, gw, before, after, label) {
   const saved = await gw.setSections(normalizeSections(after));
   const diff = sectionsDiff(before, saved);
-  out(cmd, { ok: true, sections: saved, changes: diff }, `${label}
+  const hostOnly = gw.hostOnly === true;
+  out(cmd, { ok: true, sections: saved, changes: diff, ...hostOnly ? { store: "host-mirror", pendingSync: true } : {} }, `${label}
 ${diff.map((d) => "  " + d).join("\n")}${diff.length ? "\n" : ""}`);
+  if (hostOnly) process.stderr.write(HOST_ONLY_NOTE);
   await nudgeRenderer();
 }
+var nudgeDeps = { appState, connect: (o) => Cdp.connect(o) };
 async function nudgeRenderer() {
   if (resolvePolicy() === "agent") return;
   try {
     const st = await nudgeDeps.appState();
     if (!st.cdpReachable) return;
     const cdp = await nudgeDeps.connect({ port: st.debugPort });
-    await cdp.callDesktop("agent.getSidebarSections").catch(() => {
+    await cdp.sidebarSections().catch(() => {
     });
     cdp.close();
   } catch {
@@ -4915,11 +6094,17 @@ ${policy === "agent" ? "denied    " + DENIED_FOR_AGENTS.join(", ") + "\n" : "den
   });
   program2.command("doctor").description("Check every control surface: app, Keychain, gateway descriptor, host health, Cursor token, CDP").action(async (_, cmd) => {
     const report = { policy: resolvePolicy(), sources: describeSessionSources(), app: await appState(), gateway: null, host: null, cursor: null };
+    let desc = null;
     try {
-      const box = boxGatewaySession();
-      const desc = box ?? loadGatewayDescriptor();
-      report.gateway = desc ? { source: desc.source, host: new URL(desc.baseUrl).host, savedAt: desc.savedAtMs ? new Date(desc.savedAtMs).toISOString() : null, headers: Object.keys(desc.headers), entries: desc.entryCount ?? null, path: desc.path ?? null } : { source: null, error: "no descriptor" };
-      const gw = new Gateway(desc ?? await resolveGatewaySession());
+      desc = boxGatewaySession() ?? loadGatewayDescriptor();
+      report.gateway = desc ? { source: desc.source, host: new URL(desc.baseUrl).host, savedAt: desc.savedAtMs ? new Date(desc.savedAtMs).toISOString() : null, headers: Object.keys(desc.headers), entries: desc.entryCount ?? null, fileVersion: desc.fileVersion ?? null, path: desc.path ?? null } : { source: null, error: "no descriptor" };
+    } catch (err) {
+      report.gateway = { source: null, error: redact(err.message), code: err.code ?? null };
+    }
+    try {
+      const session = desc ?? await resolveGatewaySession();
+      if (!desc) report.gateway = { ...report.gateway, fallback: { source: session.source, host: new URL(session.baseUrl).host } };
+      const gw = new Gateway(session);
       const [health, status, count] = await Promise.all([gw.health(), gw.hostStatus(), gw.countAgents()]);
       report.host = { ok: health.ok, pid: health.pid, busy: health.isBusy, activeAgentId: health.activeAgentId, hostVersion: status.hostVersion, updateAvailable: status.hostUpdateAvailable, capabilities: status.capabilities, agents: count };
     } catch (err) {
@@ -4942,8 +6127,12 @@ ${policy === "agent" ? "denied    " + DENIED_FOR_AGENTS.join(", ") + "\n" : "den
       const L = [];
       L.push(`policy     ${report.policy}${report.gateway?.source === "box" ? `  (inside box via ${report.gateway.path})` : ""}`);
       L.push(`app        ${report.app.running ? `running pid ${report.app.pid}` : "not running"} v${report.sources.appVersion ?? "?"}  cdp ${report.app.cdpReachable ? `on :${report.app.debugPort}` : "off (grokbot app restart --debug)"}`);
-      L.push(`keychain   ${report.gateway?.source ? "ok" : "no descriptor"}  descriptor ${report.gateway?.entries ?? 0} entr${report.gateway?.entries === 1 ? "y" : "ies"} saved ${report.gateway?.savedAt ?? "?"}`);
-      L.push(report.host?.error ? `host       ERROR ${report.host.error}` : `host       ${report.gateway?.host}  ok=${report.host.ok} busy=${report.host.busy} version=${report.host.hostVersion}${report.host.updateAvailable ? " (update available)" : ""} agents=${report.host.agents}`);
+      const g = report.gateway ?? {};
+      L.push(
+        `keychain   ${g.source ? "ok" : g.code ? `ERROR ${g.error}` : "n/a (no gateway-descriptor.json; the app has not cached one)"}${g.source ? `  descriptor ${g.source === "box" ? g.path : `v${g.fileVersion ?? "?"}, ${g.entries ?? 0} entr${g.entries === 1 ? "y" : "ies"}, saved ${g.savedAt ?? "?"}`}` : g.fallback ? `  (host resolved via ${g.fallback.source})` : ""}`
+      );
+      const hostName = g.host ?? g.fallback?.host ?? "(unresolved)";
+      L.push(report.host?.error ? `host       ${hostName}  ERROR ${report.host.error}` : `host       ${hostName}  ok=${report.host.ok} busy=${report.host.busy} version=${report.host.hostVersion}${report.host.updateAvailable ? " (update available)" : ""} agents=${report.host.agents}`);
       L.push(
         report.cursor?.skipped ? `cursor     skipped (${report.cursor.skipped})` : report.cursor?.error ? `cursor     ERROR ${report.cursor.error}` : `cursor     ${report.cursor.email ?? report.cursor.subject}  token exp ${report.cursor.expiresAt}${report.cursor.expired ? " EXPIRED" : ""}  box ${report.cursor.boxState}`
       );
@@ -4971,7 +6160,8 @@ ${running.map((a) => `  running: ${a.name} (${shortId(a.id)})`).join("\n")}${run
   selectionOptions(agents.command("list").alias("ls").description("List agents (hidden excluded unless --all/--hidden)")).option("--sort <by>", "activity|created|name|unread", "activity").option("--limit <n>", "max rows").option("--ids", "print ids only").action(async (o, cmd) => {
     const gw = await gateway(cmd.optsWithGlobals());
     const [roster, sections2] = await Promise.all([gw.listAgents({ fresh: true }), gw.getSections()]);
-    let rows = sortAgents(filterAgents(roster, selectionFromOpts(o, sections2), sections2), o.sort);
+    const gone = await staleHostAgentIds(cmd.optsWithGlobals(), roster);
+    let rows = sortAgents(filterAgents(roster, selectionFromOpts(o, sections2), sections2), o.sort).map((a) => gone.has(a.id) ? { ...a, deletedOnControlPlane: true } : a);
     if (o.idsFile) {
       const keep = new Set(resolveMany(roster, readLines(o.idsFile)).map((a) => a.id));
       rows = rows.filter((a) => keep.has(a.id));
@@ -4979,7 +6169,7 @@ ${running.map((a) => `  running: ${a.name} (${shortId(a.id)})`).join("\n")}${run
     if (o.limit) rows = rows.slice(0, Number(o.limit));
     if (o.ids) return process.stdout.write(rows.map((a) => a.id).join("\n") + (rows.length ? "\n" : ""));
     out(cmd, rows, () => agentTable(rows, sections2) + `${rows.length} of ${roster.length}
-`);
+` + (rows.some((a) => a.deletedOnControlPlane) ? "(deleted?) = not on the Cursor control plane; the host roster is a stale mirror of a deleted agent\n" : ""));
   });
   agents.command("get <ref>").description("Show one agent's full roster row").action(async (ref, _, cmd) => {
     const gw = await gateway(cmd.optsWithGlobals());
@@ -4991,9 +6181,9 @@ ${running.map((a) => `  running: ${a.name} (${shortId(a.id)})`).join("\n")}${run
       return Object.entries({ ...a, section: sec?.name ?? null }).filter(([k]) => !skip.has(k)).map(([k, v]) => `${k.padEnd(26)} ${typeof v === "object" ? JSON.stringify(v) : String(v)}`.slice(0, 300)).join("\n") + "\n";
     });
   });
-  agents.command("search <query>").description("Host-side search across agents (names, descriptions, transcripts)").option("--limit <n>", "max results", "50").action(async (query, o, cmd) => {
+  agents.command("search <query>").description("Host-side search across agents (names, descriptions, transcripts)").option("--limit <n>", "max results", "50").option("--agent <ref>", "search only inside this agent's conversation (host searchConversation)").action(async (query, o, cmd) => {
     const gw = await gateway(cmd.optsWithGlobals());
-    const r = await gw.searchAgents(query, Number(o.limit));
+    const r = o.agent ? await gw.searchConversation(resolveAgent(await gw.listAgents({ fresh: true }), o.agent).id, query, Number(o.limit)) : await gw.searchAgents(query, Number(o.limit));
     out(cmd, r, () => JSON.stringify(r, null, 2) + "\n");
   });
   agents.command("create <name>").description("Create a new agent (chat)").option("-d, --description <text>", "instructions / description", "").option("--title <text>").option("--purpose <text>").option("--shape <shape>", "avatar shape").option("--color <color>", "avatar color").option("--section <ref>", "put the new agent into this section").option("--no-intro", "suppress the introduction message").option("--kickstart", "ask the agent to start working immediately").action(async (name, o, cmd) => {
@@ -5020,7 +6210,8 @@ ${running.map((a) => `  running: ${a.name} (${shortId(a.id)})`).join("\n")}${run
     out(cmd, { id: a.id, from: a.name, to: name }, `renamed ${shortId(a.id)} "${a.name}" \u2192 "${name}"
 `);
   });
-  agents.command("update <ref>").description("Update profile fields").option("--name <text>").option("-d, --description <text>").option("--title <text>").option("--shape <shape>").option("--color <color>").option("--notify <on|off>", "notifications enabled").option("--notify-updates <on|off>", "notify on agent updates").action(async (ref, o, cmd) => {
+  agents.command("update <ref>").description("Update profile fields").option("--name <text>").option("-d, --description <text>").option("--title <text>").option("--shape <shape>").option("--color <color>").option("--notify-updates <on|off>", "notify on agent updates").option("--notify <on|off>", "removed in app 0.79 (use --notify-updates)").action(async (ref, o, cmd) => {
+    if (o.notify !== void 0) throw new UsageError("--notify was removed in app 0.79: the host no longer has setAgentNotificationsEnabled. Use --notify-updates <on|off>.");
     const gw = await gateway(cmd.optsWithGlobals());
     const a = resolveAgent(await gw.listAgents({ fresh: true }), ref);
     const profile = { name: o.name ?? a.name, description: o.description ?? a.description ?? "" };
@@ -5028,7 +6219,6 @@ ${running.map((a) => `  running: ${a.name} (${shortId(a.id)})`).join("\n")}${run
     if (o.shape !== void 0) profile.avatarShape = o.shape;
     if (o.color !== void 0) profile.avatarColor = o.color;
     if (o.name !== void 0 || o.description !== void 0 || o.title !== void 0 || o.shape !== void 0 || o.color !== void 0) await gw.updateAgent(a.id, profile);
-    if (o.notify) await gw.setNotifications(a.id, o.notify === "on");
     if (o.notifyUpdates) await gw.setNotifyOnUpdates(a.id, o.notifyUpdates === "on");
     out(cmd, { id: a.id, profile }, `updated ${a.name} (${shortId(a.id)})
 `);
@@ -5065,35 +6255,102 @@ ${running.map((a) => `  running: ${a.name} (${shortId(a.id)})`).join("\n")}${run
     out(cmd, r ?? { ok: true }, `interrupted ${a.name}
 `);
   });
-  selectionOptions(agents.command("delete [refs...]").alias("rm").description("Delete agents (full id or exact name only; no prefix matching). Prints the exact targets; needs --yes (and --confirm-count N for more than one)")).option("--dry-run", "list targets and exit").option("--yes", "actually delete").option("--confirm-count <n>", "must equal the number of matched targets when deleting more than one").option("--batch <n>", "ids per deleteAgents call", "25").option("--allow-empty", "allow the delete to empty the whole roster").action(async (refs, o, cmd) => {
-    const gw = await gateway(cmd.optsWithGlobals());
-    const { rows } = await selectAgents(gw, refs, { ...o, all: true }, { strict: true });
+  selectionOptions(agents.command("delete [refs...]").alias("rm").description("Delete agents (full id or exact name only; no prefix matching) via the Cursor control plane (needs the owner's sign-in), verified against ListGrokBotAgents. Prints the exact targets; needs --yes (and --confirm-count N for more than one)")).option("--dry-run", "list targets and exit").option("--yes", "actually delete").option("--confirm-count <n>", "must equal the number of matched targets when deleting more than one").option("--batch <n>", "ids per host deleteAgents call when mirroring (control-plane deletes are one RPC per agent)", "25").option("--allow-empty", "allow the host mirror delete to empty the whole roster").action(async (refs, o, cmd) => {
+    const opts = cmd.optsWithGlobals();
+    const gw = await gateway(opts);
+    const { rows, roster } = await selectAgents(gw, refs, { ...o, all: true }, { strict: true });
     if (!await confirmDestructive(cmd, rows, o, { verb: "delete" })) return;
+    const c = controlPlaneClient(opts);
+    if (!c) {
+      const agentPolicy = resolvePolicy() === "agent";
+      const err = new UsageError(`Deleting agents needs the owner's Cursor sign-in (control-plane DeleteGrokBotAgent); ${agentPolicy ? "the agent policy has no Cursor client" : "no Cursor account is signed in here"}. The host cannot delete them. Nothing was deleted; an operator runs this from the Mac.`);
+      err.exitCode = agentPolicy ? 77 : 1;
+      throw err;
+    }
     const ids = rows.map((a) => a.id);
-    const batch = Math.max(1, Number(o.batch));
-    const results = [];
-    for (let i = 0; i < ids.length; i += batch) {
-      const slice = ids.slice(i, i + batch);
-      const r = await gw.deleteAgents(slice, { allowEmptyRoster: Boolean(o.allowEmpty) });
-      results.push(r);
-      process.stderr.write(`deleted ${Math.min(i + batch, ids.length)}/${ids.length}
+    if (!o.allowEmpty && roster.length > 0 && ids.length >= roster.length) {
+      const err = new UsageError(`This would delete every agent on the roster (${ids.length}). Pass --allow-empty to confirm. Nothing was deleted.`);
+      err.exitCode = 3;
+      throw err;
+    }
+    const rpcErrors = {};
+    const attempted = [];
+    let aborted = null;
+    for (const [i, id] of ids.entries()) {
+      try {
+        await c.deleteAgent(id);
+        attempted.push(id);
+      } catch (e) {
+        rpcErrors[id] = redact(e.message);
+        if ([401, 403, 429].includes(e?.status)) {
+          aborted = e.status;
+          for (const rest of ids.slice(i + 1)) rpcErrors[rest] = `not attempted (stopped after HTTP ${e.status})`;
+          process.stderr.write(`grokbot: stopping: DeleteGrokBotAgent returned HTTP ${e.status}
+`);
+          break;
+        }
+      }
+      process.stderr.write(`delete requested ${i + 1}/${ids.length}
 `);
     }
-    const current = await gw.getSections();
-    const deletedSet = new Set(ids);
-    const touched = current.some((s) => s.agentIds.some((id) => deletedSet.has(id)));
-    if (touched) await gw.setSections(assignAgents(current, null, ids));
-    out(cmd, { ok: true, deleted: ids, results, sectionsUpdated: touched }, `deleted ${pluralize(ids.length, "agent")}${touched ? " (removed from sections)" : ""}
-`);
+    let present;
+    let unverified = null;
+    try {
+      const r = await readControlPlaneRoster(c, { timeoutMs: CONTROL_PLANE_LIST_TIMEOUT_MS });
+      present = r.live;
+      if (r.truncated) unverified = "ListGrokBotAgents was truncated";
+      else if (r.live.size === 0 && !(o.allowEmpty && attempted.length === ids.length)) unverified = "ListGrokBotAgents returned no agents";
+    } catch (e) {
+      unverified = `ListGrokBotAgents failed: ${redact(e.message)}`;
+    }
+    if (unverified) {
+      const err = new Error(`could not verify the delete: ${unverified}. Nothing was mirrored on the host; re-check with \`grokbot cursor agents\` before retrying.${aborted ? ` (The delete loop stopped early on HTTP ${aborted}.)` : ""}`);
+      err.exitCode = 1;
+      throw err;
+    }
+    const deleted = attempted.filter((id) => !present.has(id));
+    const stillPresent = ids.filter((id) => present.has(id));
+    const failed = ids.filter((id) => !deleted.includes(id) && !present.has(id));
+    let hostMirror = { removed: false };
+    let sectionsUpdated = false;
+    if (deleted.length) {
+      try {
+        const batch = Math.max(1, Number(o.batch));
+        for (let i = 0; i < deleted.length; i += batch) await gw.deleteAgents(deleted.slice(i, i + batch), { allowEmptyRoster: Boolean(o.allowEmpty) });
+        hostMirror = { removed: true };
+      } catch (e) {
+        hostMirror = { removed: false, error: redact(e.message) };
+      }
+      try {
+        const current = await gw.getSections();
+        const deletedSet = new Set(deleted);
+        sectionsUpdated = current.some((s) => s.agentIds.some((id) => deletedSet.has(id)));
+        if (sectionsUpdated) await gw.setSections(assignAgents(current, null, deleted));
+      } catch (e) {
+        hostMirror = { ...hostMirror, sectionsError: redact(e.message) };
+      }
+    }
+    const name = new Map(rows.map((a) => [a.id, a.name]));
+    if (stillPresent.length || failed.length) process.exitCode = 1;
+    out(
+      cmd,
+      { ok: stillPresent.length === 0 && failed.length === 0, deleted, stillPresent: stillPresent.map((id) => ({ id, name: name.get(id) ?? null, ...rpcErrors[id] ? { error: rpcErrors[id] } : {} })), failed: failed.map((id) => ({ id, name: name.get(id) ?? null, error: rpcErrors[id] ?? "delete not confirmed" })), hostMirror, sectionsUpdated },
+      () => `deleted ${deleted.length}/${ids.length} (verified gone from the control plane)${sectionsUpdated ? " (removed from sections)" : ""}
+` + (deleted.length ? hostMirror.removed ? "host mirror: deleteAgents sent; the host roster may still list them for a few minutes (`agents list` marks them (deleted?))\n" : `host mirror: not removed${hostMirror.error ? ` (${hostMirror.error})` : ""}; \`agents list\` marks them (deleted?) until the host catches up
+` : "") + stillPresent.map((id) => `still present: ${name.get(id) ?? id} (${shortId(id)})${rpcErrors[id] ? ` - ${rpcErrors[id]}` : ""}
+`).join("") + failed.map((id) => `not deleted: ${name.get(id) ?? id} (${shortId(id)}) - ${rpcErrors[id] ?? "delete not confirmed"}
+`).join("")
+    );
   });
-  agents.command("send <ref> <prompt...>").description("Send a message to an agent").option("--reply-to <entryId>").option("--wait", "wait for the turn to finish and print the tail").option("--timeout <sec>", "max seconds to wait", "300").action(async (ref, promptParts, o, cmd) => {
+  agents.command("send <ref> <prompt...>").description("Send a message to an agent (operator: control-plane SendGrokBotUserMessage; agent policy: host sendPrompt)").option("--reply-to <entryId>").option("--wait", "wait for the turn to finish and print the tail").option("--timeout <sec>", "max seconds to wait", "300").action(async (ref, promptParts, o, cmd) => {
+    const opts = cmd.optsWithGlobals();
     const timeoutSec = Number(o.timeout);
     if (o.wait && !(Number.isFinite(timeoutSec) && timeoutSec > 0)) throw new UsageError(`--timeout must be a positive number of seconds (got "${o.timeout}").`);
-    const gw = await gateway(cmd.optsWithGlobals());
+    const gw = await gateway(opts);
     const a = resolveAgent(await gw.listAgents({ fresh: true }), ref);
     const prompt = promptParts.join(" ");
-    const r = await gw.sendPrompt(a.id, prompt, { replyToId: o.replyTo });
-    if (!o.wait) return out(cmd, r, `sent to ${a.name} (${shortId(a.id)}) accepted=${r?.accepted ?? "?"} nonce=${r.clientNonce}
+    const r = await sendMessage(opts, gw, a, prompt, { replyToId: o.replyTo });
+    if (!o.wait) return out(cmd, r, `sent to ${a.name} (${shortId(a.id)}) via ${r.via} ${r.via === "control-plane" ? `dispatched=${r.dispatched} mode=${r.mode ?? "?"}` : `accepted=${r?.accepted ?? "?"}`} id=${r.clientNonce ?? r.messageId}
 `);
     const deadline = Date.now() + timeoutSec * 1e3;
     let sawRunning = false;
@@ -5131,14 +6388,40 @@ ${running.map((a) => `  running: ${a.name} (${shortId(a.id)})`).join("\n")}${run
     const a = resolveAgent(await gw.listAgents({ fresh: true }), ref);
     printJson(await gw.conversationOutline(a.id));
   });
-  agents.command("memories <ref>").description("List the agent's memories").action(async (ref, _, cmd) => {
-    const gw = await gateway(cmd.optsWithGlobals());
+  const workList = async (cmd, ref, { rpc, host }) => {
+    const opts = cmd.optsWithGlobals();
+    const gw = await gateway(opts);
     const a = resolveAgent(await gw.listAgents({ fresh: true }), ref);
-    printJson(await gw.memories(a.id));
+    if (resolvePolicy() !== "agent") {
+      try {
+        return { agent: a, source: "cursor", data: await rpc(cursor(opts), a.id) };
+      } catch (e) {
+        process.stderr.write(`grokbot: note: control-plane read failed (${redact(e.message)}); using the host gateway
+`);
+      }
+    }
+    return { agent: a, source: "host", data: await host(gw, a.id) };
+  };
+  agents.command("todos <ref>").description("The agent's todo list (control plane for operators, host gateway under the agent policy)").action(async (ref, _, cmd) => {
+    const r = await workList(cmd, ref, { rpc: (c, id) => c.listAgentTodos(id), host: (gw, id) => gw.todos(id) });
+    const todos = Array.isArray(r.data) ? r.data : r.data?.todos ?? [];
+    out(
+      cmd,
+      { agentId: r.agent.id, source: r.source, todos },
+      () => table(todos, [{ key: "id", label: "id", max: 24 }, { get: (t) => String(t.status ?? "").replace(/^TODO_STATUS_/, "").toLowerCase(), label: "status" }, { key: "content", label: "content", max: 90 }])
+    );
+  });
+  agents.command("tasks <ref>").description("The agent's tasks, async tasks, and subagents (read-only)").option("--done", "include recently completed tasks (control plane only)").action(async (ref, o, cmd) => {
+    const r = await workList(cmd, ref, { rpc: (c, id) => c.listAgentTasks(id, { includeRecentlyDone: o.done }), host: (gw2, id) => gw2.tasks(id) });
+    const gw = await gateway(cmd.optsWithGlobals());
+    const [asyncTasks, subagents] = await Promise.all([gw.asyncTasks(r.agent.id).catch((e) => ({ error: redact(e.message) })), gw.subagents(r.agent.id).catch((e) => ({ error: redact(e.message) }))]);
+    const result = { agentId: r.agent.id, source: r.source, tasks: r.data, asyncTasks, subagents };
+    out(cmd, result, () => JSON.stringify(result, null, 2) + "\n");
   });
   const sections = program2.command("sections").alias("s").description("Sidebar sections (stored in Cursor runtime settings, mirrored to host settings; the app refreshes on focus)");
-  sections.command("list").alias("ls").description("List sections with member counts").option("--members", "list member agents under each section").action(async (o, cmd) => {
+  sections.command("list").alias("ls").description("List sections with member counts").option("--members", "list member agents under each section").option("--stores", "show the app store and the host mirror side by side, with drift").action(async (o, cmd) => {
     const gw = await gateway(cmd.optsWithGlobals());
+    if (o.stores) return showSectionStores(cmd, gw, { setExit: false });
     const [secs, roster] = await Promise.all([gw.getSections(), o.members || globalOpts(cmd).json ? gw.listAgents({ fresh: true }) : []]);
     const byId = new Map(roster.map((a) => [a.id, a]));
     const enriched = secs.map((s, i) => ({ position: i, ...s, members: s.agentIds.map((id) => ({ id, name: byId.get(id)?.name ?? null, missing: roster.length ? !byId.has(id) : void 0 })) }));
@@ -5222,7 +6505,7 @@ unsectioned visible agents: ${unsectioned}
   });
   sections.command("import <file>").description("Replace all sections from a JSON file (array of {id,name,agentIds})").option("--yes", "confirm replacement").action(async (file, o, cmd) => {
     const gw = await gateway(cmd.optsWithGlobals());
-    const next = normalizeSections(JSON.parse(readFileSync3(file, "utf8")));
+    const next = normalizeSections(JSON.parse(readFileSync4(file, "utf8")));
     const before = await gw.getSections();
     if (!o.yes) {
       const err = new UsageError(`Would replace ${before.length} sections with ${next.length}. Changes:
@@ -5233,7 +6516,56 @@ Re-run with --yes.`);
     }
     await writeSections(cmd, gw, before, next, `imported ${next.length} sections`);
   });
-  const pins = program2.command("pins").description("Pinned agents (host settings)");
+  sections.command("verify").description("Compare the app's section store with the host mirror (exit 1 on drift)").action(async (_, cmd) => {
+    const gw = await gateway(cmd.optsWithGlobals());
+    await showSectionStores(cmd, gw, { setExit: true });
+  });
+  sections.command("sync").description("Push the host mirror (what box agents wrote) into the app's store. Needs Cursor sign-in (Mac).").option("--yes", "apply without the preview gate").option("--auto", "non-interactive for launchd: never force, quiet when nothing to do").option("--force", "push even if the app changed since the last sync (overwrites app-side edits)").option("--dry-run", "show the diff and exit 3 without writing").action(async (o, cmd) => {
+    const gw = await gateway(cmd.optsWithGlobals());
+    if (sectionsSyncMode(o) === "preview") {
+      const stores = await gw.sectionStores();
+      if (!stores.runtime) throw new UsageError("sections sync needs Cursor sign-in (no app store reachable from here).");
+      if (stores.drift === false) return out(cmd, { ok: true, changed: false }, "in sync, nothing to do\n");
+      const err = new UsageError(`Would replace the app's ${userSections(stores.runtime).length} section(s) with the host mirror's ${userSections(stores.host).length}. Changes:
+${sectionsDiff(userSections(stores.runtime), userSections(stores.host)).map((d) => "  " + d).join("\n")}
+Re-run with --yes${stores.snapshot ? "" : " --force (no sync snapshot yet, so sync refuses without --force)"}.`);
+      err.exitCode = 3;
+      throw err;
+    }
+    let r;
+    try {
+      r = await gw.syncHostToRuntime({ force: o.auto ? false : !!o.force, auto: !!o.auto });
+    } catch (e) {
+      if (o.auto && e?.reason === "empty-host") return;
+      if (o.auto && e?.reason === "no-snapshot") {
+        process.stderr.write(`grokbot: note: sections sync --auto skipped: no sync snapshot yet. Review with \`grokbot sections sync --dry-run\`, then run \`grokbot sections sync --yes --force\` once.
+`);
+        return;
+      }
+      throw e;
+    }
+    if (!r.changed) {
+      if (o.auto && r.reason === "conflict") {
+        if (r.newConflict) {
+          const diff2 = sectionsDiff(r.runtime, r.host);
+          process.stderr.write(`${(/* @__PURE__ */ new Date()).toISOString()} grokbot: sections sync --auto: conflict, kept the app copy (host mirror not pushed). Diff app -> host:
+${diff2.map((d) => "  " + d).join("\n")}
+`);
+        }
+        return;
+      }
+      if (!o.auto) out(cmd, { ok: true, changed: false, ...r.reason ? { reason: r.reason } : {} }, r.reason === "host-unchanged" ? "nothing staged in the host mirror; the app store has its own edits and was left alone\n" : "in sync, nothing to do\n");
+      return;
+    }
+    const diff = sectionsDiff(userSections(r.before), userSections(r.after));
+    out(cmd, { ok: true, changed: true, snapshotWritten: r.snapshotWritten, changes: diff }, `synced host mirror to the app store
+${diff.map((d) => "  " + d).join("\n")}${diff.length ? "\n" : ""}`);
+    await nudgeRenderer();
+  });
+  const pins = program2.command("pins").description("Pinned agents (Cursor runtime store, like the app; host setting only as the box-side mirror)");
+  const pinsNote = (gw) => {
+    if (gw.pinsHostOnly) process.stderr.write(PINS_HOST_ONLY_NOTE);
+  };
   pins.command("list").alias("ls").action(async (_, cmd) => {
     const gw = await gateway(cmd.optsWithGlobals());
     const [ids, roster] = await Promise.all([gw.getPinned(), gw.listAgents({ fresh: true })]);
@@ -5247,22 +6579,25 @@ Re-run with --yes.`);
     const cur2 = await gw.getPinned();
     const next = [...cur2, ...ids.filter((id) => !cur2.includes(id))];
     await gw.setPinned(next);
-    out(cmd, { pinned: next }, `pinned ${ids.length}; total ${next.length}
+    out(cmd, { pinned: next, ...gw.pinsHostOnly ? { store: "host-setting", appVisible: false } : {} }, `pinned ${ids.length}; total ${next.length}
 `);
+    pinsNote(gw);
   });
   pins.command("remove <refs...>").alias("rm").action(async (refs, _, cmd) => {
     const gw = await gateway(cmd.optsWithGlobals());
     const ids = new Set(resolveMany(await gw.listAgents({ fresh: true }), refs).map((a) => a.id));
     const next = (await gw.getPinned()).filter((id) => !ids.has(id));
     await gw.setPinned(next);
-    out(cmd, { pinned: next }, `unpinned; total ${next.length}
+    out(cmd, { pinned: next, ...gw.pinsHostOnly ? { store: "host-setting", appVisible: false } : {} }, `unpinned; total ${next.length}
 `);
+    pinsNote(gw);
   });
   pins.command("clear").option("--yes").action(async (o, cmd) => {
     if (!o.yes) throw new UsageError("Re-run with --yes to clear all pins.");
     const gw = await gateway(cmd.optsWithGlobals());
     await gw.setPinned([]);
-    out(cmd, { pinned: [] }, "cleared pins\n");
+    out(cmd, { pinned: [], ...gw.pinsHostOnly ? { store: "host-setting", appVisible: false } : {} }, "cleared pins\n");
+    pinsNote(gw);
   });
   const settings = program2.command("settings").description("Raw host settings (sections, pins, default model, notifications, ...)");
   settings.command("get [key]").action(async (key, _, cmd) => {
@@ -5276,43 +6611,68 @@ Re-run with --yes.`);
     const r = await gw.setHostSettings({ [key]: value });
     printJson(r?.[key] ?? r);
   });
-  const autoReview = program2.command("auto-review").description("Grok Bot auto-review rules (host setting autoReviewInstructions); allowed for agents");
-  const autoReviewValue = (s) => typeof s?.autoReviewInstructions === "string" ? s.autoReviewInstructions : "";
-  const auditAutoReviewWrite = (path, value) => audit({ policy: resolvePolicy(), path, event: "auto-review-write", sha256: createHash("sha256").update(value).digest("hex"), length: value.length });
-  const autoReviewOut = (cmd, value) => out(cmd, { autoReviewInstructions: value }, value === "" ? "(empty)\n" : value.endsWith("\n") ? value : value + "\n");
-  autoReview.command("get").description("Print the current auto-review instructions").action(async (_, cmd) => {
-    const gw = await gateway(cmd.optsWithGlobals());
-    autoReviewOut(cmd, autoReviewValue(await gw.getHostSettings()));
+  const autoReview = program2.command("auto-review").description("Grok Bot auto-review rules (allow/block lists); allowed for agents");
+  const ruleKey = (o) => {
+    const list = (o.list ?? "allow").toLowerCase();
+    if (list !== "allow" && list !== "block") throw new UsageError('--list must be "allow" or "block".');
+    return list === "allow" ? "allowInstructions" : "blockInstructions";
+  };
+  const parseRules = (text) => String(text).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const auditAutoReviewWrite = (path, value, list) => audit({ policy: resolvePolicy(), path, event: "auto-review-write", list, sha256: createHash2("sha256").update(value).digest("hex"), length: value.length });
+  const autoReviewOut = (cmd, v) => out(cmd, v, () => {
+    const L = [`enabled   ${v.isEnabled === null ? "unknown" : v.isEnabled ? "yes" : "no"}`];
+    for (const [label, rules] of [["allow", v.allowInstructions], ["block", v.blockInstructions]]) {
+      L.push(`${label} (${rules.length})${rules.length ? "" : "  (none)"}`);
+      for (const r of rules) L.push(`  ${r}`);
+    }
+    return L.join("\n") + "\n";
   });
-  autoReview.command("set [text]").description("Replace the auto-review instructions (text argument, --file <path>, or --stdin; exactly one). Empty values need --clear").option("--file <path>", "read the instructions from a file").option("--stdin", "read the instructions from stdin").option("--clear", "set the instructions to empty (takes no other source)").action(async (text, o, cmd) => {
+  const guardAutoReview = (cur2, o) => {
+    if (cur2.legacy) throw new UsageError('The host auto-review value is in the legacy string form (pre-0.79); refusing to overwrite it with lists. Update the app, or clear it deliberately with `grokbot settings set autoReviewInstructions \'{"isEnabled":true,"allowInstructions":[],"blockInstructions":[]}\'` as an operator.');
+    if (o.enable) return true;
+    if (cur2.isEnabled === null) throw new UsageError("Auto-review enabled/disabled is unknown here (no value stored yet); pass --enable to turn it on while writing, or set it in the app first.");
+    return cur2.isEnabled;
+  };
+  const autoReviewWrite = async (cmd, gw, next, path, hashed, list) => {
+    const saved = await gw.setAutoReview(next);
+    auditAutoReviewWrite(path, hashed, list);
+    if (gw.autoReviewHostOnly) process.stderr.write("grokbot: note: wrote the host auto-review setting only (no Cursor sign-in here); the app picks it up when it reconciles host settings.\n");
+    autoReviewOut(cmd, saved);
+  };
+  autoReview.command("get").description("Print the current auto-review rules").action(async (_, cmd) => {
+    const gw = await gateway(cmd.optsWithGlobals());
+    autoReviewOut(cmd, await gw.getAutoReview());
+  });
+  autoReview.command("set [text]").description("Replace one rule list, one rule per line (text argument, --file <path>, or --stdin; exactly one). Emptying it needs --clear").option("--list <allow|block>", "which list to replace", "allow").option("--file <path>", "read the rules from a file").option("--stdin", "read the rules from stdin").option("--clear", "empty the list (takes no other source)").option("--enable", "also turn auto-review on (required when its state is unknown)").action(async (text, o, cmd) => {
+    const key = ruleKey(o);
     const sources = [text !== void 0, o.file !== void 0, Boolean(o.stdin)].filter(Boolean).length;
-    let value;
+    let rules;
     if (o.clear) {
       if (sources !== 0) throw new UsageError("--clear takes no text, --file, or --stdin source.");
-      value = "";
+      rules = [];
     } else {
-      if (sources !== 1) throw new UsageError("Give exactly one source: a [text] argument, --file <path>, or --stdin (or --clear to empty the rules).");
-      value = o.file !== void 0 ? readFileSync3(o.file, "utf8") : o.stdin ? readFileSync3(0, "utf8") : text;
-      if (value.trim() === "") throw new UsageError("Refusing to set empty auto-review instructions. Pass --clear to empty them deliberately.");
+      if (sources !== 1) throw new UsageError("Give exactly one source: a [text] argument, --file <path>, or --stdin (or --clear to empty the list).");
+      const raw = o.file !== void 0 ? readFileSync4(o.file, "utf8") : o.stdin ? readFileSync4(0, "utf8") : text;
+      rules = parseRules(raw);
+      if (rules.length === 0) throw new UsageError("Refusing to set an empty rule list. Pass --clear to empty it deliberately.");
     }
     const gw = await gateway(cmd.optsWithGlobals());
-    const previous = autoReviewValue(await gw.getHostSettings());
-    process.stderr.write(`previous auto-review instructions length: ${previous.length}
+    const cur2 = await gw.getAutoReview();
+    const isEnabled = guardAutoReview(cur2, o);
+    process.stderr.write(`previous ${o.list ?? "allow"} rules: ${cur2[key].length}
 `);
-    const r = await gw.setHostSettings({ autoReviewInstructions: value });
-    auditAutoReviewWrite("auto-review set", value);
-    autoReviewOut(cmd, typeof r?.autoReviewInstructions === "string" ? r.autoReviewInstructions : value);
+    await autoReviewWrite(cmd, gw, { ...cur2, isEnabled, [key]: rules }, "auto-review set", JSON.stringify(rules), key === "allowInstructions" ? "allow" : "block");
   });
-  autoReview.command("append <text>").description("Append a line to the existing auto-review instructions; no-op if it is already the last line. Single-writer: read-modify-write, not atomic").action(async (text, _, cmd) => {
-    if (text.trim() === "") throw new UsageError("Refusing to append an empty line.");
+  autoReview.command("append <text>").description("Add one rule to a list; no-op if it is already there. Single-writer: read-modify-write, not atomic").option("--list <allow|block>", "which list to add to", "allow").option("--enable", "also turn auto-review on (required when its state is unknown)").action(async (text, o, cmd) => {
+    const key = ruleKey(o);
+    const rule = text.trim();
+    if (rule === "" || /[\r\n]/.test(rule)) throw new UsageError("A rule must be one non-empty line.");
     const gw = await gateway(cmd.optsWithGlobals());
-    const cur2 = autoReviewValue(await gw.getHostSettings()).replace(/\n+$/, "");
-    if (cur2.split("\n").pop() === text && cur2 !== "") return autoReviewOut(cmd, cur2);
-    const value = cur2 ? `${cur2}
-${text}` : text;
-    const r = await gw.setHostSettings({ autoReviewInstructions: value });
-    auditAutoReviewWrite("auto-review append", value);
-    autoReviewOut(cmd, typeof r?.autoReviewInstructions === "string" ? r.autoReviewInstructions : value);
+    const cur2 = await gw.getAutoReview();
+    if (cur2[key].includes(rule)) return autoReviewOut(cmd, cur2);
+    const isEnabled = guardAutoReview(cur2, o);
+    const rules = [...cur2[key], rule];
+    await autoReviewWrite(cmd, gw, { ...cur2, isEnabled, [key]: rules }, "auto-review append", JSON.stringify(rules), key === "allowInstructions" ? "allow" : "block");
   });
   const groups = program2.command("groups").description("Group chats (rooms of agents)");
   groups.command("create <name> <members...>").option("-d, --description <text>").action(async (name, members, o, cmd) => {
@@ -5331,9 +6691,301 @@ ${text}` : text;
     out(cmd, r ?? { ok: true }, `group ${g.name} members: ${ids.length}
 `);
   });
-  program2.command("automations").description("List all automations (cron / listeners) across agents").action(async (_, cmd) => {
-    const gw = await gateway(cmd.optsWithGlobals());
-    printJson(await gw.listAutomations());
+  program2.command("usage").description("Grok Bot usage: allowance window, reset time (PT), included spend, personal cap").action(async (_, cmd) => {
+    const u = summarizeUsage(await cursor(cmd.optsWithGlobals()).usage());
+    out(cmd, u, formatUsage);
+  });
+  agents.command("export <dir>").description("Back up every server-hosted agent: profile, skills, plugins, access (one JSON each) + account workflows; never secrets").action(async (dir, _, cmd) => {
+    const opts = cmd.optsWithGlobals();
+    const r = await exportAgents(dir, { cursor: cursor(opts), gateway: await optionalGateway(cmd) });
+    const skipped = r.files.filter((f) => f.skipped.length).length;
+    out(cmd, { dir, ...r }, () => `${pluralize(r.files.length, "agent profile")} (${skipped} with skipped sections), ${r.workflows.written} workflows (${r.workflows.listed ?? 0} listed) -> ${dir}
+`);
+  });
+  const transcripts = program2.command("transcripts").description("Server-side transcripts (control plane)");
+  transcripts.command("export <dir>").description("Write one JSONL per agent (all entries, ascending seq) via ListGrokBotTranscriptEntries paging").option("--agent <ref>", "only this agent (uuid/prefix or name substring)").option("--since <seq>", "only entries with seq greater than this", "0").action(async (dir, o, cmd) => {
+    const files = await exportTranscripts(dir, { cursor: cursor(cmd.optsWithGlobals()), agent: o.agent, since: o.since });
+    out(cmd, { dir, files }, () => files.map((f) => `${String(f.entries).padStart(6)}  ${f.name}  ${f.file ?? "(no new entries; file untouched)"}
+`).join("") + `${(() => {
+      const n = files.reduce((s, f) => s + f.entries, 0);
+      return `${n} entr${n === 1 ? "y" : "ies"}`;
+    })()} in ${pluralize(files.length, "file")} -> ${dir}
+`);
+  });
+  const autos = program2.command("automations").description("List routines (prompt, trigger/schedule, enabled, owning agent) across agents; read-only").option("--agent <ref>", "only this agent (uuid/prefix or name substring)").action(async (o, cmd) => {
+    const { routines, errors } = await listRoutines(cursor(cmd.optsWithGlobals()), { agent: o.agent, gateway: await optionalGateway(cmd) });
+    if (errors.length) process.exitCode = 1;
+    out(
+      cmd,
+      routines,
+      () => table(routines, [
+        { key: "agentName", label: "agent", max: 26 },
+        { key: "name", label: "routine", max: 34 },
+        { key: "enabled", label: "on" },
+        { key: "trigger", label: "trigger" },
+        { key: "schedule", label: "schedule", max: 44 },
+        { label: "prompt", get: (r) => r.malformed ? "UNPARSEABLE" : `${r.prompt.length} chars` }
+      ]) + `${pluralize(routines.length, "routine")}
+`
+    );
+  });
+  autos.command("export <dir>").description("Write one markdown file per agent (verbatim prompts, schedule, enabled) into <dir>").option("--agent <ref>", "only this agent (uuid/prefix or name substring)").action(async (dir, o, cmd) => {
+    const listing = await listRoutines(cursor(cmd.optsWithGlobals()), { agent: o.agent, gateway: await optionalGateway(cmd) });
+    if (listing.errors.length) process.exitCode = 1;
+    const files = exportRoutines(dir, listing);
+    out(cmd, { dir, routines: listing.routines.length, files }, () => files.map((f) => `${String(f.count).padStart(3)}  ${f.name}  ${f.file}
+`).join("") + `${pluralize(listing.routines.length, "routine")} in ${pluralize(files.length, "file")} -> ${dir}
+`);
+  });
+  for (const [verb, enabled] of [["enable", true], ["disable", false]]) {
+    autos.command(`${verb} <agent> <automation>`).description(`${verb === "enable" ? "Enable" : "Disable"} one routine (WRITE; prints the target, needs --yes). <automation> = id or name`).option("--yes", "confirm the change").action(async (agentRef, automation, o, cmd) => {
+      const { target, ...result } = await toggleRoutine(cursor(cmd.optsWithGlobals()), agentRef, automation, enabled, { yes: o.yes });
+      out(cmd, result, `${target}
+`);
+    });
+  }
+  autos.command("slack-workspace <agent> <automation> <teamId>").description("Point one routine at a linked Slack workspace (WRITE; operator-only; prints the target, needs --yes)").option("--yes", "confirm the change").action(async (agentRef, automation, teamId, o, cmd) => {
+    const { target, ...result } = await setRoutineSlackWorkspace(cursor(cmd.optsWithGlobals()), agentRef, automation, teamId, { yes: o.yes });
+    out(cmd, result, `${target}
+`);
+  });
+  autos.command("delete <agent> <automation>").alias("rm").description("Delete one control-plane routine (WRITE, irreversible; prints the target, needs --yes). The host's deleteAgentAutomation is a silent no-op for these").option("--yes", "confirm the deletion").action(async (agentRef, automation, o, cmd) => {
+    const { target, ...result } = await deleteRoutine(cursor(cmd.optsWithGlobals()), agentRef, automation, { yes: o.yes, timeZone: localTimeZone() });
+    out(cmd, result, `${target}
+`);
+  });
+  autos.command("resume-guard").description("Re-enable allowlisted routines that got disabled (WRITE; the allowlist is the consent; launchd-friendly: quiet when nothing changed, exit 1 on any error)").requiredOption("--allow <file>", 'allowlist: one "<agent> | <routine id or name>" per line, or a bare routine id; # comments').option("--dry-run", "list what would be re-enabled, write nothing").action(async (o, cmd) => {
+    const entries = parseAllowlist(readFileSync4(o.allow, "utf8"));
+    if (entries.length === 0) throw new UsageError(`${o.allow} has no entries; refusing to run an empty allowlist.`);
+    const r = await resumeGuard(cursor(cmd.optsWithGlobals()), entries, { dryRun: o.dryRun });
+    if (r.errors) process.exitCode = 1;
+    const ts = (/* @__PURE__ */ new Date()).toISOString();
+    out(cmd, { at: ts, dryRun: Boolean(o.dryRun), resumed: r.resumed, errors: r.errors, results: r.results.map(({ entry, ...x }) => ({ ...x, line: entry.line })) }, () => {
+      const label = (x) => x.automationId ? `${x.agentName ?? x.agentId} / ${x.name} (${x.automationId})` : `allowlist line ${x.entry.line}`;
+      const lines = r.results.filter((x) => !["enabled", "duplicate"].includes(x.status)).map((x) => `${ts} grokbot: resume-guard: ${x.status} ${label(x)}${x.error ? `: ${x.error}` : ""}`);
+      return lines.length ? lines.join("\n") + "\n" : "";
+    });
+  });
+  const slack = program2.command("slack").description("Slack for agents and routines: link status, workspaces, install/reinstall/uninstall (operator-only; writes need --yes)");
+  const slackAgent = async (c, ref) => {
+    const found = matchAgents((await c.listAgents()).agents.filter((a) => a.agentId), ref);
+    if (found.length !== 1) throw new UsageError(`"${ref}" matches ${found.length} agents (${found.map((a) => a.name ?? a.agentId).join(", ")}); use a more specific ref.`);
+    return found[0];
+  };
+  const needYes = (o, what) => {
+    if (o.yes) return;
+    const err = new UsageError(`${what}
+Re-run with --yes to apply.`);
+    err.exitCode = 3;
+    throw err;
+  };
+  const slackVerdict = (cmd, verb, resp, extra = {}) => {
+    const v = summarizeSlackOutcome(verb, resp);
+    if (v.exitCode) process.exitCode = v.exitCode;
+    out(cmd, { ...extra, outcome: v.outcome, ok: v.ok, needsHuman: v.needsHuman, ...v.url ? { url: v.url } : {}, ...v.details }, v.message + "\n");
+  };
+  slack.command("status").description("Slack link state per agent (ListGrokBotAgents.slackConnections + GetGrokBotSlackInstallState); read-only").option("--agent <ref>", "only this agent (uuid/prefix or name substring)").action(async (o, cmd) => {
+    const c = cursor(cmd.optsWithGlobals());
+    const { agents: agents2, slackConnections } = await c.listAgents();
+    const names = new Map(agents2.map((a) => [a.agentId, a.name ?? null]));
+    let ids = o.agent ? matchAgents(agents2.filter((a) => a.agentId), o.agent).map((a) => a.agentId) : slackConnections.map((x) => x.agentId);
+    ids = [...new Set(ids)];
+    const conn = new Map(slackConnections.map((x) => [x.agentId, x]));
+    const rows = await Promise.all(
+      ids.map(async (agentId) => {
+        const row = { agentId, name: names.get(agentId) ?? null, pendingAdminApproval: Boolean(conn.get(agentId)?.pendingAdminApproval), connection: conn.has(agentId) };
+        try {
+          const st = await c.getSlackInstallState(agentId);
+          Object.assign(row, {
+            status: enumName(st.status),
+            slackTeamId: st.slackTeamId ?? null,
+            workspace: st.workspaceName ?? null,
+            needsManifestUpdate: Boolean(st.needsManifestUpdate),
+            pendingReinstallApproval: Boolean(st.pendingReinstallApproval),
+            appUnreachable: Boolean(st.appUnreachable),
+            removedInSlack: Boolean(st.removedInSlack),
+            approvalRequestFiled: Boolean(st.approvalRequestFiled),
+            ...o.agent && st.workspaces?.length ? { workspaces: st.workspaces.map((w) => ({ slackTeamId: w.slackTeamId, name: w.slackTeamName ?? null })) } : {},
+            ...o.agent && st.oauthAuthorizeUrl ? { oauthAuthorizeUrl: st.oauthAuthorizeUrl } : {}
+          });
+        } catch (e) {
+          row.error = redact(e.message);
+          process.exitCode = 1;
+        }
+        return row;
+      })
+    );
+    out(
+      cmd,
+      rows,
+      () => table(rows, [
+        { key: "name", label: "agent", max: 26 },
+        { key: "status", label: "status" },
+        { key: "workspace", label: "workspace", max: 24 },
+        { label: "flags", get: (r) => [r.pendingAdminApproval && "pending-admin", r.needsManifestUpdate && "manifest-update", r.pendingReinstallApproval && "reinstall-approval", r.appUnreachable && "unreachable", r.removedInSlack && "removed-in-slack", r.error && "ERROR"].filter(Boolean).join(",") }
+      ]) + `${pluralize(rows.length, "agent")}
+`
+    );
+  });
+  slack.command("workspaces").description("Slack workspaces: the Grok Bot app links (GetGrokBotSlackInstallState, per agent) and the routine-trigger link (DashboardService); read-only").option("--agent <ref>", "app workspaces for only this agent (exactly one match; uuid/prefix or name substring)").action(async (o, cmd) => {
+    const c = cursor(cmd.optsWithGlobals());
+    const errors = [];
+    let agents2 = [];
+    try {
+      agents2 = (await c.listAgents()).agents.filter((a) => a.agentId);
+    } catch (e) {
+      errors.push({ agentId: null, error: `ListGrokBotAgents failed: ${redact(e.message)}` });
+      process.exitCode = 1;
+    }
+    let ids = agents2.map((a) => a.agentId);
+    if (o.agent && agents2.length) {
+      const found = matchAgents(agents2, o.agent);
+      if (found.length !== 1) throw new UsageError(`"${o.agent}" matches ${found.length} agents (${found.map((a) => a.name ?? a.agentId).join(", ")}); use a more specific ref.`);
+      ids = [found[0].agentId];
+    }
+    ids = [...new Set(ids)];
+    const states = await mapLimit(ids, SLACK_STATE_CONCURRENCY, async (agentId) => {
+      try {
+        return await c.getSlackInstallState(agentId);
+      } catch (e) {
+        errors.push({ agentId, error: redact(e.message) });
+        process.exitCode = 1;
+        return null;
+      }
+    });
+    const appRows = unionAppWorkspaces(states.filter(Boolean)).map((w) => ({ slackTeamId: w.slackTeamId, name: w.name, managerAuthUpdatedAt: w.managerAuthUpdatedAtMs ? new Date(w.managerAuthUpdatedAtMs).toISOString() : null }));
+    const [ws, settings2] = await Promise.all([c.listSlackWorkspaces(), c.getSlackUserSettings()]);
+    const rows = ws.workspaces.map((w) => ({ slackTeamId: w.slackTeamId, name: w.displayName ?? null, status: enumName(w.status), linkedAt: w.linkedAtMs ? new Date(Number(w.linkedAtMs)).toISOString() : null, routines: w.sandAutomationCount ?? 0, routinesTruncated: Boolean(w.sandAutomationCountTruncated) }));
+    out(cmd, { appWorkspaces: appRows, ...errors.length ? { appWorkspaceErrors: errors } : {}, workspaces: rows, canLinkAnotherWorkspace: ws.canLinkAnotherWorkspace, settings: settings2 }, () => {
+      const appTable = appRows.length ? table(appRows, [{ key: "slackTeamId", label: "team" }, { key: "name", label: "name", max: 28 }, { key: "managerAuthUpdatedAt", label: "manager auth updated" }]) : "(none)\n";
+      const routineTable = rows.length ? table(rows, [{ key: "slackTeamId", label: "team" }, { key: "name", label: "name", max: 28 }, { key: "status", label: "status" }, { key: "linkedAt", label: "linked" }, { label: "routines", get: (r) => `${r.routines}${r.routinesTruncated ? "+" : ""}` }]) : "(none)\n";
+      return `Grok Bot app workspaces (per-agent app link; ${o.agent ? "selected agent" : `${pluralize(ids.length, "agent")} checked`}):
+${appTable}` + errors.map((e) => `  ERROR${e.agentId ? ` ${e.agentId}` : ""}: ${e.error}
+`).join("") + `
+Routine-trigger link (DashboardService; a separate link used by \`automations slack-workspace\`):
+${routineTable}can link another workspace: ${ws.canLinkAnotherWorkspace ? "yes" : "no"}   slack auth: ${settings2.hasSlackAuth ? "yes" : "no"}${settings2.slackCursorTeamLocked ? "   cursor team locked" : ""}
+`;
+    });
+  });
+  slack.command("link-url").description("Print a Slack OAuth URL to link a workspace (or --reconnect <teamId> to refresh one). Opens nothing; mints an install attempt").option("--reconnect <teamId>", "reconnect this already-linked workspace").action(async (o, cmd) => {
+    const r = await cursor(cmd.optsWithGlobals()).getSlackInstallUrl({ reconnectSlackTeamId: o.reconnect });
+    out(cmd, { url: r.url, source: r.source ? enumName(r.source) : null, attemptId: r.attemptId ?? null }, `${r.url}
+`);
+  });
+  slack.command("connect <agent>").description("Start the Slack connect flow for an agent and print the URL to open; --wait polls until the workspace is recorded, --install then installs the app (needs --yes)").option("--wait [secs]", "poll the install state every 5s until a new workspace appears or the agent is CONNECTED (default timeout 600s; exit 4 on timeout)").option("--install", "after the wait, install the app into the new workspace (implies --wait; needs --yes)").option("--workspace <teamId>", "with --install: the workspace to install into (required when more than one new workspace appears; if it is already recorded the connect and wait are skipped)").option("--yes", "confirm the install (with --install)").action(async (ref, o, cmd) => {
+    let timeoutMs = 6e5;
+    if (typeof o.wait === "string") {
+      const secs = Number(o.wait);
+      if (!Number.isFinite(secs) || secs <= 0) throw new UsageError(`--wait expects a positive number of seconds, got "${o.wait}".`);
+      timeoutMs = secs * 1e3;
+    }
+    if (o.workspace && !o.install) throw new UsageError("--workspace on `slack connect` only applies with --install.");
+    if (o.workspace && !SLACK_TEAM_ID.test(o.workspace)) throw new UsageError(`--workspace "${o.workspace}" is not a Slack team id (expected something like T0123ABCD).`);
+    const wait = Boolean(o.wait || o.install);
+    const json = Boolean(globalOpts(cmd).json);
+    const say = (t) => (json ? process.stderr : process.stdout).write(t);
+    const c = cursor(cmd.optsWithGlobals());
+    const a = await slackAgent(c, ref);
+    const who = `${a.name ?? a.agentId} (${a.agentId})`;
+    if (o.install) needYes(o, `Connect Slack for ${who}, wait for the workspace, then install the Slack app${o.workspace ? ` in workspace ${o.workspace}` : ""}.`);
+    const baseline = wait ? installBaseline(await c.getSlackInstallState(a.agentId)) : null;
+    const result = { agentId: a.agentId, name: a.name ?? null };
+    const finish = (extra = {}) => {
+      if (json) out(cmd, { ...result, ...extra }, "");
+    };
+    const install = async (team2) => {
+      const iv = summarizeSlackOutcome("install", await c.installSlackApp(a.agentId, { slackTeamId: team2 }));
+      if (iv.exitCode) process.exitCode = iv.exitCode;
+      if (!json) process.stdout.write(iv.message + "\n");
+      finish({ install: { slackTeamId: team2, outcome: iv.outcome, ok: iv.ok, needsHuman: iv.needsHuman, ...iv.url ? { url: iv.url } : {}, ...iv.details } });
+    };
+    if (o.install && o.workspace && baseline.teams.has(o.workspace)) {
+      say(`workspace ${o.workspace} is already recorded; skipping the connect URL and the wait.
+`);
+      result.waited = { skipped: "workspace already recorded" };
+      return install(o.workspace);
+    }
+    const v = summarizeSlackOutcome("connect", await c.startSlackConnect(a.agentId));
+    Object.assign(result, { outcome: v.outcome, ok: v.ok, needsHuman: v.needsHuman, ...v.url ? { url: v.url } : {}, ...v.details });
+    const note = "Open the URL in a browser signed in to both Slack and cursor.com; the server records the workspace when you finish.";
+    if (v.url) result.note = note;
+    if (wait || !json) say(v.message + "\n" + (v.url ? note + "\n" : ""));
+    if (v.exitCode) process.exitCode = v.exitCode;
+    if (!v.ok || !wait) return finish();
+    say(`waiting up to ${Math.round(timeoutMs / 1e3)}s for the workspace to be recorded...
+`);
+    const w = await waitForSlackWorkspace(c, a.agentId, baseline, {
+      timeoutMs,
+      intervalMs: _slackPollMs ?? 5e3,
+      targetTeam: o.workspace,
+      // Before an auto-install only an unseen team id counts: a bumped timestamp on a known workspace must not pick the target.
+      requireNewTeam: Boolean(o.install && !o.workspace),
+      onError: (e, n, max) => process.stderr.write(`poll failed (${n}/${max}): ${redact(e.message)}
+`)
+    });
+    if (w.timedOut) {
+      process.exitCode = 4;
+      const retry = o.install ? ` or \`grokbot slack install ${a.agentId} --yes\`` : "";
+      say(`connect --wait: timed out after ${Math.round(timeoutMs / 1e3)}s; no new workspace was recorded. Finish the URL above, then run \`grokbot slack status --agent ${a.agentId}\`${retry}.
+`);
+      return finish({ waited: { timedOut: true }, exitCode: 4 });
+    }
+    const fresh = w.newWorkspaces.map((x) => ({ slackTeamId: x.slackTeamId, name: x.name }));
+    const statusName = enumName(w.state.status);
+    const seen = fresh.length ? fresh.map((x) => `${x.slackTeamId}${x.name ? ` (${x.name})` : ""}`).join(", ") : `${w.state.slackTeamId ?? "?"}${w.state.workspaceName ? ` (${w.state.workspaceName})` : ""}`;
+    result.waited = { timedOut: false, status: statusName, newWorkspaces: fresh };
+    if (!json) process.stdout.write(`workspace recorded: ${seen}   status: ${statusName}
+`);
+    if (!o.install) return finish();
+    if (statusName === "CONNECTED" && !baseline.connected) {
+      if (!json) process.stdout.write("install: skipped - the agent became CONNECTED, so the server already completed the install\n");
+      return finish({ install: { skipped: "became CONNECTED during the wait" } });
+    }
+    let team = o.workspace;
+    if (!team) {
+      if (fresh.length !== 1) {
+        process.exitCode = 4;
+        if (!json) process.stdout.write(`install: ${fresh.length} new workspaces appeared (${seen}); re-run with --workspace <teamId> (or \`grokbot slack install ${a.agentId} --workspace <teamId> --yes\`).
+`);
+        return finish({ install: { outcome: "WORKSPACE_REQUIRED", needsHuman: true, workspaces: fresh }, exitCode: 4 });
+      }
+      team = fresh[0].slackTeamId;
+    }
+    return install(team);
+  });
+  slack.command("claim <claim>").description("Finish a Slack connect with its one-time claim token (WRITE; needs --yes). Rarely needed: the server records the workspace when the OAuth URL is completed, so use `connect --wait` instead").option("--yes", "confirm the claim").action(async (claim, o, cmd) => {
+    needYes(o, "Claim a Slack connect: this links the Slack workspace to the signed-in Cursor account and consumes the claim.");
+    slackVerdict(cmd, "claim", await cursor(cmd.optsWithGlobals()).claimSlackConnect(claim));
+  });
+  for (const verb of ["install", "reinstall", "uninstall"]) {
+    const cmdDef = slack.command(`${verb} <agent>`).description(
+      { install: "Install the agent's Slack app into a workspace (WRITE; needs --yes)", reinstall: "Update the agent's Slack app manifest in place (WRITE; needs --yes)", uninstall: "Remove the agent's Slack app (WRITE; the agent stops answering in Slack; needs --yes)" }[verb]
+    ).option("--yes", "confirm the change");
+    if (verb === "install") cmdDef.option("--workspace <teamId>", "Slack team id (required when several workspaces are linked)").option("--replace", "replace an existing app in another workspace");
+    if (verb === "uninstall") cmdDef.option("--forget", "drop the record even if Slack cannot be reached (forgetIfUnreachable)");
+    cmdDef.action(async (ref, o, cmd) => {
+      const c = cursor(cmd.optsWithGlobals());
+      const a = await slackAgent(c, ref);
+      const who = `${a.name ?? a.agentId} (${a.agentId})`;
+      needYes(
+        o,
+        verb === "install" ? `Install the Slack app for ${who}${o.workspace ? ` in workspace ${o.workspace}` : ""}${o.replace ? ", replacing any existing app" : ""}.` : verb === "reinstall" ? `Reinstall (update the manifest of) the Slack app for ${who}.` : `Uninstall the Slack app for ${who}${o.forget ? " and forget it even if Slack is unreachable" : ""}.`
+      );
+      const resp = verb === "install" ? await c.installSlackApp(a.agentId, { slackTeamId: o.workspace, replaceExistingApp: o.replace }) : verb === "reinstall" ? await c.reinstallSlackApp(a.agentId) : await c.uninstallSlackApp(a.agentId, { forgetIfUnreachable: o.forget });
+      slackVerdict(cmd, verb, resp, { agentId: a.agentId, name: a.name ?? null });
+    });
+  }
+  slack.command("unlink <teamId>").description("Unlink a Slack workspace from the account (WRITE; every Slack-delivered routine and app for it stops; needs --yes)").option("--yes", "confirm the change").action(async (teamId, o, cmd) => {
+    const c = cursor(cmd.optsWithGlobals());
+    const { workspaces } = await c.listSlackWorkspaces();
+    const w = workspaces.find((x) => x.slackTeamId === teamId);
+    if (!w) throw new UsageError(`Slack workspace "${teamId}" is not linked. Linked: ${workspaces.map((x) => x.slackTeamId).join(", ") || "(none)"}.`);
+    needYes(o, `Unlink Slack workspace ${teamId}${w.displayName ? ` (${w.displayName})` : ""}: ${w.sandAutomationCount ?? 0}${w.sandAutomationCountTruncated ? "+" : ""} routine(s) use it.`);
+    const r = await c.unlinkSlackAccess(teamId);
+    if (!r.success) process.exitCode = 1;
+    out(cmd, { slackTeamId: teamId, success: Boolean(r.success) }, r.success ? `unlinked ${teamId}
+` : `unlink ${teamId}: the server did not confirm success
+`);
   });
   program2.command("events").description("Stream host events (server-sent events) until Ctrl-C").option("--max <n>", "stop after n events").action(async (o, cmd) => {
     const gw = await gateway(cmd.optsWithGlobals());
@@ -5375,6 +7027,9 @@ ${text}` : text;
   cur.command("templates").action(async (_, cmd) => printJson(await cursor(cmd.optsWithGlobals()).listTemplates()));
   cur.command("computers").description("User computers registered for local exec").action(async (_, cmd) => printJson(await cursor(cmd.optsWithGlobals()).listUserComputers()));
   cur.command("capabilities").action(async (_, cmd) => printJson(await cursor(cmd.optsWithGlobals()).runtimeCapabilities()));
+  cur.command("settings").description("Per-user runtime settings (pins, sections, auto-review rules, main agent id, terms); read-only. Use `pins`/`sections`/`auto-review` to edit").action(async (_, cmd) => {
+    printJson(await cursor(cmd.optsWithGlobals()).getRuntimeSettings());
+  });
   cur.command("ensure-sandbox").description("Mint a fresh gateway session (prints host only, never the token)").action(async (_, cmd) => {
     const r = await cursor(cmd.optsWithGlobals()).ensureSandBox();
     printJson({ ...r, gatewayToken: r.gatewayToken ? "<redacted>" : void 0, gatewayHeaders: r.gatewayHeaders ? Object.keys(r.gatewayHeaders) : void 0 });
@@ -5405,7 +7060,7 @@ ${text}` : text;
       c.close();
     }
   });
-  cdp.command("desktop <path> [jsonArgs]").description("Call window.desktop.<path>(...args), e.g. agent.getSidebarSections").option("--timeout <sec>", "per-call timeout in seconds (default 30; known-slow calls get 120)").action(async (path, jsonArgs, o, cmd) => {
+  cdp.command("desktop <path> [jsonArgs]").description("Call window.desktop.<path>(...args), e.g. main.getHostSidebarSections '[{}]' (app 0.79+: everything lives under main.*)").option("--timeout <sec>", "per-call timeout in seconds (default 30; known-slow calls get 120)").action(async (path, jsonArgs, o, cmd) => {
     const timeoutMs = cdpTimeoutMs(o);
     const c = await Cdp.connect({ port: await cdpPort(cmd) });
     try {
@@ -5440,7 +7095,7 @@ ${text}` : text;
       c.close();
     }
   });
-  cdp.command("focus").description("Bring the app window to front (also makes the app re-read host settings)").action(async (_, cmd) => {
+  cdp.command("focus").description("Bring the app window to front (also makes the app re-read its sidebar sections)").action(async (_, cmd) => {
     const c = await Cdp.connect({ port: await cdpPort(cmd) });
     try {
       await c.bringToFront();
@@ -5477,7 +7132,7 @@ ${text}` : text;
     out(cmd, await appState(), "open\n");
   });
   app.command("daemon-log").description("Tail the local-exec daemon log").option("-n <lines>", "lines", "40").action(async (o) => {
-    const lines = readFileSync3(daemonLogPath(), "utf8").trimEnd().split("\n");
+    const lines = readFileSync4(daemonLogPath(), "utf8").trimEnd().split("\n");
     process.stdout.write(lines.slice(-Number(o.n)).join("\n") + "\n");
   });
   const loc = program2.command("local").description("Read the app's offline caches (roster, sections, transcripts). Never authoritative for writes.");

@@ -1,10 +1,11 @@
 // Electron DevTools (CDP) driver for the running Grok Bot desktop app.
 // The app must be launched with --remote-debugging-port. `ensureDebugApp` relaunches it that way.
 // Inside the renderer, the preload exposes `window.desktop` (contextBridge). Useful surfaces:
-//   desktop.agent.getSidebarSections() / setSidebarSections(sections)
-//   desktop.agent.getPinnedAgents() / setPinnedAgents(ids)
-//   desktop.cursorAccount.getStatus()
-//   desktop.getBoxHostPhase()
+// (app 0.79+: one flat namespace, window.desktop.{main,boot,environment,local}; the useful calls are on main)
+//   desktop.main.getHostSidebarSections({}) / setHostSidebarSections({sections, base})
+//   desktop.main.getHostPinnedAgents() / getServerPinnedAgents() / setHostPinnedAgents({pinnedAgentIds})
+//   desktop.main.getCursorAuthStatus()
+//   desktop.main.getBoxHostPhase()
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import { APP_BUNDLE } from "./session.js";
@@ -13,6 +14,9 @@ const execFileP = promisify(execFile);
 export const DEFAULT_CDP_PORT = Number(process.env.GROKBOT_CDP_PORT || 9340);
 const APP_PROCESS_NAME = "Grok Bot";
 
+/** Largest delay setTimeout honors (2^31-1 ms, about 24.8 days); larger values fire immediately. */
+export const MAX_TIMER_MS = 2 ** 31 - 1;
+
 export class CdpError extends Error {
   constructor(message, extra = {}) {
     super(message);
@@ -20,9 +24,6 @@ export class CdpError extends Error {
     Object.assign(this, extra);
   }
 }
-
-/** Largest delay setTimeout honors (2^31-1 ms, about 24.8 days); larger values fire immediately. */
-export const MAX_TIMER_MS = 2 ** 31 - 1;
 
 export async function cdpVersion(port = DEFAULT_CDP_PORT, { timeoutMs = 1500 } = {}) {
   try {
@@ -105,6 +106,23 @@ export async function ensureDebugApp({ port = DEFAULT_CDP_PORT, restart = false 
   return { ...(await appState(port)), relaunched: true };
 }
 
+// App 0.47 exposed window.desktop.agent.* / cursorAccount.*; 0.79 flattened the bridge into window.desktop.main.*.
+// Only read-only calls are aliased, and only when the caller passed no arguments of its own.
+export const LEGACY_DESKTOP_READS = {
+  "agent.getPinnedAgents": { path: "main.getHostPinnedAgents", args: [] },
+  "cursorAccount.getStatus": { path: "main.getCursorAuthStatus", args: [] },
+  getBoxHostPhase: { path: "main.getBoxHostPhase", args: [] },
+};
+// getHostSidebarSections needs the account slot (the signed-in principal, e.g. "grok|user_..."): ask the app who is signed in.
+export const SIDEBAR_SECTIONS_EXPR =
+  "window.desktop.main.getCursorAuthStatus().then((s) => window.desktop.main.getHostSidebarSections({ accountSlot: s.authId ?? null }))";
+export function resolveDesktopCall(path, args = []) {
+  if (path === "agent.getSidebarSections" && args.length === 0) return { path: "main.getHostSidebarSections", args, expr: SIDEBAR_SECTIONS_EXPR };
+  const alias = LEGACY_DESKTOP_READS[path];
+  if (!alias) return { path, args };
+  return { path: alias.path, args: args.length ? args : alias.args };
+}
+
 export const DEFAULT_SEND_TIMEOUT_MS = 30_000;
 /** Timeout for desktop calls known to be slow (restart/relaunch/update/sign-in style flows). */
 export const SLOW_CALL_TIMEOUT_MS = 120_000;
@@ -114,9 +132,9 @@ export class Cdp {
   constructor(ws, { timeoutMs = DEFAULT_SEND_TIMEOUT_MS } = {}) {
     this.ws = ws;
     this.id = 0;
-    this.timeoutMs = timeoutMs;
     this.pending = new Map();
     this.listeners = new Set();
+    this.timeoutMs = timeoutMs;
     this.closed = false;
     ws.onmessage = (ev) => {
       let msg;
@@ -195,12 +213,24 @@ export class Cdp {
     return r.result?.value;
   }
 
-  /** Call a method on window.desktop by dotted path, e.g. "agent.getSidebarSections". */
-  callDesktop(path, args = [], { timeoutMs } = {}) {
-    const expr = `window.desktop.${path}(...${JSON.stringify(args)})`;
+  /** Call a method on window.desktop by dotted path, e.g. "main.getHostSidebarSections". Legacy 0.47 read paths are aliased. */
+  async callDesktop(path, args = [], { timeoutMs } = {}) {
+    const call = resolveDesktopCall(path, args);
     // An explicit override wins; known-slow paths get the long timeout; everything else keeps the default.
-    const t = timeoutMs ?? (SLOW_DESKTOP_PATH.test(path) ? Math.max(SLOW_CALL_TIMEOUT_MS, this.timeoutMs) : undefined);
-    return this.evaluate(expr, { timeoutMs: t });
+    const t = timeoutMs ?? (SLOW_DESKTOP_PATH.test(path) ? Math.max(SLOW_CALL_TIMEOUT_MS, this.timeoutMs ?? 0) : undefined);
+    try {
+      return await this.evaluate(call.expr ?? `window.desktop.${call.path}(...${JSON.stringify(call.args)})`, { timeoutMs: t });
+    } catch (err) {
+      if (/not a function|undefined \(reading/.test(String(err.message)) && /^(agent|cursorAccount)\./.test(path)) {
+        err.message += ` (window.desktop is namespaced under main.* since app 0.79; try \`grokbot cdp keys main\`)`;
+      }
+      throw err;
+    }
+  }
+
+  /** Ask the renderer to read the sidebar sections (the cheap way to make the app re-read them). */
+  sidebarSections() {
+    return this.evaluate(SIDEBAR_SECTIONS_EXPR);
   }
 
   desktopKeys(path = "") {

@@ -1,3 +1,4 @@
+import "./_isolate.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { filterAgents, parseDuration, resolveAgent, resolveMany, sortAgents } from "../src/agents.js";
