@@ -4,8 +4,10 @@
 //            organize (create/rename/hide/delete agents, sections, pins, send, tail, list) but may
 //            not reach below the host gateway (gw/cursor/cdp/app). Deletes still need --yes /
 //            --confirm-count. Group membership replace is allowed. Audited.
-//            `auto-review get|set|append` is allowed (Andi 2026-10-21): it writes only the
-//            autoReviewInstructions host setting, while raw `settings set` stays denied.
+//            `auto-review get|set|append` is allowed: it edits only the auto-review rules
+//            (autoReviewInstructions), while raw `settings set` stays denied. Under this policy the CLI builds its
+//            Gateway without a Cursor client (see runtimeClientFor in cli.js), so those edits are host-settings writes
+//            only; an operator on the Mac writes the Cursor runtime store and mirrors host settings.
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
@@ -13,18 +15,22 @@ import { boxGatewaySession, isInsideBox, redactValue } from "./session.js";
 import { UsageError } from "./output.js";
 
 export const DENIED_FOR_AGENTS = [
-  // agents/sections delete + groups members are ALLOWED under agent policy.
+  // agents/sections delete + groups members ALLOWED under agent policy.
   // Deletes still need --yes / --confirm-count. Keep low-level surfaces denied.
   "agents duplicate",
   "agents interrupt",
   "sections import",
+  "sections sync", // Mac-only: pushes the host mirror into the app store (needs Cursor auth)
   "pins clear",
   "settings set",
   "gw",
   "cursor",
   "cdp",
   "app",
-  "automations",
+  "automations", // incl. enable/disable/delete/slack-workspace/resume-guard (writes)
+  "slack", // install-flow reads and writes go straight to the control plane
+  "agents export", // control-plane + gateway backup reads
+  "transcripts",
 ];
 
 export function resolvePolicy(env = process.env) {
@@ -78,18 +84,28 @@ export function audit(record, env = process.env) {
   }
 }
 
+/**
+ * argv as it may be written to the audit log. `slack claim <token>` carries a one-time credential, which must never be
+ * logged (it would be logged on a denial under the agent policy, before the command ever runs).
+ */
+export function redactArgv(path, argv) {
+  if (path !== "slack claim" || !Array.isArray(argv)) return argv;
+  const i = argv.indexOf("claim");
+  return argv.map((a, n) => (i >= 0 && n > i && !String(a).startsWith("-") ? "<redacted>" : a));
+}
+
 /** Enforce policy for a command about to run. Throws UsageError when denied. */
 export function enforce(cmd, argv, env = process.env) {
   const policy = resolvePolicy(env);
   const path = commandPath(cmd);
   if (isDenied(path, policy)) {
-    audit({ policy, path, argv, decision: "denied" }, env);
+    audit({ policy, path, argv: redactArgv(path, argv), decision: "denied" }, env);
     const err = new UsageError(
       `"${path}" is not available under the agent policy. Agents may organize and delete agents/sections (with --yes gates) but not reach below the host gateway (gw/cursor/cdp/app); use "grokbot auto-review" for auto-review rules. A human runs denied commands from the Mac with GROKBOT_POLICY=operator.`,
     );
     err.exitCode = 77;
     throw err;
   }
-  if (policy === "agent") audit({ policy, path, argv, decision: "allowed" }, env);
+  if (policy === "agent") audit({ policy, path, argv: redactArgv(path, argv), decision: "allowed" }, env);
   return policy;
 }

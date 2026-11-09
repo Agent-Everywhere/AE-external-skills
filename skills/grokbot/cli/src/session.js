@@ -83,7 +83,9 @@ export function descriptorPath() {
 export function parseDescriptorFile(json, { accountScope = null, decrypt = decryptSafeStorage } = {}) {
   const wrapped = typeof json === "string" ? JSON.parse(json) : json;
   let entries;
-  if (wrapped.version === 2) {
+  // The app bumps the file version (2 in 0.47, 3 in 0.79) without changing the per-entry
+  // { savedAtMs, encrypted } shape, so accept any versioned wrapper that carries an entries map.
+  if (typeof wrapped.version === "number" && wrapped.version >= 2 && wrapped.entries && typeof wrapped.entries === "object") {
     entries = Object.entries(wrapped.entries ?? {}).filter(([, v]) => v && typeof v.encrypted === "string");
   } else if (typeof wrapped.encrypted === "string") {
     entries = [["default", { encrypted: wrapped.encrypted, savedAtMs: 0 }]];
@@ -103,6 +105,7 @@ export function parseDescriptorFile(json, { accountScope = null, decrypt = decry
     accountScope: scope,
     savedAtMs: entry.savedAtMs ?? null,
     entryCount: Object.keys(wrapped.entries ?? {}).length || 1,
+    fileVersion: typeof wrapped.version === "number" ? wrapped.version : null,
     baseUrl: String(desc.baseUrl).replace(/\/$/, ""),
     token: String(desc.token),
     headers: normalizeHeaders(desc.headers),
@@ -310,14 +313,14 @@ export async function resolveGatewaySession({ accountScope = null, prefer = "aut
 
 export function describeSessionSources() {
   const out = { appBundle: existsSync(APP_BUNDLE), appVersion: appVersion(), descriptor: null, secrets: null, home: null };
-  const dp = descriptorPath();
-  if (existsSync(dp)) {
-    const st = statSync(dp);
+  const descPath = descriptorPath();
+  if (existsSync(descPath)) {
+    const st = statSync(descPath);
     let wrapped = null;
     try {
-      wrapped = JSON.parse(readFileSync(dp, "utf8"));
+      wrapped = JSON.parse(readFileSync(descPath, "utf8"));
     } catch {}
-    out.descriptor = { path: dp, modifiedAt: st.mtime.toISOString(), version: wrapped?.version ?? null, entries: wrapped?.entries ? Object.keys(wrapped.entries).length : wrapped?.encrypted ? 1 : 0 };
+    out.descriptor = { path: descPath, modifiedAt: st.mtime.toISOString(), version: wrapped?.version ?? null, entries: wrapped?.entries ? Object.keys(wrapped.entries).length : wrapped?.encrypted ? 1 : 0 };
   }
   const sp = secretsPath();
   if (existsSync(sp)) {

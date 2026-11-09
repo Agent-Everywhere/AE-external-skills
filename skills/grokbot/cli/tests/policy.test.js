@@ -1,3 +1,4 @@
+import "./_isolate.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync } from "node:fs";
@@ -32,6 +33,9 @@ test("isDenied matches whole command families under agent policy only", () => {
   assert.equal(isDenied("agents interruption-log", "agent"), false, "prefix must be a whole word");
   assert.equal(isDenied("cursor rpc", "agent"), true);
   assert.equal(isDenied("sections move", "agent"), false);
+  assert.equal(isDenied("sections sync", "agent"), true, "sync needs Cursor auth and is Mac-only");
+  assert.equal(isDenied("sections sync", "operator"), false);
+  assert.equal(isDenied("sections verify", "agent"), false);
   assert.equal(isDenied("sections delete", "agent"), false, "sections delete is allowed for box agents");
   assert.equal(isDenied("agents interrupt", "operator"), false);
   for (const d of DENIED_FOR_AGENTS) assert.ok(d.length > 1);
@@ -109,4 +113,13 @@ test("audit: redacts secret-shaped values before writing", () => {
   const raw = readFileSync(env.GROKBOT_AUDIT_LOG, "utf8");
   assert.ok(!raw.includes("sk-secret-abc123"), "raw bearer token must not appear in the audit log");
   assert.ok(raw.includes("<redacted>"));
+});
+
+test("0.79 additions: host-backed reads and pins stay agent-allowed; the control-plane reader is operator-only", () => {
+  const p = buildProgram();
+  for (const path of [["agents", "todos"], ["agents", "tasks"], ["agents", "search"], ["pins", "list"], ["pins", "add"], ["pins", "remove"]]) {
+    assert.equal(isDenied(commandPath(sub(p, ...path)), "agent"), false, path.join(" "));
+  }
+  assert.equal(isDenied(commandPath(sub(p, "cursor", "settings")), "agent"), true, "cursor settings reads the runtime store directly");
+  assert.equal(isDenied("pins clear", "agent"), true);
 });
