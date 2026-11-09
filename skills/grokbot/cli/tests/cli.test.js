@@ -795,3 +795,47 @@ test("agents list marks only from a complete, non-empty control-plane read, and 
   const trunc = JSON.parse((await runCli({ GROKBOT_POLICY: "operator" }, ["--json", "agents", "list"])).out);
   assert.ok(trunc.every((a) => !a.deletedOnControlPlane), "truncated read: no marks");
 });
+
+// ---- review fixes: undispatched sends, --allow-empty delete verification, verification read timeout
+test("sendMessage: a reply with no `dispatched` field (proto3 omits false) is a refused send, not a success", async () => {
+  const agent = roster[0];
+  const gw = { sendPrompt: async () => assert.fail("must not fall back to the gateway") };
+  for (const reply of [{ messageId: "m-1" }, { dispatched: false }, {}]) {
+    const c = { sendUserMessage: async () => reply };
+    await assert.rejects(withEnv({ GROKBOT_POLICY: "operator" }, () => sendMessage({}, gw, agent, "hi", {}, { cursorClient: c })), (e) => e.exitCode === 1 && /refused by the control plane/.test(e.message), JSON.stringify(reply));
+  }
+  // `agents send --wait` must fail at the send, never print success or start waiting
+  setCursorForTests({ sendUserMessage: async () => ({ messageId: "m" }) });
+  let polled = 0;
+  setGatewayForTests({ listAgents: async () => (polled++, roster), transcriptTail: async () => assert.fail("must not wait") });
+  const r = await runCli({ GROKBOT_POLICY: "operator" }, ["agents", "send", "Alpha", "hi", "--wait", "--timeout", "30"]);
+  assert.equal(r.error?.exitCode, 1);
+  assert.doesNotMatch(r.out, /sent to/);
+  assert.ok(polled <= 1, "only the agent lookup, no wait loop");
+});
+
+test("agents delete --allow-empty: every RPC accepted and a complete (not truncated) empty read is verified, not an error", async () => {
+  const h = deleteHarness({ emptyList: true });
+  setGatewayForTests(h.gw);
+  setCursorForTests(h.cursorClient);
+  const r = await runCli({ GROKBOT_POLICY: "operator" }, ["--json", "agents", "delete", "Alpha", "Beta", "--yes", "--confirm-count", "2", "--allow-empty"]);
+  assert.equal(r.error, undefined);
+  assert.equal(r.exit, undefined);
+  const res = JSON.parse(r.out);
+  assert.equal(res.ok, true);
+  assert.deepEqual(res.deleted.sort(), [AID1, AID2].sort());
+  // still unverified when an RPC failed, or the read was truncated
+  const t = deleteHarness({ emptyList: true, truncated: true });
+  setGatewayForTests(t.gw);
+  setCursorForTests(t.cursorClient);
+  const rt = await runCli({ GROKBOT_POLICY: "operator" }, ["agents", "delete", "Alpha", "Beta", "--yes", "--confirm-count", "2", "--allow-empty"]);
+  assert.match(rt.error.message, /truncated/);
+});
+
+test("agents delete: the verification read carries a 5s abort signal", async () => {
+  const h = deleteHarness();
+  setGatewayForTests(h.gw);
+  setCursorForTests(h.cursorClient);
+  await runCli({ GROKBOT_POLICY: "operator" }, ["--json", "agents", "delete", "Alpha", "--yes"]);
+  assert.deepEqual(h.log.cursor.filter((x) => x[0] === "listArgs"), [["listArgs", true]]);
+});

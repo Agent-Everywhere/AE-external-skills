@@ -2,6 +2,7 @@
 // Nothing here writes to Grok, sends a message, or touches secrets: custom MCP config is never requested,
 // and any object key that looks like a credential is scrubbed from everything exported.
 import { appendFileSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { UsageError } from "./output.js";
 import { matchAgents } from "./routines.js";
@@ -17,7 +18,8 @@ export function scrubKeys(value) {
 
 const slug = (s) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "agent";
 const agentFile = (a) => `${slug(a.name)}-${a.agentId.slice(0, 8)}`;
-const writeJson = (file, value) => writeFileSync(file, JSON.stringify(value, null, 2) + "\n");
+const writeJson = (file, value) => writeFileSync(file, JSON.stringify(value, null, 2) + "\n", { mode: 0o600 });
+const DIR_MODE = { recursive: true, mode: 0o700 };
 
 // ------------------------------------------------------------------ usage
 const PT = "America/Los_Angeles";
@@ -102,7 +104,7 @@ const msg = (e) => String(e?.message ?? e).replace(/^grokbot:\s*/, "").slice(0, 
  * plugin workflows are listed in workflows/INDEX.json). A failing section is skipped and noted in `skipped`.
  */
 export async function exportAgents(dir, { cursor, gateway, warn = (m) => process.stderr.write(m + "\n"), now = () => new Date().toISOString() }) {
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(dir, DIR_MODE);
   const { agents } = await cursor.listAgents();
   const seen = new Set();
   const files = [];
@@ -160,7 +162,7 @@ async function exportWorkflows(dir, { gateway, agents, warn }) {
     return { written: 0, listed: 0, skipped: msg(lastErr ?? "no agents") };
   }
   const wdir = join(dir, "workflows");
-  mkdirSync(wdir, { recursive: true });
+  mkdirSync(wdir, DIR_MODE);
   const index = [];
   let written = 0;
   for (const w of rows) {
@@ -168,7 +170,7 @@ async function exportWorkflows(dir, { gateway, agents, warn }) {
     if (w.source !== "workflow") continue;
     const { body = "", ...meta } = scrubKeys(w);
     const front = Object.entries(meta).filter(([, v]) => v !== null && v !== "" && !(Array.isArray(v) && v.length === 0)).map(([k, v]) => `${k}: ${JSON.stringify(v)}`);
-    writeFileSync(join(wdir, `${slug(w.id)}.md`), `---\n${front.join("\n")}\n---\n${w.body ?? ""}\n`);
+    writeFileSync(join(wdir, `${slug(w.id)}-${createHash("sha256").update(String(w.id)).digest("hex").slice(0, 8)}.md`), `---\n${front.join("\n")}\n---\n${w.body ?? ""}\n`, { mode: 0o600 });
     written++;
   }
   writeJson(join(wdir, "INDEX.json"), index);
@@ -224,7 +226,7 @@ function withBodyJson(e) {
  */
 export async function exportTranscripts(dir, { cursor, agent, since = 0, warn = (m) => process.stderr.write(m + "\n") }) {
   since = parseSince(since);
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(dir, DIR_MODE);
   const all = [...new Map((await cursor.listAgents()).agents.filter((a) => a.agentId).map((a) => [a.agentId, a])).values()];
   const files = [];
   for (const a of matchAgents(all, agent)) {
@@ -233,10 +235,10 @@ export async function exportTranscripts(dir, { cursor, agent, since = 0, warn = 
       const file = join(dir, `${agentFile(a)}.jsonl`);
       if (entries.length > 0) {
         const text = entries.map((e) => JSON.stringify(withBodyJson(e))).join("\n") + "\n";
-        if (since > 0) appendFileSync(file, text);
+        if (since > 0) appendFileSync(file, text, { mode: 0o600 });
         else {
           const tmp = `${file}.tmp-${process.pid}`;
-          writeFileSync(tmp, text);
+          writeFileSync(tmp, text, { mode: 0o600 });
           renameSync(tmp, file);
         }
       }

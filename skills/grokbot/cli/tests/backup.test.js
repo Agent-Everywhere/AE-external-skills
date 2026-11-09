@@ -97,8 +97,8 @@ test("agents export: profile/skills/access per agent, failures skipped and aggre
   assert.equal(gwCalls.filter(([c]) => c === "getAgentMemories").length, 0, "the host dropped getAgentMemories (404 on 00b0aa1); it is no longer requested");
   assert.ok(calls.every((c) => c.method !== "GetGrokBotAgentCustomMcp"));
   assert.ok(calls.filter((c) => c.method === "GetGrokBotAgentPlugins").every((c) => c.body.includeMcpConfig === false));
-  assert.deepEqual(readdirSync(join(dir, "workflows")).sort(), ["INDEX.json", "mine.md"]);
-  const wf = readFileSync(join(dir, "workflows", "mine.md"), "utf8");
+  assert.deepEqual(readdirSync(join(dir, "workflows")).sort(), ["INDEX.json", "mine-3fd30542.md"]);
+  const wf = readFileSync(join(dir, "workflows", "mine-3fd30542.md"), "utf8");
   assert.ok(wf.endsWith("---\ndo it\n```x```\n"));
   assert.ok(!wf.includes("SHHH3"));
   assert.equal(JSON.parse(readFileSync(join(dir, "workflows", "INDEX.json"), "utf8")).length, 3);
@@ -162,10 +162,10 @@ test("resolveRoutine picks exactly one routine by id or name; toggle sends only 
     ListGrokBotAccountAutomations: () => ({ agents: [{ agentId: AM, automations: [row("uuid-1", "morning"), row("uuid-2", "evening", false)] }, { agentId: OTHER, automations: [row("uuid-3", "morning")] }] }),
     SetGrokBotAgentAutomationEnabled: (b) => ({ automations: [row(b.automationId, "morning", b.isEnabled)] }),
   });
-  assert.equal((await resolveRoutine(client, "9781", "morning")).automationId, "uuid-1");
+  assert.equal((await resolveRoutine(client, AM, "morning")).automationId, "uuid-1");
   assert.equal((await resolveRoutine(client, "Acme AM", "uuid-2")).name, "evening");
-  await assert.rejects(resolveRoutine(client, "am", "morning"), /matches 2 agents/);
-  await assert.rejects(resolveRoutine(client, "9781", "nope"), /No routine/);
+  await assert.rejects(resolveRoutine(client, "am", "morning"), /No routine/, "no substring agent match");
+  await assert.rejects(resolveRoutine(client, AM, "nope"), /No routine/);
   assert.ok(calls.every((c) => c.method !== "SetGrokBotAgentAutomationEnabled"), "resolving never writes");
   const rows = await client.setAutomationEnabled(AM, "uuid-1", false);
   assert.deepEqual(calls.at(-1).body, { agentId: AM, automationId: "uuid-1", isEnabled: false });
@@ -188,13 +188,13 @@ const writesOf = (calls) => calls.filter((c) => c.method === "SetGrokBotAgentAut
 
 test("toggleRoutine without --yes names the target and sends nothing; with --yes it writes once and confirms by re-read", async () => {
   const { client, calls } = toggleFixture();
-  await assert.rejects(toggleRoutine(client, "9781", "morning", false), /Acme AM \/ morning \(uuid-1\): enabled -> disabled\nRe-run with --yes/);
+  await assert.rejects(toggleRoutine(client, AM, "morning", false), /Acme AM \/ morning \(uuid-1\): enabled -> disabled\nRe-run with --yes/);
   assert.equal(writesOf(calls).length, 0);
-  const r = await toggleRoutine(client, "9781", "morning", false, { yes: true });
+  const r = await toggleRoutine(client, AM, "morning", false, { yes: true });
   assert.deepEqual([r.enabled, r.confirmed, r.changed], [false, true, true]);
   assert.deepEqual(writesOf(calls).map((c) => c.body), [{ agentId: AM, automationId: "uuid-1", isEnabled: false }]);
   assert.ok(calls.findLastIndex((c) => c.method === "ListGrokBotAccountAutomations") > calls.findIndex((c) => c.method === "SetGrokBotAgentAutomationEnabled"), "re-read after the write");
-  const again = await toggleRoutine(client, "9781", "morning", false, { yes: true });
+  const again = await toggleRoutine(client, AM, "morning", false, { yes: true });
   assert.equal(again.changed, false, "already in the requested state");
   assert.equal(writesOf(calls).length, 1, "no second write");
   const autos = buildProgram().commands.find((c) => c.name() === "automations");
@@ -203,7 +203,7 @@ test("toggleRoutine without --yes names the target and sends nothing; with --yes
 
 test("toggleRoutine fails (exitCode 1) when the write is accepted but the state did not change", async () => {
   const { client } = toggleFixture({ applyWrite: false });
-  await assert.rejects(toggleRoutine(client, "9781", "morning", false, { yes: true }), (e) => e.exitCode === 1 && /still enabled/.test(e.message));
+  await assert.rejects(toggleRoutine(client, AM, "morning", false, { yes: true }), (e) => e.exitCode === 1 && /still enabled/.test(e.message));
 });
 
 test("usage: one failing read still prints the rest; all failing throws; zero/string limits never give Infinity/NaN", async () => {

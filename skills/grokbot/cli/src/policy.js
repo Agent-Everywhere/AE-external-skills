@@ -1,9 +1,10 @@
 // Execution policy. Two modes:
 //   operator (default on a Mac)  — everything allowed; destructive commands still need --yes gates.
 //   agent    (default inside a box, or GROKBOT_POLICY=agent) — a Grok Bot agent is driving. It may
-//            organize (create/rename/hide/delete agents, sections, pins, send, tail, list) but may
-//            not reach below the host gateway (gw/cursor/cdp/app). Deletes still need --yes /
-//            --confirm-count. Group membership replace is allowed. Audited.
+//            organize (rename/hide agents; sections, pins, send, tail, list) but may not reach below the
+//            host gateway (gw/cursor/cdp/app). It cannot delete agents: `agents delete` needs the owner's
+//            Cursor sign-in and this policy has no Cursor client, so it refuses (section deletes still need
+//            --yes / --confirm-count). Group membership replace is allowed. Audited.
 //            `auto-review get|set|append` is allowed: it edits only the auto-review rules
 //            (autoReviewInstructions), while raw `settings set` stays denied. Under this policy the CLI builds its
 //            Gateway without a Cursor client (see runtimeClientFor in cli.js), so those edits are host-settings writes
@@ -15,8 +16,8 @@ import { boxGatewaySession, isInsideBox, redactValue } from "./session.js";
 import { UsageError } from "./output.js";
 
 export const DENIED_FOR_AGENTS = [
-  // agents/sections delete + groups members ALLOWED under agent policy.
-  // Deletes still need --yes / --confirm-count. Keep low-level surfaces denied.
+  // sections delete + groups members ALLOWED under agent policy (still --yes / --confirm-count gated).
+  // `agents delete` is not denied here but cannot run: it needs a Cursor client the agent policy lacks. Keep low-level surfaces denied.
   "agents duplicate",
   "agents interrupt",
   "sections import",
@@ -101,7 +102,7 @@ export function enforce(cmd, argv, env = process.env) {
   if (isDenied(path, policy)) {
     audit({ policy, path, argv: redactArgv(path, argv), decision: "denied" }, env);
     const err = new UsageError(
-      `"${path}" is not available under the agent policy. Agents may organize and delete agents/sections (with --yes gates) but not reach below the host gateway (gw/cursor/cdp/app); use "grokbot auto-review" for auto-review rules. A human runs denied commands from the Mac with GROKBOT_POLICY=operator.`,
+      `"${path}" is not available under the agent policy. Agents may organize agents/sections (sections delete needs --yes gates; agents cannot delete agents) but not reach below the host gateway (gw/cursor/cdp/app); use "grokbot auto-review" for auto-review rules. A human runs denied commands from the Mac with GROKBOT_POLICY=operator.`,
     );
     err.exitCode = 77;
     throw err;

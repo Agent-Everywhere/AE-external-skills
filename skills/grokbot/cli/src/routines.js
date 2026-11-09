@@ -147,16 +147,20 @@ export async function listRoutines(cursor, { agent, gateway, warn = (m) => proce
   return { routines, agents: perAgent, errors };
 }
 
-/** Resolve exactly one control-plane routine from an agent ref and an automation id or name. */
+/**
+ * Resolve exactly one control-plane routine from an agent ref and an automation id or name. WRITE paths use this, so both
+ * matches are exact and case-insensitive (agent: id or exact name; routine: automation id or exact name), as in
+ * resumeGuard. There is no prefix or substring fallback.
+ */
 export async function resolveRoutine(cursor, agentRef, ref) {
-  const { routines } = await listRoutines(cursor, { agent: agentRef });
-  const live = routines.filter((r) => !r.malformed);
+  const { routines } = await listRoutines(cursor, {});
+  const a = String(agentRef).toLowerCase();
+  const live = routines.filter((r) => !r.malformed && (r.agentId?.toLowerCase() === a || r.agentName?.toLowerCase() === a));
   const agentIds = new Set(live.map((r) => r.agentId));
-  if (agentIds.size > 1) throw new UsageError(`"${agentRef}" matches ${agentIds.size} agents with routines; use a more specific agent ref.`);
+  if (agentIds.size > 1) throw new UsageError(`"${agentRef}" matches ${agentIds.size} agents with routines; use the full agent id.`);
   const q = String(ref).toLowerCase();
-  let hit = live.filter((r) => r.automationId?.toLowerCase() === q || r.name?.toLowerCase() === q);
-  if (hit.length === 0) hit = live.filter((r) => r.automationId?.toLowerCase().startsWith(q));
-  if (hit.length !== 1) throw new UsageError(hit.length === 0 ? `No routine "${ref}" on agent "${agentRef}".` : `"${ref}" matches ${hit.length} routines; use the automation id.`);
+  const hit = live.filter((r) => r.automationId?.toLowerCase() === q || r.name?.toLowerCase() === q);
+  if (hit.length !== 1) throw new UsageError(hit.length === 0 ? `No routine "${ref}" on agent "${agentRef}" (exact agent id/name and routine id/name only).` : `"${ref}" matches ${hit.length} routines; use the automation id.`);
   return hit[0];
 }
 
@@ -225,9 +229,11 @@ export async function setRoutineSlackWorkspace(cursor, agentRef, ref, teamId, { 
     err.exitCode = 1;
     return err;
   };
+  const before = known.sandAutomationCount;
   const after = await cursor.setAutomationSlackWorkspace(r.automationId, teamId);
-  // The write's own reply is not proof: re-read the linked workspaces and require the team's row. A failed re-read, or a
-  // row that vanished, is an error (exit 1), never a quiet success.
+  // The write's own reply is not proof. A routine record carries no workspace field to re-read, so the only evidence is the
+  // workspace's routine count: confirmed only when it is a complete number that rose from the pre-write state. Same or
+  // unknown counts (including a routine that was already on this workspace) are reported as confirmed:false, not as success.
   let reread;
   try {
     reread = (await cursor.listSlackWorkspaces()).workspaces;
@@ -238,7 +244,12 @@ export async function setRoutineSlackWorkspace(cursor, agentRef, ref, teamId, { 
   if (!row) throw fail(`Write accepted but Slack workspace ${teamId} is not in the linked workspaces on re-read.`);
   const replied = after.find((w) => w.slackTeamId === teamId);
   if (!replied) throw fail(`The server's reply did not include Slack workspace ${teamId}; not confirmed.`);
-  return { ...base, changed: true, confirmed: true, workspace: { slackTeamId: row.slackTeamId, displayName: row.displayName ?? null, sandAutomationCount: row.sandAutomationCount ?? null }, target: `set ${target} (confirmed by re-read)` };
+  const nBefore = before === undefined || before === null ? NaN : Number(before);
+  const nAfter = row.sandAutomationCount === undefined || row.sandAutomationCount === null ? NaN : Number(row.sandAutomationCount);
+  const truncated = Boolean(known.sandAutomationCountTruncated || row.sandAutomationCountTruncated);
+  const confirmed = !truncated && Number.isFinite(nBefore) && Number.isFinite(nAfter) && nAfter > nBefore;
+  const note = confirmed ? `confirmed: the workspace's routine count rose ${nBefore} -> ${nAfter}` : "NOT confirmed: the workspace's routine count did not rise (or is unavailable/truncated), so the write cannot be verified; check the routine in the app";
+  return { ...base, changed: true, confirmed, workspace: { slackTeamId: row.slackTeamId, displayName: row.displayName ?? null, sandAutomationCount: row.sandAutomationCount ?? null }, target: `set ${target} (${note})` };
 }
 
 /**
@@ -359,13 +370,13 @@ export function renderAgentMarkdown(agent, routines) {
 
 /** Write one markdown file per agent that has routines. Returns [{agentId, name, count, file}]. */
 export function exportRoutines(dir, { routines, agents }) {
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
   const written = [];
   for (const a of agents) {
     const mine = routines.filter((r) => r.agentId === a.agentId);
     if (mine.length === 0) continue;
     const file = join(dir, `${slug(a.name)}-${a.agentId.slice(0, 8)}.md`);
-    writeFileSync(file, renderAgentMarkdown(a, mine));
+    writeFileSync(file, renderAgentMarkdown(a, mine), { mode: 0o600 });
     written.push({ agentId: a.agentId, name: a.name, count: mine.length, file });
   }
   return written;

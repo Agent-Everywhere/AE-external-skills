@@ -297,7 +297,7 @@ test("setRoutineSlackWorkspace is confirmed by a re-read: a failed re-read, a mi
   const ok = fakePlane({ routines: [R(A1, "a1", "nightly")], workspaces: ws });
   const r = await setRoutineSlackWorkspace(ok.client, "Alpha", "nightly", "T1", { yes: true });
   assert.equal(r.confirmed, true);
-  assert.match(r.target, /confirmed by re-read/);
+  assert.match(r.target, /routine count rose 0 -> 1/);
   assert.equal(ok.calls.filter((c) => c.method === "ListSlackLinkedWorkspaces").length, 2, "one list before the write (validation), one after (confirmation)");
 
   let lists = 0;

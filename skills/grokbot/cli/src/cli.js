@@ -107,7 +107,8 @@ export async function sendMessage(opts, gw, agent, prompt, { replyToId } = {}, {
   if (c) {
     const sentAt = Date.now();
     const r = await c.sendUserMessage(agent.id, prompt, { sentAtMs: sentAt, replyToId });
-    if (r.dispatched === false || r.refusal) {
+    // proto3 omits a false bool, so a refused send can arrive with no `dispatched` field: anything but an explicit true is undispatched.
+    if (r.dispatched !== true || r.refusal) {
       const err = new Error(`send refused by the control plane: ${enumName(r.refusal) !== "UNSPECIFIED" ? enumName(r.refusal) : "dispatched=false"}`);
       err.exitCode = 1;
       throw err;
@@ -694,10 +695,11 @@ export function buildProgram() {
       let present;
       let unverified = null;
       try {
-        const r = await readControlPlaneRoster(c);
+        const r = await readControlPlaneRoster(c, { timeoutMs: CONTROL_PLANE_LIST_TIMEOUT_MS });
         present = r.live;
         if (r.truncated) unverified = "ListGrokBotAgents was truncated";
-        else if (r.live.size === 0) unverified = "ListGrokBotAgents returned no agents";
+        else if (r.live.size === 0 && !(o.allowEmpty && attempted.length === ids.length)) unverified = "ListGrokBotAgents returned no agents";
+        // --allow-empty with every delete RPC accepted: a complete (not truncated) empty read is the expected end state.
       } catch (e) {
         unverified = `ListGrokBotAgents failed: ${redact(e.message)}`;
       }

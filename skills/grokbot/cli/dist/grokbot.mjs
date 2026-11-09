@@ -5027,14 +5027,14 @@ async function listRoutines(cursor2, { agent, gateway: gateway2, warn = (m) => p
   return { routines, agents: perAgent, errors };
 }
 async function resolveRoutine(cursor2, agentRef, ref) {
-  const { routines } = await listRoutines(cursor2, { agent: agentRef });
-  const live = routines.filter((r) => !r.malformed);
+  const { routines } = await listRoutines(cursor2, {});
+  const a = String(agentRef).toLowerCase();
+  const live = routines.filter((r) => !r.malformed && (r.agentId?.toLowerCase() === a || r.agentName?.toLowerCase() === a));
   const agentIds = new Set(live.map((r) => r.agentId));
-  if (agentIds.size > 1) throw new UsageError(`"${agentRef}" matches ${agentIds.size} agents with routines; use a more specific agent ref.`);
+  if (agentIds.size > 1) throw new UsageError(`"${agentRef}" matches ${agentIds.size} agents with routines; use the full agent id.`);
   const q = String(ref).toLowerCase();
-  let hit = live.filter((r) => r.automationId?.toLowerCase() === q || r.name?.toLowerCase() === q);
-  if (hit.length === 0) hit = live.filter((r) => r.automationId?.toLowerCase().startsWith(q));
-  if (hit.length !== 1) throw new UsageError(hit.length === 0 ? `No routine "${ref}" on agent "${agentRef}".` : `"${ref}" matches ${hit.length} routines; use the automation id.`);
+  const hit = live.filter((r) => r.automationId?.toLowerCase() === q || r.name?.toLowerCase() === q);
+  if (hit.length !== 1) throw new UsageError(hit.length === 0 ? `No routine "${ref}" on agent "${agentRef}" (exact agent id/name and routine id/name only).` : `"${ref}" matches ${hit.length} routines; use the automation id.`);
   return hit[0];
 }
 async function toggleRoutine(cursor2, agentRef, ref, enabled, { yes = false } = {}) {
@@ -5091,6 +5091,7 @@ ${why}`);
     err.exitCode = 1;
     return err;
   };
+  const before = known.sandAutomationCount;
   const after = await cursor2.setAutomationSlackWorkspace(r.automationId, teamId);
   let reread;
   try {
@@ -5102,7 +5103,12 @@ ${why}`);
   if (!row) throw fail(`Write accepted but Slack workspace ${teamId} is not in the linked workspaces on re-read.`);
   const replied = after.find((w) => w.slackTeamId === teamId);
   if (!replied) throw fail(`The server's reply did not include Slack workspace ${teamId}; not confirmed.`);
-  return { ...base, changed: true, confirmed: true, workspace: { slackTeamId: row.slackTeamId, displayName: row.displayName ?? null, sandAutomationCount: row.sandAutomationCount ?? null }, target: `set ${target} (confirmed by re-read)` };
+  const nBefore = before === void 0 || before === null ? NaN : Number(before);
+  const nAfter = row.sandAutomationCount === void 0 || row.sandAutomationCount === null ? NaN : Number(row.sandAutomationCount);
+  const truncated = Boolean(known.sandAutomationCountTruncated || row.sandAutomationCountTruncated);
+  const confirmed = !truncated && Number.isFinite(nBefore) && Number.isFinite(nAfter) && nAfter > nBefore;
+  const note = confirmed ? `confirmed: the workspace's routine count rose ${nBefore} -> ${nAfter}` : "NOT confirmed: the workspace's routine count did not rise (or is unavailable/truncated), so the write cannot be verified; check the routine in the app";
+  return { ...base, changed: true, confirmed, workspace: { slackTeamId: row.slackTeamId, displayName: row.displayName ?? null, sandAutomationCount: row.sandAutomationCount ?? null }, target: `set ${target} (${note})` };
 }
 async function resumeGuard(cursor2, entries, { dryRun = false } = {}) {
   const { routines } = await listRoutines(cursor2, {});
@@ -5207,13 +5213,13 @@ function renderAgentMarkdown(agent, routines) {
   return lines.join("\n");
 }
 function exportRoutines(dir, { routines, agents }) {
-  mkdirSync2(dir, { recursive: true });
+  mkdirSync2(dir, { recursive: true, mode: 448 });
   const written = [];
   for (const a of agents) {
     const mine = routines.filter((r) => r.agentId === a.agentId);
     if (mine.length === 0) continue;
     const file = join4(dir, `${slug(a.name)}-${a.agentId.slice(0, 8)}.md`);
-    writeFileSync2(file, renderAgentMarkdown(a, mine));
+    writeFileSync2(file, renderAgentMarkdown(a, mine), { mode: 384 });
     written.push({ agentId: a.agentId, name: a.name, count: mine.length, file });
   }
   return written;
@@ -5373,6 +5379,7 @@ async function mapLimit(items, limit, fn) {
 
 // src/backup.js
 import { appendFileSync, mkdirSync as mkdirSync3, renameSync as renameSync2, writeFileSync as writeFileSync3 } from "node:fs";
+import { createHash } from "node:crypto";
 import { join as join5 } from "node:path";
 var SECRET_KEY = /token|secret|key|password|credential|authorization|cookie|^env$|^headers$/i;
 function scrubKeys(value) {
@@ -5382,7 +5389,8 @@ function scrubKeys(value) {
 }
 var slug2 = (s) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "agent";
 var agentFile = (a) => `${slug2(a.name)}-${a.agentId.slice(0, 8)}`;
-var writeJson = (file, value) => writeFileSync3(file, JSON.stringify(value, null, 2) + "\n");
+var writeJson = (file, value) => writeFileSync3(file, JSON.stringify(value, null, 2) + "\n", { mode: 384 });
+var DIR_MODE = { recursive: true, mode: 448 };
 var PT = "America/Los_Angeles";
 var ptTime = (ms) => ms ? new Intl.DateTimeFormat("en-US", { timeZone: PT, month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(Number(ms))) : "?";
 var ptDate = (ms) => ms ? new Intl.DateTimeFormat("en-US", { timeZone: PT, month: "short", day: "numeric", year: "numeric" }).format(new Date(Number(ms))) : "?";
@@ -5450,7 +5458,7 @@ function formatUsage(u) {
 }
 var msg = (e) => String(e?.message ?? e).replace(/^grokbot:\s*/, "").slice(0, 160);
 async function exportAgents(dir, { cursor: cursor2, gateway: gateway2, warn = (m) => process.stderr.write(m + "\n"), now = () => (/* @__PURE__ */ new Date()).toISOString() }) {
-  mkdirSync3(dir, { recursive: true });
+  mkdirSync3(dir, DIR_MODE);
   const { agents } = await cursor2.listAgents();
   const seen = /* @__PURE__ */ new Set();
   const files = [];
@@ -5507,7 +5515,7 @@ async function exportWorkflows(dir, { gateway: gateway2, agents, warn }) {
     return { written: 0, listed: 0, skipped: msg(lastErr ?? "no agents") };
   }
   const wdir = join5(dir, "workflows");
-  mkdirSync3(wdir, { recursive: true });
+  mkdirSync3(wdir, DIR_MODE);
   const index = [];
   let written = 0;
   for (const w of rows) {
@@ -5515,11 +5523,11 @@ async function exportWorkflows(dir, { gateway: gateway2, agents, warn }) {
     if (w.source !== "workflow") continue;
     const { body = "", ...meta } = scrubKeys(w);
     const front = Object.entries(meta).filter(([, v]) => v !== null && v !== "" && !(Array.isArray(v) && v.length === 0)).map(([k, v]) => `${k}: ${JSON.stringify(v)}`);
-    writeFileSync3(join5(wdir, `${slug2(w.id)}.md`), `---
+    writeFileSync3(join5(wdir, `${slug2(w.id)}-${createHash("sha256").update(String(w.id)).digest("hex").slice(0, 8)}.md`), `---
 ${front.join("\n")}
 ---
 ${w.body ?? ""}
-`);
+`, { mode: 384 });
     written++;
   }
   writeJson(join5(wdir, "INDEX.json"), index);
@@ -5561,7 +5569,7 @@ function withBodyJson(e) {
 }
 async function exportTranscripts(dir, { cursor: cursor2, agent, since = 0, warn = (m) => process.stderr.write(m + "\n") }) {
   since = parseSince(since);
-  mkdirSync3(dir, { recursive: true });
+  mkdirSync3(dir, DIR_MODE);
   const all = [...new Map((await cursor2.listAgents()).agents.filter((a) => a.agentId).map((a) => [a.agentId, a])).values()];
   const files = [];
   for (const a of matchAgents(all, agent)) {
@@ -5570,10 +5578,10 @@ async function exportTranscripts(dir, { cursor: cursor2, agent, since = 0, warn 
       const file = join5(dir, `${agentFile(a)}.jsonl`);
       if (entries.length > 0) {
         const text = entries.map((e) => JSON.stringify(withBodyJson(e))).join("\n") + "\n";
-        if (since > 0) appendFileSync(file, text);
+        if (since > 0) appendFileSync(file, text, { mode: 384 });
         else {
           const tmp = `${file}.tmp-${process.pid}`;
-          writeFileSync3(tmp, text);
+          writeFileSync3(tmp, text, { mode: 384 });
           renameSync2(tmp, file);
         }
       }
@@ -5690,15 +5698,15 @@ function agentState(a) {
 }
 
 // src/cli.js
-import { createHash } from "node:crypto";
+import { createHash as createHash2 } from "node:crypto";
 
 // src/policy.js
 import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync4 } from "node:fs";
 import { dirname as dirname2, join as join6 } from "node:path";
 import { homedir as homedir3 } from "node:os";
 var DENIED_FOR_AGENTS = [
-  // agents/sections delete + groups members ALLOWED under agent policy.
-  // Deletes still need --yes / --confirm-count. Keep low-level surfaces denied.
+  // sections delete + groups members ALLOWED under agent policy (still --yes / --confirm-count gated).
+  // `agents delete` is not denied here but cannot run: it needs a Cursor client the agent policy lacks. Keep low-level surfaces denied.
   "agents duplicate",
   "agents interrupt",
   "sections import",
@@ -5762,7 +5770,7 @@ function enforce(cmd, argv, env = process.env) {
   if (isDenied(path, policy)) {
     audit({ policy, path, argv: redactArgv(path, argv), decision: "denied" }, env);
     const err = new UsageError(
-      `"${path}" is not available under the agent policy. Agents may organize and delete agents/sections (with --yes gates) but not reach below the host gateway (gw/cursor/cdp/app); use "grokbot auto-review" for auto-review rules. A human runs denied commands from the Mac with GROKBOT_POLICY=operator.`
+      `"${path}" is not available under the agent policy. Agents may organize agents/sections (sections delete needs --yes gates; agents cannot delete agents) but not reach below the host gateway (gw/cursor/cdp/app); use "grokbot auto-review" for auto-review rules. A human runs denied commands from the Mac with GROKBOT_POLICY=operator.`
     );
     err.exitCode = 77;
     throw err;
@@ -5835,7 +5843,7 @@ async function sendMessage(opts, gw, agent, prompt, { replyToId } = {}, { cursor
   if (c) {
     const sentAt = Date.now();
     const r = await c.sendUserMessage(agent.id, prompt, { sentAtMs: sentAt, replyToId });
-    if (r.dispatched === false || r.refusal) {
+    if (r.dispatched !== true || r.refusal) {
       const err = new Error(`send refused by the control plane: ${enumName(r.refusal) !== "UNSPECIFIED" ? enumName(r.refusal) : "dispatched=false"}`);
       err.exitCode = 1;
       throw err;
@@ -6288,10 +6296,10 @@ ${running.map((a) => `  running: ${a.name} (${shortId(a.id)})`).join("\n")}${run
     let present;
     let unverified = null;
     try {
-      const r = await readControlPlaneRoster(c);
+      const r = await readControlPlaneRoster(c, { timeoutMs: CONTROL_PLANE_LIST_TIMEOUT_MS });
       present = r.live;
       if (r.truncated) unverified = "ListGrokBotAgents was truncated";
-      else if (r.live.size === 0) unverified = "ListGrokBotAgents returned no agents";
+      else if (r.live.size === 0 && !(o.allowEmpty && attempted.length === ids.length)) unverified = "ListGrokBotAgents returned no agents";
     } catch (e) {
       unverified = `ListGrokBotAgents failed: ${redact(e.message)}`;
     }
@@ -6610,7 +6618,7 @@ ${diff.map((d) => "  " + d).join("\n")}${diff.length ? "\n" : ""}`);
     return list === "allow" ? "allowInstructions" : "blockInstructions";
   };
   const parseRules = (text) => String(text).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  const auditAutoReviewWrite = (path, value, list) => audit({ policy: resolvePolicy(), path, event: "auto-review-write", list, sha256: createHash("sha256").update(value).digest("hex"), length: value.length });
+  const auditAutoReviewWrite = (path, value, list) => audit({ policy: resolvePolicy(), path, event: "auto-review-write", list, sha256: createHash2("sha256").update(value).digest("hex"), length: value.length });
   const autoReviewOut = (cmd, v) => out(cmd, v, () => {
     const L = [`enabled   ${v.isEnabled === null ? "unknown" : v.isEnabled ? "yes" : "no"}`];
     for (const [label, rules] of [["allow", v.allowInstructions], ["block", v.blockInstructions]]) {
