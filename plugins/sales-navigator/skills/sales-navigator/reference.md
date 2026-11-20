@@ -129,12 +129,14 @@ ask the user, never start a fresh one). For a send, the ledger flow is `check`, 
 
 Policy (2026-10-14): creating an account list and saving accounts to it is allowed as part of TAM work. Confirm the exact
 list name with the user once per run, never modify, rename or delete a list the user did not name, and pace saves
-(3 to 5 s between batches). Every other seat write (messages, InMails, connects, follows, profile edits, saved searches, lead
+(3 to 5 s between batches). Creating a saved people search is allowed under the same rule (policy 2026-11-20, see Saved searches below). Every other seat write (messages, InMails, connects, follows, profile edits, lead
 saves) stays forbidden except the outreach skill's approval flow. Never drive the UI to save.
 
 Flow: `lists.js` (read, what exists) then `list_create.js` (refuses an existing name unless `reuse` is true) then
 `list_save_accounts.js` (50 per call, paced) then `lists.js` again to verify `entityCount`. The lead-list saving endpoint
 is unverified: do not save leads.
+
+**Saved searches** (verified 2026-11-20; KB 19 has the calls). `saved_searches.js` reads them; `saved_search_create.js` creates one and verifies by re-listing. The user confirms each exact name once before it is created; never modify, rename or delete one (no delete snippet ships). Capped: 10 a day, ceiling 25 (`run_log.py add --saved-searches 1`, then `run_log.py quota`).
 
 | Finding | Value |
 |---|---|
@@ -250,7 +252,7 @@ to the `keep` accounts with an `ACCOUNT_LIST` filter (save them to a list first,
 chunks of at most 400 ids (`id:urn%3Ali%3Aorganization%3A<id>`). Add seniority plus a title or function from the profile's section 4 for each size band. Use
 `lead_search.js` at `count` 100 (up to the 2,500 cap), a cap of people per account, and `profiles_batch.js`
 (rows' `entityUrn`s, `batch` up to 100) only when summary or positions are needed. Never create a saved search, save a
-lead or make any other seat mutation without the user's explicit confirmation of that exact action; lists: see Lists.
+lead or make any other seat mutation without the user's explicit confirmation of that exact action; lists and saved searches: see Lists.
 
 ## Engine path and doctor
 

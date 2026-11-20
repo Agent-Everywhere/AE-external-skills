@@ -33,6 +33,7 @@ These run on LinkedIn Sales Navigator, a separate paid LinkedIn product. They ne
 | Split a Sales Navigator search that is too big to pull at once, and track what is covered | `Install the salesnav-split-big-search skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/sales-navigator and set it up for me.` | A LinkedIn Sales Navigator seat |
 | Draft and send my daily LinkedIn outreach (I approve every batch) | `Install the salesnav-outreach skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/sales-navigator and set it up for me.` | A LinkedIn Sales Navigator seat |
 | See who accepted and who replied on LinkedIn | `Install the salesnav-inbox skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/sales-navigator and set it up for me.` | A LinkedIn Sales Navigator seat, signed in in your browser |
+| Find people who left my customers and where they work now | `Install the salesnav-job-changes skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/sales-navigator and set it up for me.` | A LinkedIn Sales Navigator seat, signed in in your browser |
 
 ### Other tools
 
@@ -43,7 +44,7 @@ These run on LinkedIn Sales Navigator, a separate paid LinkedIn product. They ne
 | Check the Texas state bid board for open bids that match what I sell, and get a daily alert with only the new ones (optionally in Microsoft Teams) | `Install the texas-bids skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/texas-bids and set it up for me.` | Node 20+ |
 | Find companies in my space that just raised money (SEC Form D filings), with the executives named, ready for Apollo and LinkedIn | `Install the sec-funding-signals skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/sec-funding-signals and set it up for me.` | Node 20+, your own email address (the SEC asks for a contact in its User-Agent) |
 
-The five `salesnav-*` skills above (`salesnav-find-people`, `salesnav-find-companies`, `salesnav-split-big-search`, `salesnav-outreach`, `salesnav-inbox`) are each one job from the `sales-navigator` plugin (below), installed on its own. `linkedin-emails` is a separate plugin and works on plain LinkedIn. So do `linkedin-find-people`, `linkedin-outreach`, `linkedin-replies` and `linkedin-job-signals`: four plugins that each install one skill of the `linkedin` plugin folder (below) with its shared engine. They are not the Sales Navigator skills, and need no seat.
+The six `salesnav-*` skills above (`salesnav-find-people`, `salesnav-find-companies`, `salesnav-split-big-search`, `salesnav-outreach`, `salesnav-inbox`, `salesnav-job-changes`) are each one job from the `sales-navigator` plugin (below), installed on its own. `linkedin-emails` is a separate plugin and works on plain LinkedIn. So do `linkedin-find-people`, `linkedin-outreach`, `linkedin-replies` and `linkedin-job-signals`: four plugins that each install one skill of the `linkedin` plugin folder (below) with its shared engine. They are not the Sales Navigator skills, and need no seat.
 
 **For the agent reading this:** the plugin names above are marketplace plugin names (Claude Code: `/plugin marketplace add Agent-Everywhere/AE-external-skills`, then `/plugin install <name>@ae-external-skills`). If you install by copying folders instead, copy the skill folder AND the shared engine `plugins/sales-navigator/skills/sales-navigator` next to it, then follow the "Install (for you, the agent)" section of the skill's `SKILL.md`:
 
@@ -54,6 +55,7 @@ The five `salesnav-*` skills above (`salesnav-find-people`, `salesnav-find-compa
 | `salesnav-split-big-search` | `salesnav-tam-tracker` |
 | `salesnav-outreach` | `salesnav-outreach` |
 | `salesnav-inbox` | `salesnav-diy-linkedin` |
+| `salesnav-job-changes` | `salesnav-job-changes` |
 
 The four plain-LinkedIn job plugins are the same idea over `plugins/linkedin/skills/` (shared engine folder: `linkedin`):
 
@@ -78,8 +80,8 @@ Details are in the table below.
 
 ## What's in here
 
-Install only the ones you need. The five job plugins `salesnav-find-people`, `salesnav-find-companies`,
-`salesnav-split-big-search`, `salesnav-outreach` and `salesnav-inbox` each install one skill of the `sales-navigator` plugin;
+Install only the ones you need. The six job plugins `salesnav-find-people`, `salesnav-find-companies`,
+`salesnav-split-big-search`, `salesnav-outreach`, `salesnav-inbox` and `salesnav-job-changes` each install one skill of the `sales-navigator` plugin;
 the table lists the other plugins (`linkedin-emails` is its own plugin). The four plain-LinkedIn plugins `linkedin-find-people`, `linkedin-outreach`, `linkedin-replies` and `linkedin-job-signals` each install one skill of the `linkedin` plugin folder, with its shared engine.
 
 | Plugin | What it is | Who it's for | Where it runs | Needs | Install |
@@ -87,7 +89,7 @@ the table lists the other plugins (`linkedin-emails` is its own plugin). The fou
 | [`grokbot`](skills/grokbot/SKILL.md) | CLI + skill. The `grokbot` command (bundled single-file Node CLI) plus a skill that drives it: status/doctor, agents, groups, sections, pins, transcripts, `send --wait`, app restart | A person on their Mac who wants Claude Code to drive their Grok Bot desktop app | Claude Code on the Mac that has Grok Bot installed | Node 20+, the signed-in Grok Bot app | `/plugin install grokbot@ae-external-skills` (CLI alone: see Install) |
 | [`grokbot-box`](skills/grokbot-box/SKILL.md) | Skill only. No CLI bundled: it clones this repo inside the box and uses the `grokbot` CLI from there | A Grok Bot agent inside its own cloud box that manages its sibling workers (list, create, organize, send, delete) under a restricted, audited agent policy | Inside a Grok Bot cloud box | Node 20+ in the box, a clone of this repo | `/plugin install grokbot-box@ae-external-skills` |
 | [`desktop-cowork`](skills/claude-desktop/SKILL.md) | Skill + helper script (`desktop.py`, using Peekaboo). The skill folder is `claude-desktop`; the plugin name avoids the `claude-` prefix, which the marketplace reserves | Claude Code on a Mac driving the Claude Desktop app: Cowork tasks, replies, approvals, projects, skills, connectors, plugins, scheduled tasks | Claude Code on your Mac, controlling the Desktop app by screenshots and clicks | macOS 15+, Peekaboo, Screen Recording / Accessibility / Automation permission | `/plugin install desktop-cowork@ae-external-skills` |
-| [`sales-navigator`](plugins/sales-navigator/skills/sales-navigator/SKILL.md) | One plugin bundling 6 skills: the `sales-navigator` toolkit plus `salesnav-tam-accounts`, `salesnav-tam-people`, `salesnav-tam-tracker`, `salesnav-outreach` and `salesnav-diy-linkedin` | Anyone with a LinkedIn Sales Navigator seat who sizes markets, builds lists and runs outreach | Claude Desktop / Cowork's built-in browser, or your own Chrome | A signed-in Sales Navigator seat | `/plugin install sales-navigator@ae-external-skills` |
+| [`sales-navigator`](plugins/sales-navigator/skills/sales-navigator/SKILL.md) | One plugin bundling 7 skills: the `sales-navigator` toolkit plus `salesnav-tam-accounts`, `salesnav-tam-people`, `salesnav-tam-tracker`, `salesnav-outreach`, `salesnav-diy-linkedin` and `salesnav-job-changes` | Anyone with a LinkedIn Sales Navigator seat who sizes markets, builds lists and runs outreach | Claude Desktop / Cowork's built-in browser, or your own Chrome | A signed-in Sales Navigator seat | `/plugin install sales-navigator@ae-external-skills` |
 | [`quickbooks`](plugins/quickbooks/skills/quickbooks/SKILL.md) | CLI + skill. The `qbo` command (bundled single-file Node CLI) plus a skill: doctor, lists, search, reports (P&L, balance sheet, aging, general ledger...), and approval-gated create / void / delete. Calls QuickBooks Online's own API from inside your signed-in tab, with page reading as a fallback | Anyone with a QuickBooks Online company who wants Claude to read the books and do small, approved bookkeeping steps | Claude Code (or any agent with shell access) attached to your own Chrome over CDP | Node 20+, a browser signed in to QuickBooks Online | `/plugin install quickbooks@ae-external-skills` |
 | [`sourcewell`](plugins/sourcewell/skills/sourcewell/SKILL.md) | CLI + skill. The `sourcewell` command (bundled single-file Node CLI, no dependencies) plus a skill: who holds a Sourcewell cooperative contract and when it expires, open and upcoming (planned) bids, past RFP bidders and awardees, re-bid candidates, and participating agencies by state or type. Read-only; JSON or CSV output | Anyone prospecting US public-sector buyers through cooperative purchasing | Claude Desktop (Cowork task) or Claude Code; no browser | Node 20+ (Cowork has it); only `docs download` needs your own procurement-portal login | `/plugin install sourcewell@ae-external-skills` |
 | [`texas-bids`](plugins/texas-bids/skills/texas-bids/SKILL.md) | CLI + skill. The `texas-bids` command (bundled single-file Node CLI, no dependencies) plus a skill: search the Texas ESBD state bid board for open solicitations by keyword (title, agency, posted and due dates, link), and `watch` it daily so only new bids are reported; optional post of new bids to a Microsoft Teams channel through a webhook you create. Read-only, public data, Texas only | Anyone selling to Texas state and local government | Claude Desktop (Cowork task) or Claude Code; no browser | Node 20+ (Cowork has it); a Teams webhook URL only if you want the Teams alert (kept in the `TEXAS_BIDS_TEAMS_WEBHOOK` environment variable, never in a file) | `/plugin install texas-bids@ae-external-skills` |
@@ -99,14 +101,15 @@ the table lists the other plugins (`linkedin-emails` is its own plugin). The fou
 `grokbot` and `grokbot-box` are not the same thing: `grokbot` is for a human on a Mac, `grokbot-box`
 is for an agent inside a box. Each skill points to the other.
 
-The `sales-navigator` plugin's six skills:
+The `sales-navigator` plugin's seven skills:
 
-- [`sales-navigator`](plugins/sales-navigator/skills/sales-navigator/SKILL.md): the slim toolkit for your own seat: exact counts, account and lead searches through the in-page API, website lookups, CSV and cap-tracking scripts, example flows. Read-only except account lists you name and confirm, and sends you explicitly approve per batch.
+- [`sales-navigator`](plugins/sales-navigator/skills/sales-navigator/SKILL.md): the slim toolkit for your own seat: exact counts, account and lead searches through the in-page API, website lookups, CSV and cap-tracking scripts, example flows. Read-only except account lists and saved searches you name and confirm (10 saved searches a day, never edited or deleted), and sends you explicitly approve per batch.
 - [`salesnav-tam-accounts`](plugins/sales-navigator/skills/salesnav-tam-accounts/SKILL.md): build a company-side TAM: a broad industry/geo/headcount net (plus optional priority keyword lanes), rows at 100 per call, company details scored for fit, a qualified-account count, multi-segment merge, optional save to an account list you name. Read-only otherwise.
 - [`salesnav-tam-people`](plugins/sales-navigator/skills/salesnav-tam-people/SKILL.md): build the people side: a lead search scoped to the qualified account ids, exact counts per variant, rows at 100 per call. Uses an account list (`ACCOUNT_LIST` filter) when one exists; saves no leads.
 - [`salesnav-tam-tracker`](plugins/sales-navigator/skills/salesnav-tam-tracker/SKILL.md): cut a master search over the viewable cap into sub-lists, pull them, dedupe across shards, track coverage in `tam_tracker.csv`.
 - [`salesnav-outreach`](plugins/sales-navigator/skills/salesnav-outreach/SKILL.md): daily connection requests, InMails, messages and follow-ups with an outreach ledger. Drafts by default; sends only after you type approval of the exact batch.
 - [`salesnav-diy-linkedin`](plugins/sales-navigator/skills/salesnav-diy-linkedin/SKILL.md): what a hosted LinkedIn API does, from your own signed-in browser: profile and member-id lookup, who accepted, inbox replies, InMail credits, and approved sends by UI click after typed approval of the exact batch under conservative caps. Backed by KB 16.
+- [`salesnav-job-changes`](plugins/sales-navigator/skills/salesnav-job-changes/SKILL.md): find people who used to work at a list of companies (your customers), hold a title you name and recently changed jobs, with the company and title they moved to; offers one saved search per chunk so LinkedIn sends its own alerts for new moves (or prints the search link to save by hand). Read-only except saved searches you confirm by name (`saved_search_create.js`, 10 a day, never edits or deletes one); saves no leads. Past-company and saved-search notes in KB 19 (verified live 2026-11-20).
 
 > **Unofficial.** `desktop-cowork` is not affiliated with or endorsed by Anthropic. It drives the app by screenshots and clicks, which may break when the app's layout changes, and it takes over your mouse and keyboard while it runs: read the rules in its [`SKILL.md`](skills/claude-desktop/SKILL.md) first.
 >
@@ -139,6 +142,7 @@ The `sales-navigator` plugin's six skills:
 /plugin install salesnav-split-big-search@ae-external-skills
 /plugin install salesnav-outreach@ae-external-skills
 /plugin install salesnav-inbox@ae-external-skills
+/plugin install salesnav-job-changes@ae-external-skills
 /plugin install quickbooks@ae-external-skills
 /plugin install sourcewell@ae-external-skills
 /plugin install texas-bids@ae-external-skills
@@ -235,6 +239,8 @@ round (at most 5 questions), calibrate on example customers, then accounts, then
 
 0.9.1 renames the five job plugins from `linkedin-*` to `salesnav-*` (the same day they were added in 0.9.0), because they run on LinkedIn Sales Navigator and need a Sales Navigator seat, which plain (classic) LinkedIn does not include: `salesnav-find-people`, `salesnav-find-companies`, `salesnav-split-big-search`, `salesnav-outreach` and `salesnav-inbox`. The old `linkedin-*` names were gone for that release. If you installed one under its old name, run `/plugin uninstall <old-name>@ae-external-skills`, then install the new one. `linkedin-emails` is unchanged.
 
+0.9.2 adds the `salesnav-job-changes` job plugin and skill (people who left a list of companies, with recent job changes and their new company and title), `company_chunks.py` options `--filter-type PAST_COMPANY`, `--titles` and `--recent-job-change`, `saved_searches.js` (read) and `saved_search_create.js` (creates one saved people search after you confirm its exact name; same rule as account lists, 10 a day, ceiling 25; no edit or delete), and KB page 19 (`19-past-company-job-changes.md`: the `PAST_COMPANY` filter verified live 2026-11-20, past company from the row's `pastPositions`, the saved-search request shape).
+
 `linkedin-job-signals` 0.10.0 is new: it finds companies hiring for roles that signal a need, from LinkedIn's public job pages, over the same `linkedin` engine. `linkedin-find-people`, `linkedin-outreach` and `linkedin-replies` 0.10.0 are new: the plain-LinkedIn (no Sales Navigator) counterparts of the `salesnav-*` jobs, built over one shared `linkedin` engine folder. Three of the `linkedin-*` names are used again, now for classic LinkedIn. They start at 0.10.0, above the 0.9.x of the Sales Navigator plugins that used the same names for one day, so a client that installed one of those sees an update, never a downgrade. If you installed `linkedin-find-people`, `linkedin-outreach` or `linkedin-replies` before `sales-navigator` 0.9.1, that was the Sales Navigator version; run `/plugin uninstall <name>@ae-external-skills` and install the `salesnav-*` one you meant (`salesnav-find-people`, `salesnav-outreach`, `salesnav-inbox`) if you have a seat.
 
 **Version rule.** Every plugin entry in `.claude-plugin/marketplace.json` carries its own `version`, and clients see an update only when that entry's version goes up. Bump the entry of each plugin you change on every release (for the three `linkedin-*` plugins, together with the `version` in the engine's and the three skills' `skill.yaml`; tests pin that they agree). Update them the same way as `sales-navigator`: sync the marketplace, then update the plugin.
@@ -252,8 +258,8 @@ If you installed `ae-desktop-operator` (the earlier name of `desktop-cowork`), r
 
 ```
 .claude-plugin/
-  marketplace.json  # Claude Code marketplace: one plugin per skill, except sales-navigator (bundles its six skills)
-                    # the five salesnav-* job plugins (same source, one skill each) and the four
+  marketplace.json  # Claude Code marketplace: one plugin per skill, except sales-navigator (bundles its seven skills)
+                    # the six salesnav-* job plugins (same source, one skill each) and the four
                     # linkedin-* job plugins (source plugins/linkedin, one skill each)
 plugins/sales-navigator/   # the ONLY folder the sales-navigator plugin installs (marketplace `source`)
   skills/
@@ -263,6 +269,7 @@ plugins/sales-navigator/   # the ONLY folder the sales-navigator plugin installs
     salesnav-tam-tracker/
     salesnav-outreach/
     salesnav-diy-linkedin/
+    salesnav-job-changes/
 plugins/linkedin/          # plain LinkedIn (no Sales Navigator): the folder the four linkedin-* job plugins install
   skills/
     linkedin/               # the shared ENGINE (no SKILL.md): scripts/ (find_people.py, outreach.py, replies.py, li_common.py,

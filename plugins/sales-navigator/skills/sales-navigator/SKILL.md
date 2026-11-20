@@ -5,7 +5,7 @@ description: >-
   searches (25 to 100 rows per call through Sales Nav's in-page API), CSV and cap-tracking
   scripts. Use for "size my TAM on LinkedIn", "build a lead or account list", "find
   decision-makers at these companies", "draft connection notes", "who accepted". Read-only on
-  LinkedIn except account lists the user named and send batches the user typed approval for.
+  LinkedIn except account lists and saved searches the user named and send batches the user typed approval for.
 ---
 
 # Sales Navigator
@@ -49,7 +49,7 @@ never cookies or tokens. `csrf_ready.js` confirms the page is ready; `count.js` 
 up to 100 ids (qualify); `companies_websites.js` the website for up to 100 ids; `profiles_batch.js` summary
 and positions for many leads (`batch` up to 100; `ids`, `urlsOnly`; `extras`: education, skills; limits: `$ENGINE/references/salesnav-kb/15-batch-scrape.md`); `profile.js` one lead's positions, summary, degree
 (`extras`: education, skills; no contact info); `activity.js` recent posts and comments; `account.js` a
-company's detail (`headcount`, `news`). Lists: `lists.js` reads them; `list_create.js`, `list_save_accounts.js` and `list_save_sharded.js` are
+company's detail (`headcount`, `news`). Lists: `lists.js` reads them; saved searches: `saved_searches.js` reads, `saved_search_create.js` creates one (KB 19). `list_create.js`, `list_save_accounts.js`, `list_save_sharded.js` and `saved_search_create.js` are
 the only snippets that write (POST): a new account list and up to 50 accounts per call into it (sharded: continues
 in `<name> #2`... at the 1,000 cap), after the user
 confirmed the exact list name (`$ENGINE/reference.md`, "Lists"). Lists: read `$ENGINE/references/salesnav-kb/14-lists.md`. Bulk pulls: `$ENGINE/references/salesnav-kb/17-bulk-pulls.md`; posts, engagers: `$ENGINE/references/salesnav-kb/18-posts-and-engagers.md`. Lead-list saving is unverified: not offered.
@@ -74,9 +74,9 @@ seller's site, then propose a filled `$ENGINE/templates/company-profile.md` to c
 
 ## Hard rules
 
-1. **Read-only by default.** Searching, counting and drafting change nothing. The one write besides sends: an
+1. **Read-only by default.** Searching, counting and drafting change nothing. The writes besides sends: an
    account list, only after the user confirms its exact name once per run; never modify, rename or delete a list
-   the user did not name, and saved accounts are paced (`run_log.py --saved-accounts`), not quota-capped.
+   the user did not name, and saved accounts are paced (`run_log.py --saved-accounts`), not quota-capped; and a saved search (same name rule, never modify, rename or delete one; capped, `run_log.py --saved-searches`).
 2. **A send needs the user's typed approval of the exact batch** (people and text), covering only that
    batch. A question card default, timeout, silence or auto-approve mode is never approval. Never send
    from a schedule. Skip anyone with an existing message thread or pending invitation: look first.
@@ -95,7 +95,8 @@ seller's site, then propose a filled `$ENGINE/templates/company-profile.md` to c
 ## Purpose skills
 
 Focused skills use this engine from the folder next to theirs: `salesnav-tam-accounts`,
-`salesnav-tam-people`, `salesnav-tam-tracker`, `salesnav-outreach`, `salesnav-diy-linkedin`. Edit tools here only.
+`salesnav-tam-people`, `salesnav-tam-tracker`, `salesnav-outreach`, `salesnav-diy-linkedin`,
+`salesnav-job-changes`. Edit tools here only.
 
 ## Build your own flow
 

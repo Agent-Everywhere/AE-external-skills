@@ -102,7 +102,7 @@ Profile reads (plain voyager lookups and the per-person pre-send re-check) count
 List with the `salesApiSavedSearchesV2` row (`newHitsCount`, `lastViewedAt`). Opening a saved search in the UI marks
 it viewed and resets the counter on the real account. The fallback that never touches the counter: run the saved
 search's filters (or its URL) through `lead_search.js` and diff the returned lead ids against your own last-seen ids.
-Never create, edit or delete saved searches from this path.
+Never edit or delete saved searches from this path. Creating one is a separate, confirmed seat write (page 19).
 
 ## Caps and their sources
 

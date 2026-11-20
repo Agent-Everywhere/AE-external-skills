@@ -28,6 +28,10 @@ REQUIRED = {
     "salesnav-tam-people": {"page/csrf_ready.js", "page/typeahead.js", "page/count.js", "page/lead_search.js",
                             "page/profiles_batch.js", "scripts/run_log.py", "scripts/workspace.py",
                             "scripts/doctor.py", "reference.md"},
+    "salesnav-job-changes": {"page/csrf_ready.js", "page/account_search.js", "page/companies_websites.js",
+                             "page/count.js", "page/lead_search.js", "page/profiles_batch.js", "page/saved_search_create.js",
+                             "scripts/company_chunks.py", "scripts/salesnav_rows.py", "scripts/run_log.py",
+                             "scripts/workspace.py", "scripts/doctor.py", "reference.md"},
     "salesnav-tam-tracker": {"scripts/tam_tracker.py", "scripts/dedupe.py", "scripts/salesnav_rows.py",
                              "scripts/shard_plan.py", "scripts/run_log.py", "scripts/workspace.py",
                              "scripts/doctor.py", "reference.md"},
@@ -47,7 +51,7 @@ NAMES = sorted(REQUIRED)
 # 0.8.0: DIY LinkedIn skill (880, 80; mirror framing sentence).
 # 0.9.0: "Install (for you, the agent)" block in each (+9 lines, +160 words).
 BUDGET = {"salesnav-tam-accounts": (1700, 133), "salesnav-tam-people": (1080, 85), "salesnav-tam-tracker": (1050, 89),
-          "salesnav-outreach": (1000, 85), "salesnav-diy-linkedin": (1060, 89)}
+          "salesnav-outreach": (1000, 85), "salesnav-diy-linkedin": (1060, 89), "salesnav-job-changes": (1060, 85)}
 # Who reads what: references/salesnav-kb/00-index.md. Each SKILL.md names its pages as references/salesnav-kb/<file>.
 KB = TOOLKIT / "references" / "salesnav-kb"
 KB_READERS = {
@@ -57,6 +61,7 @@ KB_READERS = {
     "salesnav-tam-tracker": ("03", "05", "14"),
     "salesnav-outreach": ("01", "05"),
     "salesnav-diy-linkedin": ("16", "05"),
+    "salesnav-job-changes": ("19", "02", "17", "12"),
 }
 # Files the user's workspace holds; a SKILL.md may name them without the engine shipping them.
 WORKSPACE_FILES = {"company-profile.md", "leads.csv", "accounts.csv", "tam_tracker.csv", "FILE.csv", "merged.csv",
@@ -212,7 +217,7 @@ class PurposeSkillDocs(unittest.TestCase):
         run, never touching a list the user did not name, paced, not quota-capped. Other writes stay forbidden."""
         accounts = squash("salesnav-tam-accounts")
         for phrase in ("read-only except list saves", "exact list name once per run", "never modify, rename or delete",
-                       "paced, not quota-capped", "#2", "no saved searches, no lead saves, never send",
+                       "paced, not quota-capped", "#2", "saved searches only through `salesnav-job-changes`; no lead saves, never send",
                        "list_create.js", "list_save_accounts.js", "lists.js", "50 a call"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, accounts)
@@ -327,6 +332,29 @@ class PurposeSkillDocs(unittest.TestCase):
         self.assertIn("just get a count", steps[1])
         self.assertIn("read the website", steps[0])
         self.assertEqual(" ".join(raw.split()).lower().count("memory"), 1)
+
+    def test_job_changes_skill_and_kb_carry_the_verified_past_company_facts(self):
+        """2026-11-20 live counts: PAST_COMPANY is its own filter, 400 ids hold, an unknown filter type is ignored
+        silently, the lead row carries pastPositions (profiles_batch is only the fallback), saves stay the user's click."""
+        body = squash("salesnav-job-changes")
+        for phrase in ("past_company", "recently_changed_jobs", "--filter-type past_company", "--recent-job-change",
+                       "pastpositions", "profiles_batch.js", "about equal to the changed-jobs-only total",
+                       "read-only here except saved searches", "never save a lead or make any other seat mutation",
+                       "confirmed exact name", "never modify, rename or delete one", "saved_search_create.js", "seat_ambiguous", "filters_not_echoed", "remove that saved search by hand",
+                       "never delete it yourself", "run_log.py add --saved-searches", "10 a day", "wait for the user's confirmation", "seatsource",
+                       "save search", "--chunk 50", "never guess an id"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, body)
+        self.assertLess(body.index("pastpositions"), body.index("profiles_batch.js"))
+        kb = squash_text(KB / "19-past-company-job-changes.md")
+        for phrase in ("291,486", "187,147", "18,872", "46,268", "186", "23,886", "silently ignored", "exactly once",
+                       "`pastpositions`", "unmeasured", "saved_search_create.js", "savedpeoplesearches", "x-restli-id",
+                       "saved_search_create", "not shipped as a snippet", "policy 2026-11-20", "10 a day, ceiling 25",
+                       "seat_ambiguous", "filters_not_echoed", "singlefiltermetadata", "lengths are not compared", "too_many_saved_searches",
+                       "unsupported_query_keys", "current job title", "changed jobs", "all 400 values", "existing saved search"):
+            with self.subTest(kb=phrase):
+                self.assertIn(phrase, kb)
+        self.assertNotIn("unverified: `PAST_COMPANY`".lower(), kb)
 
     def test_people_skill_requires_qualified_accounts_first(self):
         body = squash("salesnav-tam-people")
