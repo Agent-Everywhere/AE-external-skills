@@ -6,7 +6,9 @@ Policy (operator decision 2026-10-14): saving Sales Nav lists is allowed as part
 - Never modify, rename or delete an existing list the user did not name.
 - Saved accounts are not capped like execution actions: log them with `run_log.py add --saved-accounts N` (pacing guard
   2,500 a day, ceiling 5,000, 3 to 5 seconds between batches).
-- Every other LinkedIn write stays forbidden (messages, InMails, connects, follows, profile edits, saved searches, lead
+- Saved people searches may be created too (policy 2026-11-20, page 19): the user confirms the exact name of each one, never
+  modify, rename or delete one, 10 a day (ceiling 25), `run_log.py add --saved-searches N`.
+- Every other LinkedIn write stays forbidden (messages, InMails, connects, follows, profile edits, lead
   saves) except the outreach skill's approval flow. Never drive the UI to save.
 
 ## Snippets

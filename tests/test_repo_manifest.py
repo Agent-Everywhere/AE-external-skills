@@ -28,14 +28,15 @@ CLASSIC_PLUGINS = ["linkedin-find-people", "linkedin-outreach", "linkedin-replie
 # install-by-intent plugins: one job each, all sharing the sales-navigator source folder (plugin name -> skill folder)
 INTENT_PLUGINS = {"salesnav-find-people": "salesnav-tam-people", "salesnav-find-companies": "salesnav-tam-accounts",
                   "salesnav-split-big-search": "salesnav-tam-tracker", "salesnav-outreach": "salesnav-outreach",
-                  "salesnav-inbox": "salesnav-diy-linkedin"}
+                  "salesnav-inbox": "salesnav-diy-linkedin",
+                  "salesnav-job-changes": "salesnav-job-changes"}
 
 
 PLUGIN = ROOT / "plugins" / "sales-navigator"
 PLUGIN_SKILLS = PLUGIN / "skills"
 ENGINE = PLUGIN_SKILLS / "sales-navigator"
 PURPOSE = ("salesnav-tam-accounts", "salesnav-tam-people", "salesnav-tam-tracker", "salesnav-outreach",
-           "salesnav-diy-linkedin")
+           "salesnav-diy-linkedin", "salesnav-job-changes")
 
 
 def skill_dirs():

@@ -86,6 +86,27 @@ class CompanyChunksCase(unittest.TestCase):
                          ",(type:REGION,values:List((id:1,selectionType:INCLUDED)))))" % item(7))
         self.assertEqual(run(["--ids", "7", "--seniority", "x"])[0], 2)
 
+    def test_past_company_titles_and_recent_job_change_build_the_job_changes_query(self):
+        code, out, _ = run(["--ids", "7,8", "--filter-type", "PAST_COMPANY", "--titles", "operations manager, VP (Ops),",
+                            "--recent-job-change"])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)[0]["query"],
+                         "(filters:List((type:PAST_COMPANY,values:List(%s,%s))"
+                         ",(type:CURRENT_TITLE,values:List((text:operations%%20manager,selectionType:INCLUDED)"
+                         ",(text:VP%%20%%28Ops%%29,selectionType:INCLUDED)))"
+                         ",(type:RECENTLY_CHANGED_JOBS,values:List((id:RPC,selectionType:INCLUDED)))))" % (item(7), item(8)))
+
+    def test_filter_type_defaults_to_current_company_and_rejects_other_types(self):
+        self.assertTrue(json.loads(run(["--ids", "7"])[1])[0]["query"].startswith("(filters:List((type:CURRENT_COMPANY,"))
+        self.assertEqual(run(["--ids", "7", "--filter-type", "CURRENT_TITLE"])[0], 2)   # argparse choices error
+        self.assertEqual(run(["--ids", "7", "--titles", " , "])[0], 2)
+
+    def test_past_company_chunks_split_at_400_like_current_company(self):
+        code, out, _ = run(["--ids", ",".join(str(n) for n in range(1, 402)), "--filter-type", "PAST_COMPANY"])
+        chunks = json.loads(out)
+        self.assertEqual((code, [c["ids"] for c in chunks]), (0, [400, 1]))
+        self.assertTrue(all(c["query"].startswith("(filters:List((type:PAST_COMPANY,") for c in chunks))
+
     def test_requires_exactly_one_source_and_out_writes_a_file(self):
         self.assertEqual(run([])[0], 2)
         self.assertEqual(run(["--ids", "1", "--csv", "x.csv"])[0], 2)

@@ -2,6 +2,7 @@
 """Turn a list of company ids into Sales Navigator lead-search queries, at most 400 ids per query.
 
   company_chunks.py --csv accounts.csv [--column company_id] [--chunk 400] [--seniority 320,310]
+                    [--filter-type CURRENT_COMPANY|PAST_COMPANY] [--titles "a,b"] [--recent-job-change]
                     [--extra-filters ',(type:...)'] [--out chunks.json]
   company_chunks.py --ids 1234,5678 ...
 
@@ -11,9 +12,12 @@ ids (--chunk may lower that, never raise it):
 
   (filters:List((type:CURRENT_COMPANY,values:List((id:urn%3Ali%3Aorganization%3A<id>,selectionType:INCLUDED),...))<extra>))
 
---seniority 320,310 appends a SENIORITY_LEVEL clause; --extra-filters appends any raw filter clause(s) (each starting
-with a comma) inside the same filters List. Ids are read from a CSV column (default `company_id`) or --ids, must be
-numeric, and are deduped in first-seen order.
+--seniority 320,310 appends a SENIORITY_LEVEL clause; --titles "a,b" a CURRENT_TITLE clause (free text, URL-encoded,
+OR'd); --recent-job-change a RECENTLY_CHANGED_JOBS clause (id RPC); --extra-filters appends any raw filter clause(s)
+(each starting with a comma) inside the same filters List. --filter-type PAST_COMPANY scopes by where the person USED TO
+work (default CURRENT_COMPANY; same value shape and the same 400-id chunk limit).
+
+Ids are read from a CSV column (default `company_id`) or --ids, must be numeric, and are deduped in first-seen order.
 
 Prints (or writes to --out) a JSON list of {"chunk": n, "ids": count, "query": "..."}; chunk numbers start at 1.
 Exit codes: 0 ok, 2 bad input. Python 3 standard library only, no network.
@@ -22,8 +26,11 @@ import argparse
 import csv
 import json
 import sys
+from urllib.parse import quote
 
 MAX_CHUNK = 400
+FILTER_TYPES = ("CURRENT_COMPANY", "PAST_COMPANY")
+RECENT_JOB_CHANGE = ",(type:RECENTLY_CHANGED_JOBS,values:List((id:RPC,selectionType:INCLUDED)))"
 DEFAULT_COLUMN = "company_id"
 
 
@@ -66,13 +73,21 @@ def seniority_clause(text):
         "(id:%s,selectionType:INCLUDED)" % v for v in levels)
 
 
-def build_chunks(ids, chunk, extra):
+def titles_clause(text):
+    titles = [t.strip() for t in text.split(",") if t.strip()]
+    if not titles:
+        raise InputError("--titles takes comma-separated title words, e.g. \"operations manager,facilities\"")
+    return ",(type:CURRENT_TITLE,values:List(%s))" % ",".join(
+        "(text:%s,selectionType:INCLUDED)" % quote(t, safe="") for t in titles)
+
+
+def build_chunks(ids, chunk, extra, filter_type=FILTER_TYPES[0]):
     out = []
     for n, start in enumerate(range(0, len(ids), chunk), 1):
         part = ids[start:start + chunk]
         values = ",".join("(id:urn%%3Ali%%3Aorganization%%3A%s,selectionType:INCLUDED)" % i for i in part)
         out.append({"chunk": n, "ids": len(part),
-                    "query": "(filters:List((type:CURRENT_COMPANY,values:List(%s))%s))" % (values, extra)})
+                    "query": "(filters:List((type:%s,values:List(%s))%s))" % (filter_type, values, extra)})
     return out
 
 
@@ -83,6 +98,11 @@ def main(argv=None):
     ap.add_argument("--ids", help="comma-separated company ids instead of a CSV")
     ap.add_argument("--chunk", type=int, default=MAX_CHUNK, help="ids per query (default and maximum %d)" % MAX_CHUNK)
     ap.add_argument("--seniority", help="comma-separated SENIORITY_LEVEL ids to add, e.g. 320,310")
+    ap.add_argument("--filter-type", choices=FILTER_TYPES, default=FILTER_TYPES[0],
+                    help="company filter: CURRENT_COMPANY (default) or PAST_COMPANY (people who used to work there)")
+    ap.add_argument("--titles", help="comma-separated CURRENT_TITLE words to add (OR'd, URL-encoded here)")
+    ap.add_argument("--recent-job-change", action="store_true",
+                    help="add the RECENTLY_CHANGED_JOBS filter (id RPC)")
     ap.add_argument("--extra-filters", default="", help="raw filter clause(s) appended inside the filters List")
     ap.add_argument("--out", help="write the JSON here instead of printing it")
     args = ap.parse_args(argv)
@@ -92,11 +112,13 @@ def main(argv=None):
         ids = read_ids(args)
         if not ids:
             raise InputError("no company ids found")
-        extra = (seniority_clause(args.seniority) if args.seniority else "") + args.extra_filters
+        extra = ((seniority_clause(args.seniority) if args.seniority else "")
+                 + (titles_clause(args.titles) if args.titles is not None else "")
+                 + (RECENT_JOB_CHANGE if args.recent_job_change else "") + args.extra_filters)
     except InputError as exc:
         print("error: %s" % exc, file=sys.stderr)
         return 2
-    text = json.dumps(build_chunks(ids, args.chunk, extra), indent=2) + "\n"
+    text = json.dumps(build_chunks(ids, args.chunk, extra, args.filter_type), indent=2) + "\n"
     if args.out:
         with open(args.out, "w", encoding="utf-8") as fh:
             fh.write(text)

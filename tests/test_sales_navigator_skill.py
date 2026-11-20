@@ -87,10 +87,10 @@ class HardRulesAndBudget(unittest.TestCase):
 
     def test_word_budgets(self):
         self.assertLessEqual(words(SKILL / "SKILL.md"), 1045)      # 0.8.0: +35 bulk-pulls/posts pointers and company_chunks; 0.7.1: +10 batch-scrape pointer; 0.6.1: +100 for the 4-step ENGINE block; 0.7.0: +100 lists, segments
-        self.assertLessEqual(words(SKILL / "reference.md"), 3030)  # 0.8.1: +15 typeahead param line, +30 US state ids; 0.7.1: +40 batch limits, strict decoration; 0.6.1: +150 for the 4-step ENGINE block; 0.6.2: +150 count mode, intake; 0.7.0: +700 lists, ACCOUNT_LIST, segments, rubric
+        self.assertLessEqual(words(SKILL / "reference.md"), 3120)  # 0.9.2: +90 saved-search policy and Lists wording; 0.8.1: +15 typeahead param line, +30 US state ids; 0.7.1: +40 batch limits, strict decoration; 0.6.1: +150 for the 4-step ENGINE block; 0.6.2: +150 count mode, intake; 0.7.0: +700 lists, ACCOUNT_LIST, segments, rubric
         self.assertLessEqual(words(SKILL / "recipes.md"), 950)   # 0.6.2: count mode; 0.7.0: multi-segment recipe
         total = sum(words(p) for p in SKILL.rglob("*.md") if KB not in p.parents)   # the KB is a separate shipped reference
-        self.assertLessEqual(total, 6020, total)  # 0.8.1: +90 param-contract paragraph and typeahead line, +30 US state ids; 0.7.1: +50 batch-scrape pointers and limits; 0.7.0: +50 loosened caps, saved-accounts guard, list sharding; +960 lists, segments, rubric, ACCOUNT_LIST; 0.6.2: +150 count mode; 0.6.1: +250 for the 4-step ENGINE block (x2 docs) and the reorder
+        self.assertLessEqual(total, 6040, total)  # 0.9.2: +20 saved-search policy; 0.8.1: +90 param-contract paragraph and typeahead line, +30 US state ids; 0.7.1: +50 batch-scrape pointers and limits; 0.7.0: +50 loosened caps, saved-accounts guard, list sharding; +960 lists, segments, rubric, ACCOUNT_LIST; 0.6.2: +150 count mode; 0.6.1: +250 for the 4-step ENGINE block (x2 docs) and the reorder
 
     def test_only_the_slim_docs_remain(self):
         names = sorted(str(p.relative_to(SKILL)) for p in SKILL.rglob("*.md") if KB not in p.parents)
@@ -101,7 +101,8 @@ class HardRulesAndBudget(unittest.TestCase):
                 "04-industry-quirks.md", "05-rate-caps-and-pacing.md", "10-approach-segmented-merge.md",
                 "11-approach-broad-net-slicing.md", "12-approach-lookalike-plus-lanes.md",
                 "13-approach-account-first-people.md", "14-lists.md", "15-batch-scrape.md", "16-diy-linkedin-endpoints.md",
-                "17-bulk-pulls.md", "18-posts-and-engagers.md", "20-rubric-template.md"]
+                "17-bulk-pulls.md", "18-posts-and-engagers.md", "19-past-company-job-changes.md",
+                "20-rubric-template.md"]
 
     def test_the_kb_holds_exactly_the_expected_pages(self):
         self.assertEqual(sorted(p.name for p in KB.iterdir()), self.KB_PAGES)
@@ -116,7 +117,7 @@ class HardRulesAndBudget(unittest.TestCase):
         header = (SKILL / "templates" / "drafts.csv").read_text(encoding="utf-8").strip()
         self.assertEqual(header.split(","), validate_csv.DRAFT_COLUMNS)
 
-    LIST_WRITERS = {"list_create.js", "list_save_accounts.js", "list_save_sharded.js"}   # 0.7.0: the only seat writes besides sends (POST only)
+    LIST_WRITERS = {"list_create.js", "list_save_accounts.js", "list_save_sharded.js", "saved_search_create.js"}   # 0.7.0: the only seat writes besides sends (POST only)
 
     def test_page_snippets_never_write_except_the_list_snippets(self):
         for path in (SKILL / "page").glob("*.js"):

@@ -1,7 +1,7 @@
 # Sales Navigator KB
 
 Field notes for the `sales-navigator` plugin (engine plus `salesnav-tam-accounts`, `salesnav-tam-people`,
-`salesnav-tam-tracker`, `salesnav-outreach`, `salesnav-diy-linkedin`). Written from live runs on a real seat; the Sales Nav API is private and can
+`salesnav-tam-tracker`, `salesnav-outreach`, `salesnav-diy-linkedin`, `salesnav-job-changes`). Written from live runs on a real seat; the Sales Nav API is private and can
 change. The skills are the procedure; these pages are the why, the numbers and the worked approaches.
 
 Worked example throughout: Acme Nutra, a US liquid-supplement contract manufacturer that wants own-label
@@ -18,6 +18,7 @@ Acme final: 537 accounts (T1 95 / T2 442) in one list, 517 contacts across 323 a
 | `salesnav-tam-tracker` | 03, 05, 14 |
 | `salesnav-outreach` | 01, 05 |
 | `salesnav-diy-linkedin` | 16, 05 |
+| `salesnav-job-changes` | 19, 02, 17, 12 |
 
 ## Pages
 
@@ -37,6 +38,7 @@ Acme final: 537 accounts (T1 95 / T2 442) in one list, 517 contacts across 323 a
 | [16-diy-linkedin-endpoints.md](16-diy-linkedin-endpoints.md) | DIY without Unipile: endpoint map, verified/untested, gaps, caps with sources |
 | [17-bulk-pulls.md](17-bulk-pulls.md) | List reads, searches, 100-per-call deep scrapes, companies to people |
 | [18-posts-and-engagers.md](18-posts-and-engagers.md) | Creator posts, reactions, comments, content search (read-only) |
+| [19-past-company-job-changes.md](19-past-company-job-changes.md) | `PAST_COMPANY` plus recent job changes: who left a list of companies and where they went (partly unverified) |
 | [20-rubric-template.md](20-rubric-template.md) | Keep / unsure / drop rubric and its fixes |
 
 ## Which approach

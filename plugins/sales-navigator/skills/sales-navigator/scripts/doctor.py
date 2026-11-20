@@ -32,7 +32,7 @@ REQUIRED_PAGE = (
     "account.js", "account_search.js", "activity.js", "companies_details.js", "companies_websites.js",
     "count.js", "csrf_ready.js", "lead_search.js", "list_create.js", "list_save_accounts.js", "list_save_sharded.js",
     "lists.js",
-    "profile.js", "profiles_batch.js", "typeahead.js",
+    "profile.js", "profiles_batch.js", "saved_search_create.js", "saved_searches.js", "typeahead.js",
 )
 REQUIRED_SCRIPTS = (
     "company_chunks.py", "dedupe.py", "doctor.py", "outreach_log.py", "run_log.py", "salesnav_rows.py", "segments.py",

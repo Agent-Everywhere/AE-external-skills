@@ -19,7 +19,7 @@ PLUGIN = ROOT / "plugins" / "sales-navigator"
 PLUGIN_SKILLS = PLUGIN / "skills"
 ENGINE_DIR = PLUGIN_SKILLS / "sales-navigator"
 SKILLS = ("sales-navigator", "salesnav-tam-accounts", "salesnav-tam-people", "salesnav-tam-tracker",
-          "salesnav-outreach", "salesnav-diy-linkedin")
+          "salesnav-outreach", "salesnav-diy-linkedin", "salesnav-job-changes")
 PURPOSE = SKILLS[1:]
 
 # a folder reference that is not prefixed by $ENGINE/ or ${ENGINE}/ (and not the tail of a longer word)
@@ -190,7 +190,7 @@ class EngineBlock(unittest.TestCase):
         import json
         market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text())
         intents = [p for p in market["plugins"] if p["source"] == "./plugins/sales-navigator" and len(p["skills"]) == 1]
-        self.assertEqual(len(intents), 5)
+        self.assertEqual(len(intents), 6)
         for entry in intents:
             with self.subTest(plugin=entry["name"]), tempfile.TemporaryDirectory() as tmp:
                 tmp = Path(tmp)
