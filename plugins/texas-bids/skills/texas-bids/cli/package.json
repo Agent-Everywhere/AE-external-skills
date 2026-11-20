@@ -1,0 +1,15 @@
+{
+  "name": "texas-bids",
+  "version": "0.1.0",
+  "description": "Read-only CLI that checks the Texas ESBD bid board for new solicitations matching your keywords. Zero dependencies.",
+  "type": "module",
+  "private": true,
+  "bin": { "texas-bids": "./bin/texas-bids.js" },
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "lint": "node --check src/*.js",
+    "build": "npx --yes esbuild@0.24.0 bin/texas-bids.js --bundle --platform=node --format=esm --target=node20 --outfile=dist/texas-bids.mjs --log-level=warning && chmod +x dist/texas-bids.mjs"
+  },
+  "engines": { "node": ">=20" },
+  "files": ["bin", "src", "dist", "README.md"]
+}
