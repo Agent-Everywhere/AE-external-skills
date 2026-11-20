@@ -25,11 +25,13 @@ OTHER_PLUGINS = ["quickbooks", "sourcewell", "texas-bids", "sec-funding-signals"
 # plain-LinkedIn (no Sales Navigator) job plugins: one skill each, all sharing the plugins/linkedin source folder
 # (their own checks live in tests/test_linkedin_classic.py)
 CLASSIC_PLUGINS = ["linkedin-find-people", "linkedin-outreach", "linkedin-replies", "linkedin-job-signals"]
-# install-by-intent plugins: one job each, all sharing the sales-navigator source folder (plugin name -> skill folder)
-INTENT_PLUGINS = {"salesnav-find-people": "salesnav-tam-people", "salesnav-find-companies": "salesnav-tam-accounts",
-                  "salesnav-split-big-search": "salesnav-tam-tracker", "salesnav-outreach": "salesnav-outreach",
-                  "salesnav-inbox": "salesnav-diy-linkedin",
-                  "salesnav-job-changes": "salesnav-job-changes"}
+# install-by-intent plugins, all sharing the sales-navigator source folder (plugin name -> tuple of skill folders).
+# Most are one job (one skill); salesnav-prospecting bundles two (find the people, then reach out).
+INTENT_PLUGINS = {"salesnav-find-people": ("salesnav-tam-people",), "salesnav-find-companies": ("salesnav-tam-accounts",),
+                  "salesnav-split-big-search": ("salesnav-tam-tracker",), "salesnav-outreach": ("salesnav-outreach",),
+                  "salesnav-prospecting": ("salesnav-tam-people", "salesnav-outreach"),
+                  "salesnav-inbox": ("salesnav-diy-linkedin",),
+                  "salesnav-job-changes": ("salesnav-job-changes",)}
 
 
 PLUGIN = ROOT / "plugins" / "sales-navigator"
@@ -207,19 +209,20 @@ class IntentPlugins(unittest.TestCase):
                 if e["source"] == "./plugins/sales-navigator":
                     self.assertFalse(e["name"].startswith("linkedin-"), e["name"])
 
-    def test_each_intent_plugin_lists_exactly_its_one_skill(self):
+    def test_each_intent_plugin_lists_exactly_its_skills(self):
         engine_version = sync_runtime.load_manifest(ENGINE)["version"]
-        for name, skill in INTENT_PLUGINS.items():
+        for name, skills in INTENT_PLUGINS.items():
             with self.subTest(plugin=name):
                 e = self.entries[name]
                 self.assertEqual(e["source"], "./plugins/sales-navigator")
                 self.assertIs(e["strict"], False)
-                self.assertEqual(e["skills"], ["./skills/" + skill])
+                self.assertEqual(e["skills"], ["./skills/" + s for s in skills])
                 self.assertEqual(e["category"], "sales")
                 self.assertEqual(e["version"], engine_version, "bump with the engine so clients see an update")
                 self.assertTrue(e["description"])
-                self.assertTrue((PLUGIN_SKILLS / skill / "SKILL.md").is_file())
-                self.assertEqual(self.entries["sales-navigator"]["skills"].count("./skills/" + skill), 1)
+                for skill in skills:
+                    self.assertTrue((PLUGIN_SKILLS / skill / "SKILL.md").is_file())
+                    self.assertEqual(self.entries["sales-navigator"]["skills"].count("./skills/" + skill), 1)
 
     def test_the_engine_ships_in_every_intent_install(self):
         """The install is the whole source folder, so ${CLAUDE_PLUGIN_ROOT}/skills/sales-navigator resolves."""
@@ -228,10 +231,13 @@ class IntentPlugins(unittest.TestCase):
                 source = (ROOT / self.entries[name]["source"]).resolve()
                 self.assertTrue((source / "skills" / "sales-navigator" / "scripts" / "doctor.py").is_file())
                 self.assertTrue((source / "skills" / "sales-navigator" / "runtime" / "session.py").is_file())
-                self.assertNotIn("sales-navigator", self.entries[name]["skills"][0])
+                for skill_path in self.entries[name]["skills"]:
+                    self.assertNotIn("sales-navigator", skill_path)
 
     def test_each_intent_skill_tells_a_copying_agent_to_bring_the_engine(self):
-        for name, skill in INTENT_PLUGINS.items():
+        # a skill's own install block names its own one-skill plugin; a bundle plugin reuses skills that
+        # already have one, so each (plugin, skill) pair is checked against the skill's own-name plugin.
+        for name, skill in [(n, s) for n, ss in INTENT_PLUGINS.items() if len(ss) == 1 for s in ss]:
             text = (PLUGIN_SKILLS / skill / "SKILL.md").read_text(encoding="utf-8")
             with self.subTest(plugin=name):
                 self.assertIn("## Install (for you, the agent)", text)
@@ -261,8 +267,26 @@ class IntentPlugins(unittest.TestCase):
                 self.assertNotIn("Install the %s skill" % name, main_part)
 
     def test_the_readme_maps_each_plugin_to_its_skill_folder_for_copying_agents(self):
-        for name, skill in INTENT_PLUGINS.items():
-            self.assertIn("| `%s` | `%s` |" % (name, skill), self.readme)
+        for name, skills in INTENT_PLUGINS.items():
+            if len(skills) == 1:
+                self.assertIn("| `%s` | `%s` |" % (name, skills[0]), self.readme)
+
+    def test_salesnav_prospecting_bundles_find_people_and_outreach(self):
+        e = self.entries["salesnav-prospecting"]
+        self.assertEqual(e["skills"], ["./skills/salesnav-tam-people", "./skills/salesnav-outreach"])
+        self.assertEqual(e["source"], "./plugins/sales-navigator")
+        self.assertEqual(e["version"], self.entries["salesnav-outreach"]["version"])
+        self.assertIs(e["strict"], False)
+        self.assertTrue(e["description"].startswith("Needs a LinkedIn Sales Navigator seat."))
+        self.assertTrue(e["description"].endswith("Runs in your own browser."))
+        self.assertIn("Install the salesnav-prospecting skill from "
+                      "https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/sales-navigator "
+                      "and set it up for me.", self.readme)
+        rows = [l for l in self.readme.splitlines() if l.startswith("| `salesnav-prospecting` |")]
+        self.assertEqual(len(rows), 1)
+        self.assertIn("`salesnav-tam-people`", rows[0])
+        self.assertIn("`salesnav-outreach`", rows[0])
+        self.assertIn("shared engine", rows[0])
 
 
 class RuntimeVendoring(unittest.TestCase):
