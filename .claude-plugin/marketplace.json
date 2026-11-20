@@ -141,6 +141,24 @@
       ]
     },
     {
+      "name": "salesnav-prospecting",
+      "source": "./plugins/sales-navigator",
+      "version": "0.9.2",
+      "description": "Needs a LinkedIn Sales Navigator seat. Find the right people at a list of companies, then draft and send connection requests and messages you approve batch by batch, from your own Sales Navigator seat. Runs in your own browser.",
+      "strict": false,
+      "skills": [
+        "./skills/salesnav-tam-people",
+        "./skills/salesnav-outreach"
+      ],
+      "category": "sales",
+      "tags": [
+        "linkedin",
+        "sales-navigator",
+        "people",
+        "outreach"
+      ]
+    },
+    {
       "name": "salesnav-inbox",
       "source": "./plugins/sales-navigator",
       "version": "0.9.2",

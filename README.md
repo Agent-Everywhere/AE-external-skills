@@ -32,6 +32,7 @@ These run on LinkedIn Sales Navigator, a separate paid LinkedIn product. They ne
 | Find the companies that match my ideal customer | `Install the salesnav-find-companies skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/sales-navigator and set it up for me.` | A LinkedIn Sales Navigator seat |
 | Split a Sales Navigator search that is too big to pull at once, and track what is covered | `Install the salesnav-split-big-search skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/sales-navigator and set it up for me.` | A LinkedIn Sales Navigator seat |
 | Draft and send my daily LinkedIn outreach (I approve every batch) | `Install the salesnav-outreach skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/sales-navigator and set it up for me.` | A LinkedIn Sales Navigator seat |
+| Find the right people at my target companies and reach out to them (I approve every batch) | `Install the salesnav-prospecting skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/sales-navigator and set it up for me.` | A LinkedIn Sales Navigator seat, signed in in your browser |
 | See who accepted and who replied on LinkedIn | `Install the salesnav-inbox skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/sales-navigator and set it up for me.` | A LinkedIn Sales Navigator seat, signed in in your browser |
 | Find people who left my customers and where they work now | `Install the salesnav-job-changes skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/sales-navigator and set it up for me.` | A LinkedIn Sales Navigator seat, signed in in your browser |
 
@@ -44,7 +45,7 @@ These run on LinkedIn Sales Navigator, a separate paid LinkedIn product. They ne
 | Check the Texas state bid board for open bids that match what I sell, and get a daily alert with only the new ones (optionally in Microsoft Teams) | `Install the texas-bids skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/texas-bids and set it up for me.` | Node 20+ |
 | Find companies in my space that just raised money (SEC Form D filings), with the executives named, ready for Apollo and LinkedIn | `Install the sec-funding-signals skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/sec-funding-signals and set it up for me.` | Node 20+, your own email address (the SEC asks for a contact in its User-Agent) |
 
-The six `salesnav-*` skills above (`salesnav-find-people`, `salesnav-find-companies`, `salesnav-split-big-search`, `salesnav-outreach`, `salesnav-inbox`, `salesnav-job-changes`) are each one job from the `sales-navigator` plugin (below), installed on its own. `linkedin-emails` is a separate plugin and works on plain LinkedIn. So do `linkedin-find-people`, `linkedin-outreach`, `linkedin-replies` and `linkedin-job-signals`: four plugins that each install one skill of the `linkedin` plugin folder (below) with its shared engine. They are not the Sales Navigator skills, and need no seat.
+The seven `salesnav-*` skills above (`salesnav-find-people`, `salesnav-find-companies`, `salesnav-split-big-search`, `salesnav-outreach`, `salesnav-prospecting`, `salesnav-inbox`, `salesnav-job-changes`) come from the `sales-navigator` plugin (below), installed on their own: six are one job each, and `salesnav-prospecting` bundles two of those jobs (finding people and outreach) in one install. `linkedin-emails` is a separate plugin and works on plain LinkedIn. So do `linkedin-find-people`, `linkedin-outreach`, `linkedin-replies` and `linkedin-job-signals`: four plugins that each install one skill of the `linkedin` plugin folder (below) with its shared engine. They are not the Sales Navigator skills, and need no seat.
 
 **For the agent reading this:** the plugin names above are marketplace plugin names (Claude Code: `/plugin marketplace add Agent-Everywhere/AE-external-skills`, then `/plugin install <name>@ae-external-skills`). If you install by copying folders instead, copy the skill folder AND the shared engine `plugins/sales-navigator/skills/sales-navigator` next to it, then follow the "Install (for you, the agent)" section of the skill's `SKILL.md`:
 
@@ -54,6 +55,7 @@ The six `salesnav-*` skills above (`salesnav-find-people`, `salesnav-find-compan
 | `salesnav-find-companies` | `salesnav-tam-accounts` |
 | `salesnav-split-big-search` | `salesnav-tam-tracker` |
 | `salesnav-outreach` | `salesnav-outreach` |
+| `salesnav-prospecting` | BOTH `salesnav-tam-people` AND `salesnav-outreach` (copy both folders plus the shared engine, nothing else) |
 | `salesnav-inbox` | `salesnav-diy-linkedin` |
 | `salesnav-job-changes` | `salesnav-job-changes` |
 
@@ -81,7 +83,8 @@ Details are in the table below.
 ## What's in here
 
 Install only the ones you need. The six job plugins `salesnav-find-people`, `salesnav-find-companies`,
-`salesnav-split-big-search`, `salesnav-outreach`, `salesnav-inbox` and `salesnav-job-changes` each install one skill of the `sales-navigator` plugin;
+`salesnav-split-big-search`, `salesnav-outreach`, `salesnav-inbox` and `salesnav-job-changes` each install one skill of the `sales-navigator` plugin,
+and `salesnav-prospecting` installs two of them (`salesnav-tam-people` and `salesnav-outreach`);
 the table lists the other plugins (`linkedin-emails` is its own plugin). The four plain-LinkedIn plugins `linkedin-find-people`, `linkedin-outreach`, `linkedin-replies` and `linkedin-job-signals` each install one skill of the `linkedin` plugin folder, with its shared engine.
 
 | Plugin | What it is | Who it's for | Where it runs | Needs | Install |
@@ -141,6 +144,7 @@ The `sales-navigator` plugin's seven skills:
 /plugin install salesnav-find-companies@ae-external-skills
 /plugin install salesnav-split-big-search@ae-external-skills
 /plugin install salesnav-outreach@ae-external-skills
+/plugin install salesnav-prospecting@ae-external-skills
 /plugin install salesnav-inbox@ae-external-skills
 /plugin install salesnav-job-changes@ae-external-skills
 /plugin install quickbooks@ae-external-skills
