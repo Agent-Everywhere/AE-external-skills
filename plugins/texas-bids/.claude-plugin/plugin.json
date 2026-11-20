@@ -1,0 +1,10 @@
+{
+  "name": "texas-bids",
+  "version": "0.1.0",
+  "description": "CLI + skill: check the Texas state bid board (ESBD) for open solicitations that match your keywords, and get a daily alert with only the new ones, optionally in Microsoft Teams. Read-only. Unofficial; needs Node 20+.",
+  "author": {
+    "name": "Agent Everywhere",
+    "url": "https://github.com/Agent-Everywhere"
+  },
+  "keywords": ["texas", "esbd", "bids", "solicitations", "public-sector", "procurement"]
+}

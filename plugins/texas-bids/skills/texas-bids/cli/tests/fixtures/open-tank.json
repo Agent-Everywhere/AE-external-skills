@@ -1,0 +1,43 @@
+{
+  "lines": [
+    {
+      "internalid": "572950",
+      "title": "Chlorine & Sulfur Dioxide",
+      "solicitationId": "696-FD-27-B053",
+      "responseDue": "11/30/2026",
+      "responseTime": "3:00 PM",
+      "agencyNumber": "696",
+      "agencyName": "Tx Dept Crim. Justice/inst Div - 696",
+      "status": "6",
+      "statusName": "Addendum Posted",
+      "postingDate": "11/2/2026",
+      "cancelledDate": "",
+      "created": "11/2/2026 9:12 am",
+      "lastModified": "11/12/2026 10:18 am",
+      "nigpCodes": "10030-Hazardous Material (Chemicals) Containment/Storage;\n88538-Chlorine, Liquefied;\n88547-Dechlorinating Agents (Sulfur Dioxide, Etc.);\n92645-Hazardous Material And Waste Services (Including Emergency Response And Nuclear Wastes);\n18036-Chlorine Carriers, Inorganic And Organic;\n18092-Surfactants, Anionic: Organic Phosphates, Sulfates, Sulfonates, Etc.;\n91790-Rental of Containers;\n96732-Chemical Products (Incl. Biochemical, Petrochemical, Etc.);\n98169-Storage Tank Rental Or Lease;",
+      "repostURL": "",
+      "url": ""
+    },
+    {
+      "internalid": "564384",
+      "title": "Flat Creek Reuse Project Phase 1A",
+      "solicitationId": "RFQ2026-019",
+      "responseDue": "12/1/2026",
+      "responseTime": "2:00 PM",
+      "agencyNumber": "M1612",
+      "agencyName": "City of Waco - M1612",
+      "status": "6",
+      "statusName": "Addendum Posted",
+      "postingDate": "10/2/2026",
+      "cancelledDate": "",
+      "created": "10/1/2026 10:37 am",
+      "lastModified": "11/3/2026 11:46 am",
+      "nigpCodes": "92517-Civil Engineering;\n92536-Engineering Services (Not Otherwise Classified);\n92544-General Construction: Management, Scheduling, Cost Estimation - Engineering;\n92570-Municipal Engineering;\n92595-Utilities (Gas, Steam, Electric)/Engineering;\n92597-Water Supply, Treatment, And Distribution/Engineering;\n92596-Waste Water Treatment Engineering;",
+      "repostURL": "",
+      "url": ""
+    }
+  ],
+  "page": 1,
+  "recordsPerPage": 24,
+  "totalRecordsFound": 2
+}

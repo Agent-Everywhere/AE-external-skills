@@ -1,0 +1,61 @@
+{
+  "lines": [
+    {
+      "internalid": "575788",
+      "title": "Parking Operations Janitorial Services",
+      "solicitationId": "FAC-01744-RFP",
+      "responseDue": "12/15/2026",
+      "responseTime": "1:00 PM",
+      "agencyNumber": "506",
+      "agencyName": "UT MD Anderson Cancer Center - 506",
+      "status": "1",
+      "statusName": "Posted",
+      "postingDate": "11/12/2026",
+      "cancelledDate": "",
+      "created": "11/12/2026 9:51 am",
+      "lastModified": "11/12/2026 9:56 am",
+      "nigpCodes": "95256-Housekeeping Services;",
+      "repostURL": "",
+      "url": "https://www.mdanderson.org/about-md-anderson/business-legal/doing-business/vendors-and-suppliers/current-bids.html"
+    },
+    {
+      "internalid": "572200",
+      "title": "Janitorial Services – Metrology Lab",
+      "solicitationId": "5510001238",
+      "responseDue": "11/30/2026",
+      "responseTime": "3:00 PM",
+      "agencyNumber": "551",
+      "agencyName": "Texas Dept. Of Agriculture - 551",
+      "status": "6",
+      "statusName": "Addendum Posted",
+      "postingDate": "10/28/2026",
+      "cancelledDate": "",
+      "created": "10/28/2026 1:21 pm",
+      "lastModified": "11/3/2026 3:46 pm",
+      "nigpCodes": "91039-Janitorial/Custodial Services;",
+      "repostURL": "",
+      "url": ""
+    },
+    {
+      "internalid": "572197",
+      "title": "Janitorial Services – Seed Lab",
+      "solicitationId": "5510001236",
+      "responseDue": "11/30/2026",
+      "responseTime": "3:00 PM",
+      "agencyNumber": "551",
+      "agencyName": "Texas Dept. Of Agriculture - 551",
+      "status": "6",
+      "statusName": "Addendum Posted",
+      "postingDate": "10/28/2026",
+      "cancelledDate": "",
+      "created": "10/28/2026 12:47 pm",
+      "lastModified": "11/3/2026 3:43 pm",
+      "nigpCodes": "91039-Janitorial/Custodial Services;",
+      "repostURL": "",
+      "url": ""
+    }
+  ],
+  "page": 1,
+  "recordsPerPage": 24,
+  "totalRecordsFound": 3
+}
