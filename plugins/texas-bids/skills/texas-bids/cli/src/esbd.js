@@ -24,7 +24,7 @@ export function usDateToIso(s) {
 /** "2026-11-07" -> "11/07/2026" (the format the service wants). */
 export function isoToUsDate(iso) {
   const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) throw new EsbdError(`date must look like YYYY-MM-DD, got ${JSON.stringify(iso)}`);
+  if (!m) throw new EsbdError("date must look like YYYY-MM-DD");
   return `${m[2]}/${m[3]}/${m[1]}`;
 }
 
@@ -34,6 +34,9 @@ function agencyLabel(name, number) {
   const suffix = ` - ${clean(number)}`;
   return number && n.endsWith(suffix) ? n.slice(0, -suffix.length) : n;
 }
+
+/** encodeURIComponent leaves ! ' ( ) * alone; encode them too so a markdown link around the URL cannot break. */
+const encodePath = (s) => encodeURIComponent(s).replace(/[!'()*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase());
 
 export function normalizeLine(l) {
   const id = clean(l.solicitationId);
@@ -50,7 +53,7 @@ export function normalizeLine(l) {
     updated: clean(l.lastModified),
     class_codes: String(l.nigpCodes ?? "").split(";").map(clean).filter(Boolean),
     attachment_url: clean(l.url),
-    url: `${BASE}/esbd/${encodeURIComponent(id)}`,
+    url: `${BASE}/esbd/${encodePath(id)}`,
   };
 }
 
@@ -71,7 +74,7 @@ export function parseListResponse(json) {
 /** Every page of one keyword + status (+ optional posting-date window). */
 export async function fetchAll({ http, keyword, status = "open", since }) {
   const code = STATUS_CODES[status];
-  if (!code) throw new EsbdError(`unknown status ${JSON.stringify(status)}; use ${STATUS_NAMES.join(", ")} or all`);
+  if (!code) throw new EsbdError(`unknown status; use ${STATUS_NAMES.join(", ")} or all`);
   const rows = [];
   let total = 0;
   let truncated = false;
@@ -84,7 +87,15 @@ export async function fetchAll({ http, keyword, status = "open", since }) {
     if (!r.rows.length || page * r.perPage >= r.total) break;
     if (page >= MAX_PAGES) { truncated = true; break; }
   }
-  return { rows, total, truncated };
+  // A page that comes back empty (or short) before the reported total is reached means the check may be missing bids.
+  return { rows, total, truncated, incomplete: !truncated && rows.length < total };
+}
+
+export function warningsFor(meta) {
+  const w = [];
+  if (meta.truncated.length) w.push(`WARNING: too many matches, the list was cut off at ${MAX_PAGES * PER_PAGE} for: ${meta.truncated.join(", ")}. Some bids are missing; use more specific keywords.`);
+  if (meta.incomplete.length) w.push(`WARNING: the bid board stopped returning rows before its reported total for: ${meta.incomplete.join("; ")}. This check may be incomplete; run it again later.`);
+  return w;
 }
 
 const words = (s) => String(s || "").split(",").map(clean).filter(Boolean);
@@ -103,12 +114,13 @@ export async function search({ http, keywords, status = "open", since, limit, ex
   if (since) isoToUsDate(since);
   const statuses = status === "all" ? STATUS_NAMES : [status];
   const merged = new Map();
-  const meta = { truncated: [], per_keyword: {} };
+  const meta = { truncated: [], incomplete: [], per_keyword: {} };
   for (const kw of kws) {
     meta.per_keyword[kw] = 0;
     for (const st of statuses) {
       const r = await fetchAll({ http, keyword: kw, status: st, since });
       if (r.truncated) meta.truncated.push(`${kw} (${st})`);
+      if (r.incomplete) meta.incomplete.push(`${kw} (${st}): got ${r.rows.length} of ${r.total}`);
       meta.per_keyword[kw] += r.rows.length;
       for (const row of r.rows) {
         const key = row.internal_id || row.id;
@@ -125,5 +137,5 @@ export async function search({ http, keywords, status = "open", since, limit, ex
   rows.sort((a, b) => b.posted.localeCompare(a.posted) || a.due.localeCompare(b.due) || a.id.localeCompare(b.id));
   const total = rows.length;
   if (limit && rows.length > limit) rows = rows.slice(0, limit);
-  return { rows, total, meta };
+  return { rows, total, meta: { ...meta, warnings: warningsFor(meta) } };
 }

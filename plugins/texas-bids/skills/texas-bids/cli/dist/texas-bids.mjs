@@ -21,7 +21,7 @@ function usDateToIso(s) {
 }
 function isoToUsDate(iso) {
   const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) throw new EsbdError(`date must look like YYYY-MM-DD, got ${JSON.stringify(iso)}`);
+  if (!m) throw new EsbdError("date must look like YYYY-MM-DD");
   return `${m[2]}/${m[3]}/${m[1]}`;
 }
 function agencyLabel(name, number) {
@@ -29,6 +29,7 @@ function agencyLabel(name, number) {
   const suffix = ` - ${clean(number)}`;
   return number && n.endsWith(suffix) ? n.slice(0, -suffix.length) : n;
 }
+var encodePath = (s) => encodeURIComponent(s).replace(/[!'()*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase());
 function normalizeLine(l) {
   const id = clean(l.solicitationId);
   return {
@@ -44,7 +45,7 @@ function normalizeLine(l) {
     updated: clean(l.lastModified),
     class_codes: String(l.nigpCodes ?? "").split(";").map(clean).filter(Boolean),
     attachment_url: clean(l.url),
-    url: `${BASE}/esbd/${encodeURIComponent(id)}`
+    url: `${BASE}/esbd/${encodePath(id)}`
   };
 }
 function parseListResponse(json) {
@@ -61,7 +62,7 @@ function parseListResponse(json) {
 }
 async function fetchAll({ http, keyword, status = "open", since }) {
   const code = STATUS_CODES[status];
-  if (!code) throw new EsbdError(`unknown status ${JSON.stringify(status)}; use ${STATUS_NAMES.join(", ")} or all`);
+  if (!code) throw new EsbdError(`unknown status; use ${STATUS_NAMES.join(", ")} or all`);
   const rows = [];
   let total = 0;
   let truncated = false;
@@ -77,7 +78,13 @@ async function fetchAll({ http, keyword, status = "open", since }) {
       break;
     }
   }
-  return { rows, total, truncated };
+  return { rows, total, truncated, incomplete: !truncated && rows.length < total };
+}
+function warningsFor(meta) {
+  const w = [];
+  if (meta.truncated.length) w.push(`WARNING: too many matches, the list was cut off at ${MAX_PAGES * PER_PAGE} for: ${meta.truncated.join(", ")}. Some bids are missing; use more specific keywords.`);
+  if (meta.incomplete.length) w.push(`WARNING: the bid board stopped returning rows before its reported total for: ${meta.incomplete.join("; ")}. This check may be incomplete; run it again later.`);
+  return w;
 }
 var words = (s) => String(s || "").split(",").map(clean).filter(Boolean);
 var splitList = words;
@@ -88,12 +95,13 @@ async function search({ http, keywords, status = "open", since, limit, exclude =
   if (since) isoToUsDate(since);
   const statuses = status === "all" ? STATUS_NAMES : [status];
   const merged = /* @__PURE__ */ new Map();
-  const meta = { truncated: [], per_keyword: {} };
+  const meta = { truncated: [], incomplete: [], per_keyword: {} };
   for (const kw of kws) {
     meta.per_keyword[kw] = 0;
     for (const st of statuses) {
       const r = await fetchAll({ http, keyword: kw, status: st, since });
       if (r.truncated) meta.truncated.push(`${kw} (${st})`);
+      if (r.incomplete) meta.incomplete.push(`${kw} (${st}): got ${r.rows.length} of ${r.total}`);
       meta.per_keyword[kw] += r.rows.length;
       for (const row of r.rows) {
         const key = row.internal_id || row.id;
@@ -112,7 +120,7 @@ async function search({ http, keywords, status = "open", since, limit, exclude =
   rows.sort((a, b) => b.posted.localeCompare(a.posted) || a.due.localeCompare(b.due) || a.id.localeCompare(b.id));
   const total = rows.length;
   if (limit && rows.length > limit) rows = rows.slice(0, limit);
-  return { rows, total, meta };
+  return { rows, total, meta: { ...meta, warnings: warningsFor(meta) } };
 }
 
 // src/http.js
@@ -215,12 +223,12 @@ function renderSearch(result, { status }) {
   const { rows, total, meta } = result;
   let out = line(`${total} ${status === "all" ? "" : status + " "}solicitation${total === 1 ? "" : "s"} match${total === 1 ? "es" : ""} your keywords${rows.length < total ? ` (showing ${rows.length})` : ""}.`);
   if (rows.length) out += "\n" + rows.map(renderRow).join("\n");
-  if (meta && meta.truncated.length) out += line(`
-Note: very broad keyword, results cut off for: ${meta.truncated.join(", ")}. Use more specific keywords.`);
+  if (meta && meta.warnings) for (const m of meta.warnings) out += line(`
+${m}`);
   return out;
 }
 function renderWatch(w) {
-  const { baseline, fresh, totalMatching, statePath, teams } = w;
+  const { baseline, fresh, totalMatching, statePath, teams, stateSaved = true, warnings = [], deferred = 0 } = w;
   let out = "";
   if (baseline) {
     out += line(`First check: no earlier results are saved, so all ${fresh.length} open solicitation${fresh.length === 1 ? "" : "s"} matching your keywords are reported as new. From the next run only new ones are listed.`);
@@ -229,16 +237,17 @@ function renderWatch(w) {
   } else {
     out += line(`${fresh.length} new solicitation${fresh.length === 1 ? "" : "s"} since the last check (${totalMatching} open and matching in total).`);
   }
+  for (const m of warnings) out += line(m);
   if (fresh.length) out += "\n" + fresh.map(renderRow).join("\n");
   if (teams) out += line(`
 Teams: ${teams}`);
-  out += line(`
-State saved to ${statePath}.`);
+  if (deferred) out += line(`${deferred} of these were not listed individually in Teams and are not marked as seen, so they will be reported again in the next check.`);
+  out += line(stateSaved ? `
+State saved to ${statePath}.` : "\nState NOT saved, so these bids will be reported again next run.");
   return out;
 }
 
 // src/teams.js
-var MAX_LISTED = 10;
 var ENV_VAR = "TEXAS_BIDS_TEAMS_WEBHOOK";
 var TeamsError = class extends Error {
 };
@@ -247,39 +256,61 @@ function dueText(r) {
   if (!r.due) return "due date not listed";
   return `due ${r.due}${r.due_time ? ` ${r.due_time}` : ""}`;
 }
-function buildPayload({ rows, baseline = false, keywords = [], total = rows.length, max = MAX_LISTED }) {
-  const n = rows.length;
-  const title = baseline ? `Texas bids: ${n} open solicitation${n === 1 ? " matches" : "s match"} your keywords (first check)` : `Texas bids: ${n} new solicitation${n === 1 ? " matches" : "s match"} your keywords`;
-  const body = [
-    { type: "TextBlock", text: title, weight: "Bolder", size: "Medium", wrap: true }
-  ];
-  if (keywords.length) body.push({ type: "TextBlock", text: `Keywords: ${keywords.map(mdEscape).join(", ")}`, isSubtle: true, spacing: "None", wrap: true });
-  if (baseline) body.push({ type: "TextBlock", text: "This is the first check, so everything currently open is listed. From now on only new bids are sent.", isSubtle: true, wrap: true });
-  for (const r of rows.slice(0, max)) {
-    body.push({
-      type: "TextBlock",
-      separator: true,
-      wrap: true,
-      text: `**[${mdEscape(r.title || r.id)}](${r.url})**
+var CARD_SIZE = 10;
+var MAX_POSTED = 50;
+var MAX_CARD_BYTES = 28e3;
+var clip = (s, n) => String(s).length > n ? String(s).slice(0, n - 3) + "..." : String(s);
+var card = (body) => ({
+  type: "message",
+  attachments: [{
+    contentType: "application/vnd.microsoft.card.adaptive",
+    contentUrl: null,
+    content: { $schema: "http://adaptivecards.io/schemas/adaptive-card.json", type: "AdaptiveCard", version: "1.4", msteams: { width: "Full" }, body }
+  }]
+});
+function selectForTeams(rows, today, max = MAX_POSTED) {
+  const rank = (r) => r.due && r.due >= today ? 0 : 1;
+  const ordered = [...rows].sort((a, b) => rank(a) - rank(b) || (a.due || "9999").localeCompare(b.due || "9999") || a.id.localeCompare(b.id));
+  return { listed: ordered.slice(0, max), unlisted: ordered.slice(max) };
+}
+function buildPayloads({ rows, unlisted = 0, baseline = false, keywords = [], chunk = CARD_SIZE }) {
+  const total = rows.length + unlisted;
+  const heading = baseline ? `Texas bids: ${total} open solicitation${total === 1 ? " matches" : "s match"} your keywords (first check)` : `Texas bids: ${total} new solicitation${total === 1 ? " matches" : "s match"} your keywords`;
+  const pages = Math.max(1, Math.ceil(rows.length / chunk));
+  const payloads = [];
+  for (let p = 0; p < pages; p++) {
+    const part = rows.slice(p * chunk, (p + 1) * chunk);
+    const body = [];
+    if (p === 0) {
+      body.push({ type: "TextBlock", text: heading, weight: "Bolder", size: "Medium", wrap: true });
+      if (keywords.length) body.push({ type: "TextBlock", text: `Keywords: ${keywords.map(mdEscape).join(", ")}`, isSubtle: true, spacing: "None", wrap: true });
+      if (unlisted) body.push({ type: "TextBlock", text: `Listing the ${rows.length} due soonest. ${unlisted} more are not listed here; they will be listed in the next checks.`, isSubtle: true, wrap: true });
+      if (baseline) body.push({ type: "TextBlock", text: "This is the first check, so everything currently open is listed. From now on only new bids are sent.", isSubtle: true, wrap: true });
+    } else {
+      body.push({ type: "TextBlock", text: `Texas bids, continued (${p * chunk + 1} to ${p * chunk + part.length} of ${rows.length})`, weight: "Bolder", wrap: true });
+    }
+    for (const r of part) {
+      body.push({
+        type: "TextBlock",
+        separator: true,
+        wrap: true,
+        text: `**[${mdEscape(clip(r.title || r.id, 200))}](${r.url})**
 
-${[mdEscape(r.agency), `ID ${mdEscape(r.id)}`, `posted ${r.posted || "n/a"}`, dueText(r)].join(" | ")}`
-    });
+${[mdEscape(clip(r.agency, 100)), `ID ${mdEscape(clip(r.id, 60))}`, `posted ${r.posted || "n/a"}`, dueText(r)].join(" | ")}`
+      });
+    }
+    payloads.push(card(body));
   }
-  if (n > max) body.push({ type: "TextBlock", text: `...and ${n - max} more. Run the check in Claude to see the full list.`, isSubtle: true, wrap: true });
-  return {
-    type: "message",
-    attachments: [{
-      contentType: "application/vnd.microsoft.card.adaptive",
-      contentUrl: null,
-      content: {
-        $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
-        type: "AdaptiveCard",
-        version: "1.4",
-        msteams: { width: "Full" },
-        body
-      }
-    }]
-  };
+  if (unlisted) {
+    payloads.push(card([
+      { type: "TextBlock", text: `Texas bids: ${unlisted} more new solicitation${unlisted === 1 ? " was" : "s were"} NOT listed individually`, weight: "Bolder", wrap: true },
+      { type: "TextBlock", text: "Only the 50 due soonest are listed per check. The others stay unreported and are listed in the next checks, or ask Claude to search for them now.", wrap: true }
+    ]));
+  }
+  for (const pl of payloads) {
+    if (JSON.stringify(pl).length > MAX_CARD_BYTES) throw new TeamsError("internal error: a Teams card would exceed the size limit");
+  }
+  return payloads;
 }
 async function postToTeams({ url, payload, fetchImpl = globalThis.fetch, timeoutMs = 2e4 }) {
   let u;
@@ -311,20 +342,21 @@ async function postToTeams({ url, payload, fetchImpl = globalThis.fetch, timeout
 }
 
 // src/watch.js
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 var STATE_VERSION = 1;
 var KEEP_DAYS = 120;
 var StateError = class extends Error {
 };
+var plain = (e) => e && e.code ? `${e.code}` : "failed";
 var keyOf = (r) => r.internal_id || r.id;
 async function loadState(path) {
   let text;
   try {
     text = await readFile(path, "utf8");
   } catch (e) {
-    if (e.code === "ENOENT") return null;
-    throw new StateError(`cannot read the state file ${path}: ${e.message}`);
+    if (e.code === "ENOENT" || e.code === "ENOTDIR") return null;
+    throw new StateError(`cannot read the state file ${path} (${plain(e)})`);
   }
   let s;
   try {
@@ -337,13 +369,27 @@ async function loadState(path) {
   }
   return s;
 }
-async function saveState(path, state) {
-  await mkdir(dirname(path), { recursive: true });
-  const tmp = `${path}.${process.pid}.tmp`;
-  await writeFile(tmp, JSON.stringify(state, null, 2) + "\n");
-  await rename(tmp, path);
+async function ensureWritable(path) {
+  const probe = `${path}.${process.pid}.probe`;
+  try {
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(probe, "");
+    await unlink(probe);
+  } catch (e) {
+    throw new StateError(`cannot write the state file ${path} (${plain(e)}): check that the folder exists and is writable, or pass a different --state; nothing was posted`);
+  }
 }
-function diff({ prev, rows, today }) {
+async function saveState(path, state) {
+  const tmp = `${path}.${process.pid}.tmp`;
+  try {
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(tmp, JSON.stringify(state, null, 2) + "\n");
+    await rename(tmp, path);
+  } catch (e) {
+    throw new StateError(`could not save the state file ${path} (${plain(e)}): the next run will report these bids again`);
+  }
+}
+function diff({ prev, rows, today, mark }) {
   const baseline = !prev;
   const seen = prev ? prev.seen : {};
   const fresh = rows.filter((r) => !seen[keyOf(r)]);
@@ -353,7 +399,7 @@ function diff({ prev, rows, today }) {
   for (const [k, v] of Object.entries(seen)) {
     if (current.has(k) || !v.due || v.due >= cutoff) next[k] = v;
   }
-  for (const r of fresh) next[keyOf(r)] = { id: r.id, title: r.title.slice(0, 120), due: r.due, first_seen: today };
+  for (const r of mark || fresh) next[keyOf(r)] = { id: r.id, title: r.title.slice(0, 120), due: r.due, first_seen: today };
   return {
     baseline,
     fresh,
@@ -380,8 +426,9 @@ Options:
   --agency LIST         keep only agencies whose name or number contains any of these
   --exclude-agency LIST drop agencies whose name or number contains any of these
   --state FILE          watch: where seen solicitations are remembered (default ~/.texas-bids/state.json)
-  --teams-webhook URL   watch: also post new bids to a Microsoft Teams webhook (or set ${ENV_VAR})
-  --webhook URL         notify-teams: the Teams webhook URL (or set ${ENV_VAR})
+  --teams-webhook URL   watch: also post new bids to a Microsoft Teams webhook
+  --webhook URL         notify-teams: the Teams webhook URL
+                        Prefer the environment variable ${ENV_VAR}: a flag value shows up in shell history and process lists.
   --always              post to Teams even when there is nothing new
   --dry-run             watch/notify-teams: print the Teams message, post nothing, save no state
   --json                machine-readable output
@@ -390,6 +437,10 @@ var VALUE_FLAGS = /* @__PURE__ */ new Set(["keywords", "status", "since", "limit
 var BOOL_FLAGS = /* @__PURE__ */ new Set(["json", "always", "dry-run", "test", "help", "version"]);
 var UsageError = class extends Error {
 };
+function safe(v) {
+  const t = String(v);
+  return /[a-z][a-z0-9+.-]*:|\/\/|[?=&@%]/i.test(t) || t.length > 30 ? "[hidden]" : t;
+}
 function parseArgs(argv) {
   const flags = {};
   const positional = [];
@@ -409,7 +460,7 @@ function parseArgs(argv) {
       flags[name] = true;
       continue;
     }
-    if (!VALUE_FLAGS.has(name)) throw new UsageError(`unknown option --${name} (see --help)`);
+    if (!VALUE_FLAGS.has(name)) throw new UsageError(`unknown option --${safe(name)} (see --help)`);
     let v = eq === -1 ? argv[++i] : a.slice(eq + 1);
     if (v === void 0 || eq === -1 && v.startsWith("--")) throw new UsageError(`--${name} needs a value`);
     flags[name] = v;
@@ -433,6 +484,7 @@ async function main(argv, io = {}) {
   const stderr = io.stderr || ((s) => process.stderr.write(s));
   const env = io.env || process.env;
   const now = io.now || (() => Date.now());
+  const sleep = io.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
   const http = io.http || createHttp({ fetchImpl: io.fetchImpl, sleep: io.sleep, now, ...io.minIntervalMs !== void 0 ? { minIntervalMs: io.minIntervalMs } : {}, ...io.backoffMs !== void 0 ? { backoffMs: io.backoffMs } : {} });
   try {
     const { flags, positional } = parseArgs(argv);
@@ -445,7 +497,7 @@ async function main(argv, io = {}) {
       stdout(HELP);
       return cmd || flags.help ? 0 : 2;
     }
-    if (positional.length > 1) throw new UsageError(`unexpected argument ${JSON.stringify(positional[1])}`);
+    if (positional.length > 1) throw new UsageError("unexpected extra argument (a value without its --option, or keywords that need quotes); see --help");
     if (cmd === "doctor") {
       const r = parseListResponse(await http.postJson(SERVICE_URL, { keyword: "", status: "1", page: 1 }));
       stdout(`ok: the Texas bid board answered; ${r.total} open solicitations in total (node ${process.versions.node}).
@@ -460,7 +512,7 @@ async function main(argv, io = {}) {
       const limit = flags.limit === void 0 ? 50 : Number(flags.limit);
       if (!Number.isInteger(limit) || limit < 0) throw new UsageError("--limit must be a whole number (0 = no limit)");
       const result = await search({ http, keywords, status, since: flags.since, limit: limit || void 0, ...filters(flags) });
-      if (flags.json) stdout(JSON.stringify({ count: result.rows.length, total: result.total, status, keywords, ...result.meta.truncated.length ? { truncated: result.meta.truncated } : {}, rows: result.rows }, null, 2) + "\n");
+      if (flags.json) stdout(JSON.stringify({ count: result.rows.length, total: result.total, status, keywords, warnings: result.meta.warnings, rows: result.rows }, null, 2) + "\n");
       else stdout(renderSearch(result, { status }));
       return 0;
     }
@@ -471,52 +523,66 @@ async function main(argv, io = {}) {
       if (flags.status !== void 0 && flags.status !== "open") throw new UsageError("watch only follows open solicitations; --status is not used");
       if (flags.limit !== void 0) throw new UsageError("--limit is not used by watch (it must see every solicitation to know which are new)");
       if (isNotify && flags.test) {
-        const payload2 = { type: "message", attachments: [{ contentType: "application/vnd.microsoft.card.adaptive", contentUrl: null, content: { $schema: "http://adaptivecards.io/schemas/adaptive-card.json", type: "AdaptiveCard", version: "1.4", body: [{ type: "TextBlock", wrap: true, text: "Texas bids: test message. If you can read this, the daily bid alert can post here." }] } }] };
+        const payload = { type: "message", attachments: [{ contentType: "application/vnd.microsoft.card.adaptive", contentUrl: null, content: { $schema: "http://adaptivecards.io/schemas/adaptive-card.json", type: "AdaptiveCard", version: "1.4", body: [{ type: "TextBlock", wrap: true, text: "Texas bids: test message. If you can read this, the daily bid alert can post here." }] } }] };
         if (flags["dry-run"]) {
-          stdout(JSON.stringify(payload2, null, 2) + "\n");
+          stdout(JSON.stringify(payload, null, 2) + "\n");
           return 0;
         }
-        await postToTeams({ url: webhook, payload: payload2, fetchImpl: io.teamsFetchImpl || io.fetchImpl });
+        await postToTeams({ url: webhook, payload, fetchImpl: io.teamsFetchImpl || io.fetchImpl });
         stdout("Teams accepted the test message.\n");
         return 0;
       }
       const keywords = needKeywords(flags);
       validateSince(flags.since);
       const statePath = resolve(flags.state || join(homedir(), ".texas-bids", "state.json"));
+      const dry = !!flags["dry-run"];
       const prev = await loadState(statePath);
+      if (!dry) await ensureWritable(statePath);
       const result = await search({ http, keywords, status: "open", since: flags.since, ...filters(flags) });
+      const warnings = result.meta.warnings;
       const today = isoDay(now());
-      const { baseline, fresh, state } = diff({ prev, rows: result.rows, today });
-      let teams = "";
-      const wantPost = webhook && (fresh.length > 0 || flags.always);
-      const payload = wantPost || flags["dry-run"] && webhook ? buildPayload({ rows: fresh, baseline, keywords, total: result.total }) : null;
-      if (flags["dry-run"]) {
-        if (payload) stdout(JSON.stringify(payload, null, 2) + "\n");
-        else stdout("dry run: no Teams webhook given, nothing to show.\n");
-        stdout(`dry run: ${fresh.length} new${baseline ? " (first check)" : ""}; no message posted, no state saved.
+      const first = diff({ prev, rows: result.rows, today });
+      const { baseline, fresh } = first;
+      const wantPost = !!webhook && (fresh.length > 0 || !!flags.always);
+      const sel = wantPost ? selectForTeams(fresh, today) : { listed: fresh, unlisted: [] };
+      const payloads = wantPost ? buildPayloads({ rows: sel.listed, unlisted: sel.unlisted.length, baseline, keywords }) : [];
+      const { state } = diff({ prev, rows: result.rows, today, mark: sel.listed });
+      if (dry) {
+        if (payloads.length) stdout(JSON.stringify(payloads, null, 2) + "\n");
+        else stdout("dry run: nothing would be posted to Teams.\n");
+        for (const m of warnings) stdout(m + "\n");
+        stdout(`dry run: ${fresh.length} new${baseline ? " (first check)" : ""}${payloads.length ? `, ${payloads.length} Teams card${payloads.length === 1 ? "" : "s"}` : ""}; nothing posted, no state saved.
 `);
         return 0;
       }
+      let teams = "";
       let teamsError = null;
       if (wantPost) {
+        let sent = 0;
         try {
-          await postToTeams({ url: webhook, payload, fetchImpl: io.teamsFetchImpl || io.fetchImpl });
-          teams = `posted ${fresh.length} new bid${fresh.length === 1 ? "" : "s"} to the webhook.`;
+          for (const pl of payloads) {
+            if (sent) await sleep(1e3);
+            await postToTeams({ url: webhook, payload: pl, fetchImpl: io.teamsFetchImpl || io.fetchImpl });
+            sent++;
+          }
+          teams = `posted ${sel.listed.length} bid${sel.listed.length === 1 ? "" : "s"} in ${payloads.length} message${payloads.length === 1 ? "" : "s"}${sel.unlisted.length ? `, plus a note that ${sel.unlisted.length} more were not listed` : ""}.`;
         } catch (e) {
           teamsError = e;
+          teams = `FAILED after ${sent} of ${payloads.length} message${payloads.length === 1 ? "" : "s"} (see error)`;
         }
       } else if (webhook) teams = "nothing new, nothing posted.";
+      const base = { baseline, fresh, totalMatching: result.total, statePath, teams, warnings, deferred: sel.unlisted.length };
       if (teamsError) {
-        if (flags.json) stdout(JSON.stringify({ baseline, new_count: fresh.length, total_matching: result.total, new: fresh, teams: "failed", state_saved: false }, null, 2) + "\n");
-        else stdout(renderWatch({ baseline, fresh, totalMatching: result.total, statePath, teams: "FAILED (see error)" }).replace(/\nState saved to .*\n$/, "\nState NOT saved, so these bids will be reported again next run.\n"));
+        if (flags.json) stdout(JSON.stringify({ baseline, new_count: fresh.length, total_matching: result.total, new: fresh, warnings, teams: "failed", state_saved: false }, null, 2) + "\n");
+        else stdout(renderWatch({ ...base, stateSaved: false }));
         throw teamsError;
       }
       await saveState(statePath, state);
-      if (flags.json) stdout(JSON.stringify({ baseline, new_count: fresh.length, total_matching: result.total, new: fresh, ...webhook ? { teams: wantPost ? "posted" : "skipped" } : {}, state: statePath }, null, 2) + "\n");
-      else stdout(renderWatch({ baseline, fresh, totalMatching: result.total, statePath, teams }));
+      if (flags.json) stdout(JSON.stringify({ baseline, new_count: fresh.length, total_matching: result.total, new: fresh, warnings, ...webhook ? { teams: wantPost ? "posted" : "skipped", teams_not_listed: sel.unlisted.length } : {}, state: statePath }, null, 2) + "\n");
+      else stdout(renderWatch(base));
       return 0;
     }
-    throw new UsageError(`unknown command ${JSON.stringify(cmd)} (see --help)`);
+    throw new UsageError(`unknown command ${safe(cmd)} (see --help)`);
   } catch (e) {
     if (e instanceof UsageError) {
       stderr(`texas-bids: ${e.message}

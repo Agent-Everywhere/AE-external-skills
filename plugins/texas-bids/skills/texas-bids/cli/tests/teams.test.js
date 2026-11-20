@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MAX_LISTED, TeamsError, buildPayload, postToTeams } from "../src/teams.js";
+import { CARD_SIZE, MAX_CARD_BYTES, MAX_POSTED, TeamsError, buildPayloads, postToTeams, selectForTeams } from "../src/teams.js";
 import { parseListResponse } from "../src/esbd.js";
 import { fixture, mockFetch, res } from "./helpers.js";
 
+const buildPayload = (o) => buildPayloads(o)[0];
+const allText = (pls) => pls.flatMap((p) => p.attachments[0].content.body.map((b) => b.text)).join("\n");
 const rows = parseListResponse(fixture("open-page1.json")).rows;
 const URL_SECRET = "https://prod-00.westus.logic.azure.com/workflows/SECRETSECRET/triggers/manual/paths/invoke?sig=TOPSECRET";
 
@@ -30,16 +32,51 @@ test("a single bid reads naturally", () => {
   assert.equal(base, "Texas bids: 1 open solicitation matches your keywords (first check)");
 });
 
-test("first-check payload says so, and a long list is capped", () => {
-  const many = Array.from({ length: 25 }, (_, i) => ({ ...rows[0], id: `X${i}`, internal_id: `${i}`, url: `https://www.txsmartbuy.gov/esbd/X${i}` }));
-  const p = buildPayload({ rows: many, baseline: true });
-  const body = p.attachments[0].content.body;
-  const text = body.map((b) => b.text).join("\n");
-  assert.match(text, /25 open solicitations match your keywords \(first check\)/);
+test("first-check payload says so", () => {
+  const p = buildPayload({ rows: rows.slice(0, 3), baseline: true });
+  const text = p.attachments[0].content.body.map((b) => b.text).join("\n");
+  assert.match(text, /3 open solicitations match your keywords \(first check\)/);
   assert.match(text, /From now on only new bids are sent/);
-  assert.match(text, new RegExp(`\\.\\.\\.and ${25 - MAX_LISTED} more`));
-  assert.equal(body.filter((b) => b.separator).length, MAX_LISTED);
-  assert.ok(JSON.stringify(p).length < 28000, "stays under the Teams card size limit");
+});
+
+const many = (n) => Array.from({ length: n }, (_, i) => ({ ...rows[0], id: `X${i}`, internal_id: `${i}`, due: `2026-12-${String(1 + (i % 28)).padStart(2, "0")}`, url: `https://www.txsmartbuy.gov/esbd/X${i}` }));
+
+test("every new bid is listed: 25 bids become 3 cards of at most 10, each under the size limit", () => {
+  const pls = buildPayloads({ rows: many(25), keywords: ["a"] });
+  assert.equal(pls.length, 3);
+  const counts = pls.map((p) => p.attachments[0].content.body.filter((b) => b.separator).length);
+  assert.deepEqual(counts, [CARD_SIZE, CARD_SIZE, 5]);
+  const text = allText(pls);
+  for (let i = 0; i < 25; i++) assert.ok(text.includes(`esbd/X${i})`), `X${i} missing`);
+  assert.match(text, /25 new solicitations match your keywords/);
+  assert.match(text, /continued \(11 to 20 of 25\)/);
+  for (const p of pls) assert.ok(JSON.stringify(p).length < MAX_CARD_BYTES);
+});
+
+test("worst-case long titles still fit a card", () => {
+  const long = Array.from({ length: 10 }, (_, i) => ({ ...rows[0], id: `L${i}`, title: "T".repeat(5000), agency: "A".repeat(5000) }));
+  for (const p of buildPayloads({ rows: long })) assert.ok(JSON.stringify(p).length < MAX_CARD_BYTES);
+});
+
+test("more than 50 new bids: the 50 due soonest are listed, the rest are only counted in a summary card", () => {
+  const all = many(120);
+  const { listed, unlisted } = selectForTeams(all, "2026-11-20");
+  assert.equal(listed.length, MAX_POSTED);
+  assert.equal(unlisted.length, 70);
+  const lastListedDue = listed.map((r) => r.due).sort().at(-1);
+  assert.ok(unlisted.every((r) => r.due >= lastListedDue));
+  const pls = buildPayloads({ rows: listed, unlisted: unlisted.length, baseline: true });
+  assert.equal(pls.length, 5 + 1);
+  const text = allText(pls);
+  assert.match(text, /120 open solicitations match your keywords \(first check\)/);
+  assert.match(text, /70 more are not listed here/);
+  assert.match(text, /70 more new solicitations were NOT listed individually/);
+  for (const r of unlisted) assert.ok(!text.includes(`${r.url})`));
+});
+
+test("selection puts bids already past their due date or without one last", () => {
+  const rs = [{ ...rows[0], id: "past", due: "2026-01-01" }, { ...rows[0], id: "none", due: "" }, { ...rows[0], id: "soon", due: "2026-11-25" }];
+  assert.deepEqual(selectForTeams(rs, "2026-11-20").listed.map((r) => r.id), ["soon", "past", "none"]);
 });
 
 test("markdown characters in a title cannot break the card text", () => {

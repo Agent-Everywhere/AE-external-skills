@@ -106,3 +106,9 @@ test("status all searches every status code", async () => {
   await search({ http: mkHttp(f), keywords: ["a"], status: "all" });
   assert.deepEqual(f.calls.map((c) => c.body.status).sort(), ["1", "11", "2", "3", "5"]);
 });
+
+test("the detail URL percent-encodes ( ) ' so a markdown link around it cannot break", () => {
+  const row = normalizeLine({ solicitationId: "RFP (2026)'s!*", title: "t", agencyName: "a", agencyNumber: "1", statusName: "Posted", postingDate: "1/2/2026", responseDue: "1/3/2026", nigpCodes: "" });
+  assert.equal(row.url, "https://www.txsmartbuy.gov/esbd/RFP%20%282026%29%27s%21%2A");
+  assert.doesNotMatch(row.url, /[()'!*]/);
+});

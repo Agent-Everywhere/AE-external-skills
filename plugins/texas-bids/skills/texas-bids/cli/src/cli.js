@@ -4,8 +4,8 @@ import { join, resolve } from "node:path";
 import { EsbdError, STATUS_NAMES, SERVICE_URL, search, splitList, parseListResponse } from "./esbd.js";
 import { createHttp, HttpError, VERSION } from "./http.js";
 import { renderSearch, renderWatch } from "./output.js";
-import { ENV_VAR, TeamsError, buildPayload, postToTeams } from "./teams.js";
-import { StateError, diff, loadState, saveState } from "./watch.js";
+import { ENV_VAR, TeamsError, buildPayloads, postToTeams, selectForTeams } from "./teams.js";
+import { StateError, diff, ensureWritable, loadState, saveState } from "./watch.js";
 
 const HELP = `texas-bids ${VERSION}: check the Texas state bid board (ESBD) for open solicitations. Read-only.
 
@@ -25,8 +25,9 @@ Options:
   --agency LIST         keep only agencies whose name or number contains any of these
   --exclude-agency LIST drop agencies whose name or number contains any of these
   --state FILE          watch: where seen solicitations are remembered (default ~/.texas-bids/state.json)
-  --teams-webhook URL   watch: also post new bids to a Microsoft Teams webhook (or set ${ENV_VAR})
-  --webhook URL         notify-teams: the Teams webhook URL (or set ${ENV_VAR})
+  --teams-webhook URL   watch: also post new bids to a Microsoft Teams webhook
+  --webhook URL         notify-teams: the Teams webhook URL
+                        Prefer the environment variable ${ENV_VAR}: a flag value shows up in shell history and process lists.
   --always              post to Teams even when there is nothing new
   --dry-run             watch/notify-teams: print the Teams message, post nothing, save no state
   --json                machine-readable output
@@ -36,6 +37,12 @@ const VALUE_FLAGS = new Set(["keywords", "status", "since", "limit", "exclude", 
 const BOOL_FLAGS = new Set(["json", "always", "dry-run", "test", "help", "version"]);
 
 export class UsageError extends Error {}
+
+/** A token from the command line, safe to show in an error: anything that looks like a URL or a secret is hidden. */
+export function safe(v) {
+  const t = String(v);
+  return /[a-z][a-z0-9+.-]*:|\/\/|[?=&@%]/i.test(t) || t.length > 30 ? "[hidden]" : t;
+}
 
 export function parseArgs(argv) {
   const flags = {};
@@ -47,7 +54,7 @@ export function parseArgs(argv) {
     const eq = a.indexOf("=");
     const name = eq === -1 ? a.slice(2) : a.slice(2, eq);
     if (BOOL_FLAGS.has(name)) { flags[name] = true; continue; }
-    if (!VALUE_FLAGS.has(name)) throw new UsageError(`unknown option --${name} (see --help)`);
+    if (!VALUE_FLAGS.has(name)) throw new UsageError(`unknown option --${safe(name)} (see --help)`);
     let v = eq === -1 ? argv[++i] : a.slice(eq + 1);
     if (v === undefined || (eq === -1 && v.startsWith("--"))) throw new UsageError(`--${name} needs a value`);
     flags[name] = v;
@@ -76,13 +83,14 @@ export async function main(argv, io = {}) {
   const stderr = io.stderr || ((s) => process.stderr.write(s));
   const env = io.env || process.env;
   const now = io.now || (() => Date.now());
+  const sleep = io.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
   const http = io.http || createHttp({ fetchImpl: io.fetchImpl, sleep: io.sleep, now, ...(io.minIntervalMs !== undefined ? { minIntervalMs: io.minIntervalMs } : {}), ...(io.backoffMs !== undefined ? { backoffMs: io.backoffMs } : {}) });
   try {
     const { flags, positional } = parseArgs(argv);
     if (flags.version) { stdout(VERSION + "\n"); return 0; }
     const cmd = positional[0];
     if (flags.help || !cmd || cmd === "help") { stdout(HELP); return cmd || flags.help ? 0 : 2; }
-    if (positional.length > 1) throw new UsageError(`unexpected argument ${JSON.stringify(positional[1])}`);
+    if (positional.length > 1) throw new UsageError("unexpected extra argument (a value without its --option, or keywords that need quotes); see --help");
 
     if (cmd === "doctor") {
       const r = parseListResponse(await http.postJson(SERVICE_URL, { keyword: "", status: "1", page: 1 }));
@@ -98,7 +106,7 @@ export async function main(argv, io = {}) {
       const limit = flags.limit === undefined ? 50 : Number(flags.limit);
       if (!Number.isInteger(limit) || limit < 0) throw new UsageError("--limit must be a whole number (0 = no limit)");
       const result = await search({ http, keywords, status, since: flags.since, limit: limit || undefined, ...filters(flags) });
-      if (flags.json) stdout(JSON.stringify({ count: result.rows.length, total: result.total, status, keywords, ...(result.meta.truncated.length ? { truncated: result.meta.truncated } : {}), rows: result.rows }, null, 2) + "\n");
+      if (flags.json) stdout(JSON.stringify({ count: result.rows.length, total: result.total, status, keywords, warnings: result.meta.warnings, rows: result.rows }, null, 2) + "\n");
       else stdout(renderSearch(result, { status }));
       return 0;
     }
@@ -121,38 +129,57 @@ export async function main(argv, io = {}) {
       const keywords = needKeywords(flags);
       validateSince(flags.since);
       const statePath = resolve(flags.state || join(homedir(), ".texas-bids", "state.json"));
+      const dry = !!flags["dry-run"];
       const prev = await loadState(statePath);
+      if (!dry) await ensureWritable(statePath); // before anything is posted
       const result = await search({ http, keywords, status: "open", since: flags.since, ...filters(flags) });
+      const warnings = result.meta.warnings;
       const today = isoDay(now());
-      const { baseline, fresh, state } = diff({ prev, rows: result.rows, today });
+      const first = diff({ prev, rows: result.rows, today });
+      const { baseline, fresh } = first;
 
-      let teams = "";
-      const wantPost = webhook && (fresh.length > 0 || flags.always);
-      const payload = wantPost || (flags["dry-run"] && webhook) ? buildPayload({ rows: fresh, baseline, keywords, total: result.total }) : null;
-      if (flags["dry-run"]) {
-        if (payload) stdout(JSON.stringify(payload, null, 2) + "\n");
-        else stdout("dry run: no Teams webhook given, nothing to show.\n");
-        stdout(`dry run: ${fresh.length} new${baseline ? " (first check)" : ""}; no message posted, no state saved.\n`);
+      const wantPost = !!webhook && (fresh.length > 0 || !!flags.always);
+      // With Teams, only the bids actually listed in a card are marked as seen; the rest are reported again next run.
+      const sel = wantPost ? selectForTeams(fresh, today) : { listed: fresh, unlisted: [] };
+      const payloads = wantPost ? buildPayloads({ rows: sel.listed, unlisted: sel.unlisted.length, baseline, keywords }) : [];
+      const { state } = diff({ prev, rows: result.rows, today, mark: sel.listed });
+
+      if (dry) {
+        if (payloads.length) stdout(JSON.stringify(payloads, null, 2) + "\n");
+        else stdout("dry run: nothing would be posted to Teams.\n");
+        for (const m of warnings) stdout(m + "\n");
+        stdout(`dry run: ${fresh.length} new${baseline ? " (first check)" : ""}${payloads.length ? `, ${payloads.length} Teams card${payloads.length === 1 ? "" : "s"}` : ""}; nothing posted, no state saved.\n`);
         return 0;
       }
+
+      let teams = "";
       let teamsError = null;
       if (wantPost) {
-        try { await postToTeams({ url: webhook, payload, fetchImpl: io.teamsFetchImpl || io.fetchImpl }); teams = `posted ${fresh.length} new bid${fresh.length === 1 ? "" : "s"} to the webhook.`; } catch (e) { teamsError = e; }
+        let sent = 0;
+        try {
+          for (const pl of payloads) {
+            if (sent) await sleep(1000);
+            await postToTeams({ url: webhook, payload: pl, fetchImpl: io.teamsFetchImpl || io.fetchImpl });
+            sent++;
+          }
+          teams = `posted ${sel.listed.length} bid${sel.listed.length === 1 ? "" : "s"} in ${payloads.length} message${payloads.length === 1 ? "" : "s"}${sel.unlisted.length ? `, plus a note that ${sel.unlisted.length} more were not listed` : ""}.`;
+        } catch (e) { teamsError = e; teams = `FAILED after ${sent} of ${payloads.length} message${payloads.length === 1 ? "" : "s"} (see error)`; }
       } else if (webhook) teams = "nothing new, nothing posted.";
+      const base = { baseline, fresh, totalMatching: result.total, statePath, teams, warnings, deferred: sel.unlisted.length };
 
       if (teamsError) {
-        // Not recorded: the same bids are reported again on the next run.
-        if (flags.json) stdout(JSON.stringify({ baseline, new_count: fresh.length, total_matching: result.total, new: fresh, teams: "failed", state_saved: false }, null, 2) + "\n");
-        else stdout(renderWatch({ baseline, fresh, totalMatching: result.total, statePath, teams: "FAILED (see error)" }).replace(/\nState saved to .*\n$/, "\nState NOT saved, so these bids will be reported again next run.\n"));
+        // Nothing is recorded: the same bids are reported again on the next run (cards already delivered may repeat).
+        if (flags.json) stdout(JSON.stringify({ baseline, new_count: fresh.length, total_matching: result.total, new: fresh, warnings, teams: "failed", state_saved: false }, null, 2) + "\n");
+        else stdout(renderWatch({ ...base, stateSaved: false }));
         throw teamsError;
       }
       await saveState(statePath, state);
-      if (flags.json) stdout(JSON.stringify({ baseline, new_count: fresh.length, total_matching: result.total, new: fresh, ...(webhook ? { teams: wantPost ? "posted" : "skipped" } : {}), state: statePath }, null, 2) + "\n");
-      else stdout(renderWatch({ baseline, fresh, totalMatching: result.total, statePath, teams }));
+      if (flags.json) stdout(JSON.stringify({ baseline, new_count: fresh.length, total_matching: result.total, new: fresh, warnings, ...(webhook ? { teams: wantPost ? "posted" : "skipped", teams_not_listed: sel.unlisted.length } : {}), state: statePath }, null, 2) + "\n");
+      else stdout(renderWatch(base));
       return 0;
     }
 
-    throw new UsageError(`unknown command ${JSON.stringify(cmd)} (see --help)`);
+    throw new UsageError(`unknown command ${safe(cmd)} (see --help)`);
   } catch (e) {
     if (e instanceof UsageError) { stderr(`texas-bids: ${e.message}\n`); return 2; }
     if (e instanceof EsbdError || e instanceof HttpError || e instanceof StateError || e instanceof TeamsError) { stderr(`texas-bids: ${e.message}\n`); return 1; }

@@ -127,9 +127,11 @@ URL that the **user creates in Teams**; you cannot make one for them.
    **Post to a channel when a webhook request is received**.
 2. Name it (for example "Texas bids"), confirm the team and channel, and finish. Teams shows a URL.
 3. Copy that URL. It is a secret: anyone with it can post in the channel. Treat it like a password.
-4. Give it to the CLI through the environment, not into a file or this chat's history if you can avoid it:
-   `export TEXAS_BIDS_TEAMS_WEBHOOK="<the URL>"` in the scheduled task's environment (or the user can paste
-   it as `--webhook`). Never write the URL into the repo, a skill file, a note or a log.
+4. Give it to the CLI through the environment variable, which is the recommended way:
+   `export TEXAS_BIDS_TEAMS_WEBHOOK="<the URL>"` in the scheduled task's environment. The `--webhook` /
+   `--teams-webhook` flags also work, but a flag value is visible in shell history and in the process list, so
+   avoid them for anything but a quick test. Never write the URL into the repo, a skill file, a note, a chat
+   message or a log. The CLI never prints it, including in error messages.
 
 Test it first, then run the real thing:
 
@@ -139,11 +141,23 @@ node "$TB" notify-teams --keywords "janitorial,HVAC" --state ./texas-bids/state.
 node "$TB" notify-teams --keywords "janitorial,HVAC" --state ./texas-bids/state.json              # posts only new bids
 ```
 
-(`watch --teams-webhook <url>` does the same as `notify-teams`; either also reads `TEXAS_BIDS_TEAMS_WEBHOOK`.)
-With nothing new it posts nothing; `--always` posts a "0 new" message anyway. The card lists up to 10 bids with
-links and says how many more there are. If Teams rejects the post, the command exits with an error and does **not**
-save the state, so the same bids are sent again next run; tell the user and ask them to re-create the webhook if
-Teams says the URL is wrong.
+(`watch --teams-webhook <url>` does the same as `notify-teams`; both read `TEXAS_BIDS_TEAMS_WEBHOOK`.)
+With nothing new it posts nothing; `--always` posts a "0 new" message anyway.
+
+**Every new bid is posted.** The alert is split into cards of 10 bids each (a short pause between cards), so a long
+list is not cut off. The state file is saved only after **all** cards were accepted. If any post fails the command
+exits with an error and saves nothing, so the same bids are sent again next run (cards that already went out may
+repeat); tell the user, and ask them to re-create the webhook if Teams says the URL is wrong.
+
+**First run or a very big day (more than 50 new bids).** Teams lists the 50 whose response is due soonest, in
+cards, plus one summary card saying how many more were NOT listed individually. Only the bids actually listed are
+marked as seen; the others are reported again in the next check (50 at a time, soonest due first), and you can
+show them any time with `search`. The console output always lists every new bid.
+
+Before posting, the CLI checks that the state file can be written, so a bad `--state` path fails before anything is
+sent. Check results for a line starting `WARNING`: it means the board returned fewer rows than it reported or a
+keyword was too broad and was cut off at 960 matches, so the check may be incomplete. Tell the user, narrow the
+keywords or run it again.
 
 ## How it works and its limits
 

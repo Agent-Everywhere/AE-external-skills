@@ -70,11 +70,22 @@ Limits and behaviour worth knowing:
 
 ## Teams message
 
-`notify-teams` (or `watch --teams-webhook`) POSTs a Teams message carrying one Adaptive Card (version 1.4, up to 10
-bids with links) to the Workflows "When a Teams webhook request is received" URL, or a legacy connector URL. The URL
-comes from `--webhook`/`--teams-webhook` or `TEXAS_BIDS_TEAMS_WEBHOOK`, must be https, and is never stored or printed,
-including in error messages. Workflows answers `202`; any 2xx counts as accepted. State is saved only after Teams
-accepted the post.
+`notify-teams` (or `watch --teams-webhook`) POSTs Teams messages, each carrying one Adaptive Card (version 1.4), to the
+Workflows "When a Teams webhook request is received" URL, or a legacy connector URL. The URL comes from the
+`TEXAS_BIDS_TEAMS_WEBHOOK` environment variable (recommended) or from `--webhook`/`--teams-webhook` (a flag value
+shows in shell history and process lists), must be https, and is never stored or printed, including in error and
+usage messages (anything URL-like in a mistyped argument is shown as `[hidden]`). Workflows answers `202`; any 2xx
+counts as accepted.
+
+Delivery rule: all new bids are posted, 10 per card, about a second apart (each card is checked to be under 28 KB;
+titles and agencies are clipped). The state file is saved only after every card was accepted; if one fails nothing is
+saved and the whole set is sent again next run (already delivered cards may repeat). The state path is checked to be
+writable before the first post. When more than 50 bids are new (a first run, typically), the 50 whose response is due
+soonest are listed (bids already past due, or with no due date, last) plus one summary card stating how many more were
+not listed individually. Only the listed ones are marked seen; the rest are reported again at the next check.
+
+`search` and `watch` print a `WARNING` line (and add it to `warnings` in `--json`) when a keyword was cut off at 40
+pages (960 rows), or when the board returned fewer rows than its reported total.
 
 ## State file
 
