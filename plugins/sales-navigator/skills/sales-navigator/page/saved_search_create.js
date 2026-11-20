@@ -11,19 +11,28 @@
 //     ids and text percent-decoded once, (or)
 //   leadSearchQuery: that search as plain JSON, { filters: [{ type, values: [{ id|text, selectionType }] }], keywords? },
 //     with raw ids (urn:li:organization:<id>) and plain text,
-//   seat?: a seat urn "urn:li:seat:<digits>" (default: the seat of an existing saved search, else the first licence from
-//     the identity call; the result says which),
+//   seat?: a seat urn "urn:li:seat:<digits>" (default: the seat of an existing saved search, else the only licence from
+//     the identity call; with several licences and no existing saved search to go by it returns seat_ambiguous and the
+//     seats, before any write, so the user can choose and the caller passes `seat`),
 //   reuse?: true to return the existing saved search with that name instead of refusing, delayMs?: 1500 between reads }
 // Verified 2026-11-20: POST /sales-api/salesApiSavedSearchesV2 (content-type application/json; charset=UTF-8) with
 //   { name, seat, useCase: 'SAVED_LEAD_SEARCH', frequency: 'DAILY', filters: [], keywords: '', searchQuery: { leadSearchQuery } }
 //   returns 201 with an empty body and the id in the x-restli-id header ({seat=urn:li:seat:N, id=N}). The seat comes from
 //   GET /sales-api/salesApiIdentity?q=findLicensesByCurrentMember&includeRecentlyInactiveDueToAdminReassignment=true
 //   (elements carry seatUrn). `frequency` is the model default; other values are untested.
-// Reads the saved searches first (same listing as saved_searches.js): a search with the same name (trimmed,
-// case-insensitive) is refused with error saved_search_name_exists (and its id) unless `reuse` is true. After the POST it
-// re-lists and returns verified: true only when a search with that name is listed; `echo` is the listing's own echo of the
-// filters (display titles and values), the proof the filters were understood. Log it as small calls and one saved search.
-// returns: { status, id, name, seat, seatSource, licenses, verified, filterCount, echo, reused }  or  { status, error|body }
+// Reads the saved searches first (same listing as saved_searches.js, paged while a page returns a full 50 rows, at most
+// 40 pages; hitting the cap is the error too_many_saved_searches and nothing is written): a search with the same name
+// (trimmed, case-insensitive) is refused with error saved_search_name_exists (and its id) unless `reuse` is true.
+// After the POST it re-lists and checks the listing's echo of the filters. Measured 2026-11-20: each listed filter is
+// { type, singleFilterMetadata: { searchFilterConfig: { title }, values: [{ displayValue, selectionType, id }] } } and the
+// echo can hold MORE entries than were sent, so lengths are not compared. Rule: every sent filter type appears among the
+// echoed types AND its echoed value count equals the sent value count. verified is true only then; otherwise
+// { verified: false, error: 'filters_not_echoed', sent, echoed } (type: count summaries): the caller stops and tells the user
+// to remove that saved search by hand (nothing here deletes). The same check runs on the `reuse` path.
+// Unsupported top-level keys in `query` (anything but filters and keywords) are the error unsupported_query_keys.
+// Log it as small calls and one saved search.
+// returns: { status, id, name, seat, seatSource, licenses, verified, sent, echoed, filterCount, echo, reused }
+//   or { status, error|body } (errors: seat_ambiguous with seats, filters_not_echoed, created_not_listed, too_many_saved_searches, ...)
 async (params) => {
   const p = params || {};
   const name = String(p.name === undefined || p.name === null ? '' : p.name).trim();
@@ -102,6 +111,8 @@ async (params) => {
       lead = p.leadSearchQuery;
     } else if (p.query) {
       const parsed = parseRestli(cleanQuery(p.query));
+      const extra = Object.keys(parsed).filter((k) => k !== 'filters' && k !== 'keywords');
+      if (extra.length) return { status: 0, error: 'unsupported_query_keys', keys: extra };
       lead = { filters: parsed.filters };
       if (parsed.keywords) lead.keywords = parsed.keywords;
     }
@@ -126,10 +137,23 @@ async (params) => {
       const els = j.elements || [];
       all.push(...els);
       start += els.length;
-      const total = (j.paging || {}).total;
-      if (!els.length || !Number.isFinite(total) || start >= total) break;
+      if (els.length < 50) return { status: 200, all };
     }
-    return { status: 200, all };
+    return { status: 0, error: 'too_many_saved_searches' };
+  };
+  const summary = (filters) => {
+    const out = {};
+    for (const f of filters || []) {
+      const values = (f && f.singleFilterMetadata && f.singleFilterMetadata.values) || (f && f.values) || [];
+      out[f.type] = (out[f.type] || 0) + values.length;
+    }
+    return out;
+  };
+  const sentSummary = summary(lead.filters);
+  const compare = (hit) => {
+    const echoed = summary(hit.filters);
+    const ok = Object.keys(sentSummary).every((t) => echoed[t] === sentSummary[t]);
+    return { ok, echoed };
   };
   const findByName = (all) => all.find((e) => String(e.name || '').trim().toLowerCase() === name.toLowerCase());
   try {
@@ -137,8 +161,12 @@ async (params) => {
     if (before.status !== 200) return before;
     const same = findByName(before.all);
     if (same) {
-      if (p.reuse === true) return { status: 200, id: same.id, name: same.name, seat: same.seat, verified: true, reused: true };
-      return { status: 0, error: 'saved_search_name_exists', id: same.id, name: same.name };
+      if (p.reuse !== true) return { status: 0, error: 'saved_search_name_exists', id: same.id, name: same.name };
+      const cmp = compare(same);
+      const base = { status: 200, id: same.id, name: same.name, seat: same.seat, reused: true, sent: sentSummary,
+        echoed: cmp.echoed, filterCount: Array.isArray(same.filters) ? same.filters.length : 0 };
+      return cmp.ok ? Object.assign(base, { verified: true })
+        : Object.assign(base, { verified: false, error: 'filters_not_echoed' });
     }
     let seat = p.seat === undefined ? '' : String(p.seat);
     let seatSource = seat ? 'param' : '';
@@ -152,7 +180,8 @@ async (params) => {
       licenses = urns.length;
       const known = before.all.map((e) => e.seat).find((u) => urns.includes(u));
       if (known) { seat = known; seatSource = 'existing_saved_search'; }
-      else if (urns.length) { seat = urns[0]; seatSource = 'first_license'; }
+      else if (urns.length === 1) { seat = urns[0]; seatSource = 'only_license'; }
+      else if (urns.length > 1) return { status: 0, error: 'seat_ambiguous', seats: urns, licenses: urns.length };
       else return { status: 0, error: 'seat_not_found', licenses: 0 };
     }
     const body = { name, seat, useCase: 'SAVED_LEAD_SEARCH', frequency: 'DAILY', filters: [], keywords: '',
@@ -172,9 +201,13 @@ async (params) => {
     if (after.status !== 200) return { status: after.status, error: 'created_but_unverified', id, body: after.body };
     const hit = findByName(after.all);
     if (id === null && hit) id = String(hit.id);
+    const cmp = hit ? compare(hit) : { ok: false, echoed: {} };
     const echo = hit ? JSON.stringify(hit.filters || []) : '';
-    return { status: r.status, id, name, seat, seatSource, licenses, verified: !!hit,
+    const res = { status: r.status, id, name, seat, seatSource, licenses, verified: cmp.ok, sent: sentSummary, echoed: cmp.echoed,
       filterCount: hit && Array.isArray(hit.filters) ? hit.filters.length : 0, echo: echo.slice(0, 2000), reused: false };
+    if (!hit) res.error = 'created_not_listed';
+    else if (!cmp.ok) res.error = 'filters_not_echoed';
+    return res;
   } catch (e) {
     return { status: 0, error: String(e).slice(0, 200) };
   }

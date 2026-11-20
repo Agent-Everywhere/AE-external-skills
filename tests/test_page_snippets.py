@@ -44,8 +44,22 @@ def save_resp(statuses):
 
 
 SEAT = "urn:li:seat:555"
+FILTER_TITLES = {"PAST_COMPANY": "Past company", "RECENTLY_CHANGED_JOBS": "Changed jobs", "CURRENT_TITLE": "Current job title"}
+
+
+def echo_filters(*pairs, extra=True):
+    """The listing's echo (measured 2026-11-20): one entry per filter with display values, plus sometimes an extra entry."""
+    out = [{"type": t, "singleFilterMetadata": {"searchFilterConfig": {"title": FILTER_TITLES.get(t, t)},
+                                                "values": [{"displayValue": "v%d" % i, "selectionType": "INCLUDED", "id": str(i)}
+                                                           for i in range(n)]}} for t, n in pairs]
+    if extra:
+        out.append({"type": "SOMETHING_ELSE", "singleFilterMetadata": {"searchFilterConfig": {"title": "Other"}, "values": []}})
+    return out
+
+
+PAST_ECHO = echo_filters(("PAST_COMPANY", 2), ("RECENTLY_CHANGED_JOBS", 1))   # three entries: two sent filters plus an extra
 SAVED_ROW = {"id": 5, "name": "Existing", "seat": SEAT, "createdAt": 1, "lastViewedAt": 2, "newHitsCount": 3, "keywords": "",
-             "filters": [{"type": "PAST_COMPANY", "title": "Past company"}], "extra": 1}
+             "filters": PAST_ECHO, "extra": 1}
 PAST_QUERY = ("(filters:List((type:PAST_COMPANY,values:List((id:urn%3Ali%3Aorganization%3A11,selectionType:INCLUDED),"
               "(id:urn%3Ali%3Aorganization%3A22,selectionType:INCLUDED))),(type:RECENTLY_CHANGED_JOBS,values:List("
               "(id:RPC,selectionType:INCLUDED)))))")
@@ -990,7 +1004,7 @@ class PageSnippets(unittest.TestCase):
         self.assertEqual(call["url"], self.SAVED_URL)   # fully percent-encoded decoration
         self.assertNotIn("method", {k: v for k, v in call.items() if v})   # a GET
         self.assertEqual(out["result"]["searches"][0], {"id": 5, "name": "Existing", "seat": SEAT, "createdAt": 1, "lastViewedAt": 2,
-                                                         "newHitsCount": 3, "keywords": "", "filterCount": 1})
+                                                         "newHitsCount": 3, "keywords": "", "filterCount": 3})
         with_filters = run_snippet("saved_searches.js", {"withFilters": True}, [saved_resp([SAVED_ROW])])["result"]["searches"][0]
         self.assertEqual(with_filters["filters"], SAVED_ROW["filters"])
         named = run_snippet("saved_searches.js", {"name": " other "}, [saved_resp([SAVED_ROW, dict(SAVED_ROW, id=6, name="Other")])])
@@ -1029,16 +1043,20 @@ class PageSnippets(unittest.TestCase):
                          (201, "77", "Alerts", SEAT, True, False))
         self.assertEqual((res["seatSource"], res["licenses"]), ("existing_saved_search", 2))   # the seat an existing search carries
         self.assertIn("Past company", res["echo"])
+        self.assertEqual((res["sent"], res["echoed"]), ({"PAST_COMPANY": 2, "RECENTLY_CHANGED_JOBS": 1},
+                                                        {"PAST_COMPANY": 2, "RECENTLY_CHANGED_JOBS": 1, "SOMETHING_ELSE": 0}))
+        self.assertNotIn("error", res)   # an extra echoed entry is fine: lengths are not compared
 
-    def test_saved_search_create_seat_choice_and_verification_failures(self):
+    def test_saved_search_create_seat_choice_and_failures(self):
         post = {"status": 201, "body": None, "headers": {"x-restli-id": "{seat=urn:li:seat:1, id=9}"}}
-        first = self.create({"name": "N", "query": PAST_QUERY},
-                            [saved_resp([]), identity_resp(["urn:li:seat:1", "urn:li:seat:2"]), post, saved_resp([])])
-        self.assertEqual((first["result"]["seat"], first["result"]["seatSource"], first["result"]["verified"]),
-                         ("urn:li:seat:1", "first_license", False))   # not listed after the POST: not verified
+        only = self.create({"name": "N", "query": PAST_QUERY},
+                           [saved_resp([]), identity_resp(["urn:li:seat:1"]), post, saved_resp([dict(SAVED_ROW, id=9, name="N")])])
+        self.assertEqual((only["result"]["seat"], only["result"]["seatSource"], only["result"]["verified"]),
+                         ("urn:li:seat:1", "only_license", True))
         given = self.create({"name": "N", "query": PAST_QUERY, "seat": "urn:li:seat:7"}, [saved_resp([]), post, saved_resp([])])
         self.assertEqual(len(given["calls"]), 3)   # no identity call when the seat is given
         self.assertEqual(json.loads(given["calls"][1]["body"])["seat"], "urn:li:seat:7")
+        self.assertEqual((given["result"]["verified"], given["result"]["error"]), (False, "created_not_listed"))
         none = self.create({"name": "N", "query": PAST_QUERY}, [saved_resp([]), identity_resp([])])
         self.assertEqual((none["result"]["error"], [c.get("method") for c in none["calls"]]), ("seat_not_found", [None, None]))
         noheader = self.create({"name": "N", "query": PAST_QUERY},
@@ -1048,13 +1066,91 @@ class PageSnippets(unittest.TestCase):
         failed = self.create({"name": "N", "query": PAST_QUERY}, [saved_resp([]), identity_resp([SEAT]), {"status": 422, "body": {"m": "x"}}])
         self.assertEqual((failed["result"]["status"], len(failed["calls"])), (422, 3))
 
+    def test_saved_search_create_several_licences_without_a_known_seat_is_ambiguous_and_makes_no_write(self):
+        seats = ["urn:li:seat:1", "urn:li:seat:2"]
+        out = self.create({"name": "N", "query": PAST_QUERY}, [saved_resp([]), identity_resp(seats)])
+        self.assertEqual(out["result"], {"status": 0, "error": "seat_ambiguous", "seats": seats, "licenses": 2})
+        self.assertEqual([c.get("method") for c in out["calls"]], [None, None])   # list and identity only, no POST
+        other = [saved_resp([dict(SAVED_ROW, seat="urn:li:seat:999")]), identity_resp(seats)]   # existing search on a seat not listed
+        self.assertEqual(self.create({"name": "N", "query": PAST_QUERY}, other)["result"]["error"], "seat_ambiguous")
+        # an existing saved search that carries one of the licences, or an explicit seat, settles it
+        known = self.create({"name": "N", "query": PAST_QUERY},
+                            [saved_resp([dict(SAVED_ROW, seat="urn:li:seat:2")]), identity_resp(seats),
+                             {"status": 201, "body": None}, saved_resp([])])
+        self.assertEqual((known["result"]["seat"], known["result"]["seatSource"]), ("urn:li:seat:2", "existing_saved_search"))
+        chosen = self.create({"name": "N", "query": PAST_QUERY, "seat": "urn:li:seat:1"},
+                             [saved_resp([]), {"status": 201, "body": None}, saved_resp([])])
+        self.assertEqual(json.loads(chosen["calls"][1]["body"])["seat"], "urn:li:seat:1")
+
+    def listed_after_post(self, echo, params=None):
+        row = dict(SAVED_ROW, id=77, name="N", filters=echo)
+        return self.create(dict({"name": "N", "query": PAST_QUERY}, **(params or {})),
+                           [saved_resp([]), identity_resp([SEAT]), {"status": 201, "body": None,
+                                                                     "headers": {"x-restli-id": "{seat=%s, id=77}" % SEAT}},
+                            saved_resp([row])])["result"]
+
+    def test_saved_search_create_verifies_filters_by_type_and_value_count_not_just_the_name(self):
+        sent = {"PAST_COMPANY": 2, "RECENTLY_CHANGED_JOBS": 1}
+        bad = {
+            "a sent type is missing": echo_filters(("PAST_COMPANY", 2)),
+            "a value count is short": echo_filters(("PAST_COMPANY", 1), ("RECENTLY_CHANGED_JOBS", 1)),
+            "a value count is long": echo_filters(("PAST_COMPANY", 2), ("RECENTLY_CHANGED_JOBS", 2)),
+            "no filters echoed": [],
+        }
+        for label, echo in bad.items():
+            with self.subTest(label):
+                res = self.listed_after_post(echo)
+                self.assertEqual((res["verified"], res["error"], res["sent"]), (False, "filters_not_echoed", sent))
+                self.assertEqual(res["id"], "77")   # the search exists: the caller must tell the user to remove it by hand
+        self.assertNotIn("echoed", {k: v for k, v in self.listed_after_post(PAST_ECHO).items() if k == "error"})
+        reordered = echo_filters(("RECENTLY_CHANGED_JOBS", 1), ("PAST_COMPANY", 2), extra=False)   # order and extras do not matter
+        self.assertTrue(self.listed_after_post(reordered)["verified"])
+        # several echoed entries of one type add up; 400 ids echo as 400 values
+        big_query = ("(filters:List((type:PAST_COMPANY,values:List(%s))))"
+                     % ",".join("(id:urn%%3Ali%%3Aorganization%%3A%d,selectionType:INCLUDED)" % n for n in range(1, 401)))
+        row = dict(SAVED_ROW, id=78, name="Big", filters=echo_filters(("PAST_COMPANY", 400)))
+        out = self.create({"name": "Big", "query": big_query},
+                          [saved_resp([]), identity_resp([SEAT]), {"status": 201, "body": None}, saved_resp([row])])["result"]
+        self.assertEqual((out["verified"], out["sent"], out["echoed"]["PAST_COMPANY"]), (True, {"PAST_COMPANY": 400}, 400))
+
+    def test_saved_search_create_reuse_reports_the_filter_comparison(self):
+        same = self.create({"name": "existing", "query": PAST_QUERY, "reuse": True}, [saved_resp([SAVED_ROW])])
+        self.assertEqual(len(same["calls"]), 1)
+        res = same["result"]
+        self.assertEqual((res["status"], res["id"], res["reused"], res["verified"], res["filterCount"]), (200, 5, True, True, 3))
+        self.assertEqual((res["sent"], "error" in res), ({"PAST_COMPANY": 2, "RECENTLY_CHANGED_JOBS": 1}, False))
+        different = dict(SAVED_ROW, filters=echo_filters(("PAST_COMPANY", 1), ("CURRENT_TITLE", 1)))
+        diff = self.create({"name": "existing", "query": PAST_QUERY, "reuse": True}, [saved_resp([different])])
+        self.assertEqual((diff["result"]["reused"], diff["result"]["verified"], diff["result"]["error"]),
+                         (True, False, "filters_not_echoed"))
+        self.assertEqual(diff["result"]["echoed"], {"PAST_COMPANY": 1, "CURRENT_TITLE": 1, "SOMETHING_ELSE": 0})
+        self.assertEqual([c.get("method") for c in diff["calls"]], [None])   # still no write
+
+    def test_saved_search_create_pages_the_duplicate_check_by_full_pages_not_paging_total(self):
+        page1 = saved_resp([{"id": i, "name": "s%d" % i} for i in range(50)], total=3)   # total is wrong on purpose
+        page2 = saved_resp([{"id": 900, "name": "Target"}], total=3)
+        out = self.create({"name": "target", "query": PAST_QUERY}, [page1, page2])
+        self.assertEqual((out["result"]["error"], out["result"]["id"]), ("saved_search_name_exists", 900))
+        self.assertEqual([c["url"].split("&start=")[1].split("&")[0] for c in out["calls"]], ["0", "50"])
+        self.assertEqual([c.get("method") for c in out["calls"]], [None, None])
+        # a short first page stops the read even when paging.total claims more
+        short = self.create({"name": "n", "query": PAST_QUERY}, [saved_resp([SAVED_ROW], total=500), identity_resp([SEAT])])
+        self.assertIn("salesApiIdentity", short["calls"][1]["url"])   # one list call, then straight on to the seat
+
+    def test_saved_search_create_stops_at_the_page_cap_instead_of_writing(self):
+        full = [saved_resp([{"id": i, "name": "s%d" % i} for i in range(50)], total=99999) for _ in range(40)]   # slim rows: argv size
+        out = self.create({"name": "n", "query": PAST_QUERY}, full)
+        self.assertEqual(out["result"]["error"], "too_many_saved_searches")
+        self.assertEqual((len(out["calls"]), [c.get("method") for c in out["calls"]].count("POST")), (40, 0))
+
     def test_saved_search_create_refuses_an_existing_name_unless_reuse(self):
         existing = [saved_resp([SAVED_ROW])]
         out = self.create({"name": " existing ", "query": PAST_QUERY}, existing)
         self.assertEqual((out["result"]["error"], out["result"]["id"]), ("saved_search_name_exists", 5))
         self.assertEqual([c.get("method") for c in out["calls"]], [None])   # no write was made
         out = self.create({"name": "EXISTING", "query": PAST_QUERY, "reuse": True}, existing)
-        self.assertEqual(out["result"], {"status": 200, "id": 5, "name": "Existing", "seat": SEAT, "verified": True, "reused": True})
+        self.assertEqual((out["result"]["id"], out["result"]["name"], out["result"]["seat"], out["result"]["reused"]),
+                         (5, "Existing", SEAT, True))
         self.assertEqual(len(out["calls"]), 1)
 
     def test_saved_search_create_refusals_make_no_request(self):
@@ -1073,6 +1169,18 @@ class PageSnippets(unittest.TestCase):
         self.assertEqual((out["result"]["error"], out["calls"]), ("csrf_missing", []))
         out = self.create({"name": "N", "query": PAST_QUERY}, [{"status": 403, "body": {"m": "no"}}])
         self.assertEqual((out["result"]["status"], len(out["calls"])), (403, 1))
+
+    def test_saved_search_create_rejects_unsupported_top_level_query_keys(self):
+        base = "filters:List((type:PAST_COMPANY,values:List((id:urn%3Ali%3Aorganization%3A1,selectionType:INCLUDED))))"
+        for query, keys in (("(%s,sortBy:RELEVANCE)" % base, ["sortBy"]),
+                            ("(%s,keywords:abc,viewAllFilters:true,spellCorrectionEnabled:true)" % base,
+                             ["viewAllFilters", "spellCorrectionEnabled"])):
+            with self.subTest(query=query[-40:]):
+                out = self.create({"name": "N", "query": query}, [])
+                self.assertEqual((out["result"]["error"], out["result"]["keys"], out["calls"]), ("unsupported_query_keys", keys, []))
+        ok = self.create({"name": "N", "query": "(%s,keywords:abc)" % base},
+                         [saved_resp([]), identity_resp([SEAT]), {"status": 201, "body": None}, saved_resp([])])
+        self.assertEqual(json.loads(ok["calls"][2]["body"])["searchQuery"]["leadSearchQuery"]["keywords"], "abc")
 
     def posted_query(self, query=None, **extra):
         params = dict({"name": "N"}, **extra)

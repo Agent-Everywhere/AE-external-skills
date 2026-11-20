@@ -116,7 +116,7 @@ count only); over 1,000, stratify into non-overlapping sub-nets. Method: `$ENGIN
 - If you cannot run a page snippet (no browser JS tool, no CDP), stop and tell the user; never click through the UI.
 - Read-only except list saves: create a Sales Nav list (account type) and save accounts to it only after the user confirms the exact
   list name once per run; never modify, rename or delete a list the user did not name. Saved accounts are paced, not
-  quota-capped. No saved searches, no lead saves, never send.
+  quota-capped. Saved searches only through `salesnav-job-changes`; no lead saves, never send.
 - Respect caps: pace calls 3 to 5 seconds apart, one session per seat. Log with
   `python3 "$ENGINE/scripts/run_log.py" add --pages N --small-calls N` and check
   `python3 "$ENGINE/scripts/run_log.py" quota`. Stop when `python3 "$ENGINE/scripts/run_log.py" quota` shows

@@ -217,7 +217,7 @@ class PurposeSkillDocs(unittest.TestCase):
         run, never touching a list the user did not name, paced, not quota-capped. Other writes stay forbidden."""
         accounts = squash("salesnav-tam-accounts")
         for phrase in ("read-only except list saves", "exact list name once per run", "never modify, rename or delete",
-                       "paced, not quota-capped", "#2", "no saved searches, no lead saves, never send",
+                       "paced, not quota-capped", "#2", "saved searches only through `salesnav-job-changes`; no lead saves, never send",
                        "list_create.js", "list_save_accounts.js", "lists.js", "50 a call"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, accounts)
@@ -340,8 +340,8 @@ class PurposeSkillDocs(unittest.TestCase):
         for phrase in ("past_company", "recently_changed_jobs", "--filter-type past_company", "--recent-job-change",
                        "pastpositions", "profiles_batch.js", "about equal to the changed-jobs-only total",
                        "read-only here except saved searches", "never save a lead or make any other seat mutation",
-                       "confirmed exact name", "never modify, rename or delete one", "saved_search_create.js",
-                       "run_log.py add --saved-searches", "10 a day", "wait for the user's confirmation", "seatsource",
+                       "confirmed exact name", "never modify, rename or delete one", "saved_search_create.js", "seat_ambiguous", "filters_not_echoed", "remove that saved search by hand",
+                       "never delete it yourself", "run_log.py add --saved-searches", "10 a day", "wait for the user's confirmation", "seatsource",
                        "save search", "--chunk 50", "never guess an id"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, body)
@@ -350,7 +350,8 @@ class PurposeSkillDocs(unittest.TestCase):
         for phrase in ("291,486", "187,147", "18,872", "46,268", "186", "23,886", "silently ignored", "exactly once",
                        "`pastpositions`", "unmeasured", "saved_search_create.js", "savedpeoplesearches", "x-restli-id",
                        "saved_search_create", "not shipped as a snippet", "policy 2026-11-20", "10 a day, ceiling 25",
-                       "else the first licence", "existing saved search"):
+                       "seat_ambiguous", "filters_not_echoed", "singlefiltermetadata", "lengths are not compared", "too_many_saved_searches",
+                       "unsupported_query_keys", "current job title", "changed jobs", "all 400 values", "existing saved search"):
             with self.subTest(kb=phrase):
                 self.assertIn(phrase, kb)
         self.assertNotIn("unverified: `PAST_COMPANY`".lower(), kb)
