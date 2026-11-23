@@ -11,7 +11,7 @@
   accepts any numeric `version >= 2` that carries an `entries` map instead of pinning one — a pinned `=== 2` check made
   `doctor` report `host undefined` / `no descriptor` and silently fall back to `EnsureSandBox`); `encrypted` is Electron safeStorage
   (Chromium OSCrypt v10: AES-128-CBC, key = PBKDF2-SHA1("Grok Bot Safe Storage" Keychain password,
-  "saltysalt", 1003, 16), IV = 16×0x20). Plaintext `{baseUrl, token, headers:{x-anyrun-network-token}, vncProxy}`.
+  "saltysalt", 1003, 16), IV = 16×0x20). Plaintext `{baseUrl, token, headers:{x-anyrun-network-token}, vncProxy}` (since app 1.2.x the routing header is `x-anyrun-port-token`, taken from EnsureSandBox `gatewayPortToken`; `x-anyrun-network-token` is the older form).
   The app rewrites it on connect (the live host moved from `us10` to `us14` cursorvm.com between runs) and treats entries older
   than 7 days as stale.
 - **Secret store**: `sand-secrets.json` (`{version:1, cursor-machine-id, cursor-accounts, local-exec-file-key}`) → `cursor-accounts` is plain JSON
