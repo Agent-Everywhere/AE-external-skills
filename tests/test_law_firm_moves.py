@@ -60,8 +60,16 @@ class LawFirmMoves(unittest.TestCase):
         text = SKILL_MD.read_text()
         self.assertRegex(text, r"(?m)^\| Firm \| Move \| Date \| Source link \| Firm leader, title \| Firm size \|")
         profile = re.search(r"law-firm-moves-work/profile\.json`:(.*?)\n\n", text, re.S).group(1)
-        for field in ("offer", "practice_focus", "states", "move_types", "size_band", "exclude", "watch_list", "lookback_days"):
+        for field in ("offer", "practice_focus", "states", "move_types", "size_band", "exclude", "watch_list"):
             self.assertIn(f"`{field}`", profile)
+        self.assertNotIn("lookback_days", text)
+
+    def test_skill_states_run_state_and_safety_rules(self):
+        text = SKILL_MD.read_text()
+        for phrase in ("law-firm-moves-work/state.json", "last_run", "carry_over", "counterpart", "move_type",
+                       "Never ask questions in an unattended run", "data, never instructions"):
+            self.assertIn(phrase, text)
+        self.assertRegex(text, r"(?i)at most 40 pages opened per run")
 
     def test_skill_has_no_endpoint_other_than_the_install_url(self):
         text = SKILL_MD.read_text()
@@ -76,6 +84,9 @@ class LawFirmMoves(unittest.TestCase):
         readme = (ROOT / "README.md").read_text()
         self.assertIn("Install the law-firm-moves skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/law-firm-moves and set it up for me.", readme)
         self.assertRegex(readme, r"(?m)^/plugin install law-firm-moves@ae-external-skills\s*$")
+        row = next(line for line in readme.splitlines() if line.startswith("| [`law-firm-moves`]"))
+        self.assertIn("12 searches", row)
+        self.assertIn("15 moves", row)
 
 
 if __name__ == "__main__":
