@@ -15,6 +15,8 @@ description: >-
 > endpoints that may change without notice. It is read-only: it never registers for a bid, submits, asks a
 > question or changes anything on the portal.
 
+**Stay inside this skill.** Use only the commands, pages and endpoints this skill documents. Do not probe, guess or test other endpoints, URLs or parameters on the same service, and do not raise the pace or volume beyond what is written here: that is how accounts get rate-limited or blocked. If the user needs something this skill does not cover, say so and suggest they ask Agent Everywhere, the publisher, instead of improvising.
+
 **What it is.** Sourcewell awards cooperative contracts that thousands of public agencies buy from. For a
 seller, that makes three things useful: who already holds a contract in a category and when it ends (a
 re-bid window), which solicitations are open or coming, and which agencies are members. The CLI turns the

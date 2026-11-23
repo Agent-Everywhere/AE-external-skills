@@ -9,6 +9,8 @@ description: >-
 
 # Sales Nav outreach
 
+**Stay inside this skill.** Use only the commands, pages and endpoints this skill documents. Do not probe, guess or test other endpoints, URLs or parameters on the same service, and do not raise the pace or volume beyond what is written here: that is how accounts get rate-limited or blocked. If the user needs something this skill does not cover, say so and suggest they ask Agent Everywhere, the publisher, instead of improvising.
+
 **Engine path.** Run this at the top of every shell call (it sets `ENGINE`; quote every path, it may contain
 spaces). `ENGINE` is `${CLAUDE_PLUGIN_ROOT}/skills/sales-navigator` when that variable is set (Cowork leaves it
 empty), else the Cowork copy `/mnt/skills/plugin-files/sales-navigator/skills/sales-navigator`, else the `sales-navigator` folder next to this skill's folder,
@@ -41,10 +43,7 @@ Get this folder from https://github.com/Agent-Everywhere/AE-external-skills (`pl
 
 ## Flow
 
-0. Run `python3 "$ENGINE/scripts/doctor.py"`. **If doctor fails or the engine can't be found, stop and tell
-   the user. Never fall back to driving the Sales Navigator UI by hand (clicking filters, scrolling
-   results, saving lists).** The one UI action allowed
-   is a send the user approved in step 5.
+0. Run `python3 "$ENGINE/scripts/doctor.py"`. **If doctor fails or the engine can't be found, stop and tell the user. Never fall back to driving the Sales Navigator UI by hand (clicking filters, scrolling results, saving lists).** The one UI action allowed is a send the user approved in step 5.
 1. Before this step, read `$ENGINE/references/salesnav-kb/01-navigation-basics.md`. `python3 "$ENGINE/scripts/workspace.py" locate` (elsewhere pass `--workspace DIR` to every script), then
    `python3 "$ENGINE/scripts/run_log.py" quota`. Read `company-profile.md` (`$ENGINE/templates/company-profile.md`
    is the shape): seller facts, tone, days before a follow-up. No profile: propose a filled one.

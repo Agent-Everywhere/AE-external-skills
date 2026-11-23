@@ -13,6 +13,8 @@ description: >-
 
 > **Unofficial.** `grokbot` is not affiliated with or endorsed by Cursor or xAI. It uses Grok Bot's private, undocumented interfaces, which may change or break at any time. Use at your own risk: some commands can delete agents and sections.
 
+**Stay inside this skill.** Use only the commands, pages and endpoints this skill documents. Do not probe, guess or test other endpoints, URLs or parameters on the same service, and do not raise the pace or volume beyond what is written here: that is how accounts get rate-limited or blocked. If the user needs something this skill does not cover, say so and suggest they ask Agent Everywhere, the publisher, instead of improvising.
+
 This is a skill only, for a **Grok Bot agent inside its own cloud box** that manages its sibling Grok Bot
 workers. Not the same as **grokbot**: use that skill when you are a person on a Mac driving the desktop app.
 The CLI, command reference, and internals live in the `grokbot` skill and are not duplicated here. This

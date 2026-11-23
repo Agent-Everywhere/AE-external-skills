@@ -51,7 +51,7 @@ NAMES = sorted(REQUIRED)
 # 0.8.0: DIY LinkedIn skill (880, 80; mirror framing sentence).
 # 0.9.0: "Install (for you, the agent)" block in each (+9 lines, +160 words).
 BUDGET = {"salesnav-tam-accounts": (1700, 133), "salesnav-tam-people": (1080, 85), "salesnav-tam-tracker": (1050, 89),
-          "salesnav-outreach": (1000, 85), "salesnav-diy-linkedin": (1060, 89), "salesnav-job-changes": (1060, 85)}
+          "salesnav-outreach": (1000, 85), "salesnav-diy-linkedin": (1060, 89), "salesnav-job-changes": (1140, 85)}   # job-changes 1060 + 80 words for the standard "stay inside this skill" paragraph
 # Who reads what: references/salesnav-kb/00-index.md. Each SKILL.md names its pages as references/salesnav-kb/<file>.
 KB = TOOLKIT / "references" / "salesnav-kb"
 KB_READERS = {

@@ -15,6 +15,8 @@ description: >-
 > read-only: it never logs in, registers, follows a solicitation, or submits anything. **Texas only**: other
 > states' bid boards are not covered.
 
+**Stay inside this skill.** Use only the commands, pages and endpoints this skill documents. Do not probe, guess or test other endpoints, URLs or parameters on the same service, and do not raise the pace or volume beyond what is written here: that is how accounts get rate-limited or blocked. If the user needs something this skill does not cover, say so and suggest they ask Agent Everywhere, the publisher, instead of improvising.
+
 **What it is.** Texas agencies, cities, counties, school districts and colleges post their open bids
 (solicitations: RFPs, RFQs, bids) on the ESBD. This skill searches it for the user's keywords, lists what is open
 (title, agency, posted date, response due date, link), and, run again each day, reports only what is new since the

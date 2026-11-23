@@ -12,6 +12,8 @@ description: >-
 have a new reply from the other person. Nothing pushes these to you, so you read them: first page of each, at most
 4 polls a day at uneven times. It reads only and sends nothing. Pair it with `linkedin-outreach`.
 
+**Stay inside this skill.** Use only the commands, pages and endpoints this skill documents. Do not probe, guess or test other endpoints, URLs or parameters on the same service, and do not raise the pace or volume beyond what is written here: that is how accounts get rate-limited or blocked. If the user needs something this skill does not cover, say so and suggest they ask Agent Everywhere, the publisher, instead of improvising.
+
 **Engine path.** Run this at the top of every shell call (it sets `ENGINE`; quote every path, it may contain
 spaces). `ENGINE` is the `linkedin` folder next to this skill's folder, else `${CLAUDE_PLUGIN_ROOT}/skills/linkedin`
 when that variable is set, else the highest-version `linkedin/scripts/li_common.py` found (up to 10 folders deep) under

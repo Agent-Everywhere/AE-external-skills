@@ -15,6 +15,8 @@ description: >-
 > (`efts.sec.gov` search and each filing's `primary_doc.xml` on `www.sec.gov`). It is read-only and needs no
 > login.
 
+**Stay inside this skill.** Use only the commands, pages and endpoints this skill documents. Do not probe, guess or test other endpoints, URLs or parameters on the same service, and do not raise the pace or volume beyond what is written here: that is how accounts get rate-limited or blocked. If the user needs something this skill does not cover, say so and suggest they ask Agent Everywhere, the publisher, instead of improvising.
+
 **What it is.** A company that sells privately raised money files a Form D with the SEC. The filing names the
 company, its state, industry group, how much was offered and sold, when the first sale happened, and the
 executives and directors involved. That makes a fresh funding signal and a list of named people. The CLI finds

@@ -56,10 +56,10 @@ class ClaudeDesktopDocs(unittest.TestCase):
         self.assertEqual(names, ["SKILL.md", "references/ui-map.md"])
 
     def test_word_budgets(self):
-        self.assertLessEqual(words(SKILL / "SKILL.md"), 600)
+        self.assertLessEqual(words(SKILL / "SKILL.md"), 680)   # 600 + 80 for the standard "stay inside this skill" paragraph
         self.assertLessEqual(words(SKILL / "references" / "ui-map.md"), 800)
         total = sum(words(p) for p in SKILL.rglob("*.md"))
-        self.assertLessEqual(total, 1400, total)
+        self.assertLessEqual(total, 1480, total)   # 1400 + 80 for the standard "stay inside this skill" paragraph
 
     def test_ui_map_keeps_the_hand_off_and_picker_notes(self):
         text = squash(SKILL / "references" / "ui-map.md").lower()

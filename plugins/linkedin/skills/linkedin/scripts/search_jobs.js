@@ -11,7 +11,7 @@
 //   Pacing is fixed at 8 to 15 seconds between requests (params.__test === true overrides it, for tests only).
 // Returns {rows:[{job_id,title,company,company_id,location,listed_at,listed_text,page}], pages_read, pages_attempted,
 //          total, stopped_reason, request}.
-// Endpoint (see references/endpoints.md): GET /voyager/api/voyagerJobsDashJobCards?decorationId=...JobSearchCardsCollection-220
+// Endpoint (see references/job_endpoints.md): GET /voyager/api/voyagerJobsDashJobCards?decorationId=...JobSearchCardsCollection-220
 //   &count=25&q=jobSearch&query=(origin:JOB_SEARCH_PAGE_OTHER_ENTRY,keywords:K,locationUnion:(seoLocation:(location:L)),
 //   selectedFilters:(sortBy:List(DD),timePostedRange:List(rN)),spellCorrectionEnabled:true)&start=N
 // Never returns cookies or tokens. After every page the rows so far are saved to localStorage "liJobSignalsLastRun".

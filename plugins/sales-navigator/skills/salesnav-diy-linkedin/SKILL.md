@@ -9,6 +9,8 @@ description: >-
 
 # DIY LinkedIn (no Unipile)
 
+**Stay inside this skill.** Use only the commands, pages and endpoints this skill documents. Do not probe, guess or test other endpoints, URLs or parameters on the same service, and do not raise the pace or volume beyond what is written here: that is how accounts get rate-limited or blocked. If the user needs something this skill does not cover, say so and suggest they ask Agent Everywhere, the publisher, instead of improvising.
+
 **Engine path.** Run this at the top of every shell call (it sets `ENGINE`; quote every path, it may contain
 spaces). `ENGINE` is `${CLAUDE_PLUGIN_ROOT}/skills/sales-navigator` when that variable is set (Cowork leaves it
 empty), else the Cowork copy `/mnt/skills/plugin-files/sales-navigator/skills/sales-navigator`, else the `sales-navigator` folder next to this skill's folder,
@@ -42,12 +44,10 @@ Get this folder from https://github.com/Agent-Everywhere/AE-external-skills (`pl
 
 ## Flow
 
-0. Run `python3 "$ENGINE/scripts/doctor.py"`. If doctor fails or the engine can't be found, stop and tell the user. Never fall back to driving the Sales Navigator UI by hand (clicking filters, scrolling results, saving lists). Needs a
-   browser JS tool on the user's own signed-in LinkedIn tab. Never ask for a password or handle 2FA.
+0. Run `python3 "$ENGINE/scripts/doctor.py"`. If doctor fails or the engine can't be found, stop and tell the user. Never fall back to driving the Sales Navigator UI by hand (clicking filters, scrolling results, saving lists). Needs a browser JS tool on the user's own signed-in LinkedIn tab. Never ask for a password or handle 2FA.
 1. `python3 "$ENGINE/scripts/workspace.py" locate`, then `python3 "$ENGINE/scripts/run_log.py" quota`. Sales Nav
    reads (search, profile, Open Profile, lists) use the engine snippets: `lead_search.js`, `profile.js`,
-   `profiles_batch.js`, `typeahead.js`, one per call, through `python3 "$ENGINE/runtime/session.py" --emit
-   <snippet>.js --params '{...}' --compact`.
+   `profiles_batch.js`, `typeahead.js`, one per call, through `python3 "$ENGINE/runtime/session.py" --emit <snippet>.js --params '{...}' --compact`.
 2. Plain LinkedIn reads (own member id, profile by vanity, sent invites, connections, conversations, messages,
    Sales Nav inbox, InMail credits): write one small same-origin `fetch` per KB 16 row, in the page, one call
    every 4 seconds or slower. Return only needed fields; never the `JSESSIONID` or `contactInfo`.
