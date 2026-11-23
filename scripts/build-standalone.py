@@ -15,10 +15,15 @@ For each manifest entry the output folder holds:
   python3 scripts/build-standalone.py --check    write nothing; exit 1 and list the differences if a committed
                                                  output differs from what would be generated
 
-Fails loudly (exit 2) when a whitelisted file or a source folder is missing or the manifest is malformed.
+Fails loudly (exit 2) when a whitelisted file or a source folder is missing or the manifest is malformed. Every manifest
+path is validated before anything is written: names are plain slugs, all paths are clean relative paths that resolve
+inside the repository, output is exactly plugins/<name>, and symlinks (in the sources, the whitelisted engine files or
+the output folder) are refused rather than followed. A refused run touches nothing.
 """
 import argparse
 import json
+import os
+import re
 import sys
 from pathlib import Path, PurePosixPath
 
@@ -27,6 +32,7 @@ MANIFEST = "scripts/standalone.json"
 MARKETPLACE = ".claude-plugin/marketplace.json"
 JUNK_PARTS = {"__pycache__", ".DS_Store"}
 JUNK_SUFFIXES = {".pyc", ".pyo"}
+NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
 class BuildError(Exception):
@@ -48,10 +54,50 @@ def read_files(folder):
 
 
 def safe_rel(value, what):
+    """A clean relative POSIX path: a string, not absolute, no '.', '..' or empty segments."""
+    if not isinstance(value, str) or not value or "\0" in value:
+        raise BuildError("%s must be a clean relative path, got %r" % (what, value))
     p = PurePosixPath(value)
-    if not value or p.is_absolute() or ".." in p.parts or str(p) != value:
+    if p.is_absolute() or not p.parts or ".." in p.parts or "." in p.parts or str(p) != value:
         raise BuildError("%s must be a clean relative path, got %r" % (what, value))
     return p
+
+
+def inside(base, path):
+    """True when path (resolved) is strictly below base (resolved)."""
+    try:
+        rel = path.resolve().relative_to(base.resolve())
+    except ValueError:
+        return False
+    return bool(rel.parts)
+
+
+def reject_symlinks_on_path(root, rel, what):
+    """Refuse when any component of root/rel is a symlink (a broken one counts)."""
+    cur = root
+    for part in rel.parts:
+        cur = cur / part
+        if cur.is_symlink():
+            raise BuildError("%s must not go through a symlink: %s" % (what, cur.relative_to(root).as_posix()))
+
+
+def reject_symlinks_in(folder, what):
+    """Refuse when anything under folder is a symlink (files, folders, broken links; junk names included)."""
+    for dirpath, dirnames, filenames in os.walk(folder, followlinks=False):
+        for name in dirnames + filenames:
+            path = Path(dirpath) / name
+            if path.is_symlink():
+                raise BuildError("%s contains a symlink, which is refused: %s" % (what, path.relative_to(folder).as_posix()))
+
+
+def source_path(root, value, what):
+    """root/value after validation: clean relative, no symlink on the way, resolves inside root."""
+    rel = safe_rel(value, what)
+    reject_symlinks_on_path(root, rel, what)
+    path = root / rel
+    if not inside(root, path):
+        raise BuildError("%s resolves outside the repository: %r" % (what, value))
+    return path
 
 
 def load_json(path, what):
@@ -63,21 +109,56 @@ def load_json(path, what):
         raise BuildError("%s is not valid JSON (%s): %s" % (what, e, path))
 
 
+def validate_entry(root, e):
+    """Every path rule for one manifest entry; raises BuildError, touches nothing."""
+    if not isinstance(e, dict):
+        raise BuildError("%s: every plugins entry must be an object, got %r" % (MANIFEST, e))
+    for key in ("name", "skill_source", "engine_source", "engine_files", "output"):
+        if key not in e:
+            raise BuildError("%s: entry %r lacks %r" % (MANIFEST, e.get("name"), key))
+    name = e["name"]
+    if not isinstance(name, str) or not NAME_RE.match(name):
+        raise BuildError("%s: name must match %s, got %r" % (MANIFEST, NAME_RE.pattern, name))
+    if not isinstance(e["engine_files"], list) or not e["engine_files"]:
+        raise BuildError("%s: %s engine_files must be a non-empty list" % (MANIFEST, name))
+    if not all(isinstance(f, str) for f in e["engine_files"]):
+        raise BuildError("%s: %s engine_files entries must be strings" % (MANIFEST, name))
+    if len(set(e["engine_files"])) != len(e["engine_files"]):
+        raise BuildError("%s: %s engine_files has duplicates" % (MANIFEST, name))
+    if e["output"] != "plugins/" + name:
+        raise BuildError("%s: output of %s must be plugins/%s" % (MANIFEST, name, name))
+    # output folder: exactly <root>/plugins/<name>, never a symlink, never holding symlinks
+    plugins = (root / "plugins").resolve()
+    out = root / safe_rel(e["output"], "output")
+    reject_symlinks_on_path(root, safe_rel(e["output"], "output"), "output folder")
+    resolved = out.resolve()
+    if resolved.parent != plugins or resolved in (plugins, root) or resolved.name != name:
+        raise BuildError("%s: output of %s must resolve to plugins/%s inside the repository" % (MANIFEST, name, name))
+    if out.exists() and not out.is_dir():
+        raise BuildError("output folder is not a folder: %s" % e["output"])
+    if out.is_dir():
+        reject_symlinks_in(out, "output folder %s" % e["output"])
+    # sources: clean, inside the repository, not overlapping the output
+    skill_src = source_path(root, e["skill_source"], "skill_source")
+    engine_src = source_path(root, e["engine_source"], "engine_source")
+    for what, src in (("skill_source", skill_src), ("engine_source", engine_src)):
+        r = src.resolve()
+        if r == resolved or inside(resolved, r) or inside(r, resolved):
+            raise BuildError("%s of %s overlaps its output folder" % (what, name))
+    for rel in e["engine_files"]:
+        safe_rel(rel, "engine_files entry")
+        if not inside(engine_src, source_path(engine_src, rel, "engine_files entry")):
+            raise BuildError("engine_files entry resolves outside the engine folder: %r" % rel)
+
+
 def load_entries(root):
+    root = root.resolve()
     doc = load_json(root / MANIFEST, "manifest")
-    entries = doc.get("plugins")
+    entries = doc.get("plugins") if isinstance(doc, dict) else None
     if not isinstance(entries, list) or not entries:
         raise BuildError("%s must hold a non-empty \"plugins\" list" % MANIFEST)
     for e in entries:
-        for key in ("name", "skill_source", "engine_source", "engine_files", "output"):
-            if key not in e:
-                raise BuildError("%s: entry %r lacks %r" % (MANIFEST, e.get("name"), key))
-        if not isinstance(e["engine_files"], list) or not e["engine_files"]:
-            raise BuildError("%s: %s engine_files must be a non-empty list" % (MANIFEST, e["name"]))
-        if len(set(e["engine_files"])) != len(e["engine_files"]):
-            raise BuildError("%s: %s engine_files has duplicates" % (MANIFEST, e["name"]))
-        if e["output"] != "plugins/" + e["name"]:
-            raise BuildError("%s: output of %s must be plugins/%s" % (MANIFEST, e["name"], e["name"]))
+        validate_entry(root, e)
     names = [e["name"] for e in entries]
     if len(set(names)) != len(names):
         raise BuildError("%s: duplicate plugin names" % MANIFEST)
@@ -122,12 +203,13 @@ The whitelist and the other settings are in `scripts/standalone.json`.
 
 def expected_files(root, entry):
     """{path relative to the output folder: bytes} for one manifest entry."""
-    skill_src = root / safe_rel(entry["skill_source"], "skill_source")
-    engine_src = root / safe_rel(entry["engine_source"], "engine_source")
+    skill_src = source_path(root, entry["skill_source"], "skill_source")
+    engine_src = source_path(root, entry["engine_source"], "engine_source")
     if not skill_src.is_dir():
         raise BuildError("source skill folder missing: %s" % entry["skill_source"])
     if not engine_src.is_dir():
         raise BuildError("source engine folder missing: %s" % entry["engine_source"])
+    reject_symlinks_in(skill_src, "source skill folder %s" % entry["skill_source"])
     skill, engine = skill_src.name, engine_src.name
     out = {}
     skill_files = read_files(skill_src)
@@ -136,8 +218,7 @@ def expected_files(root, entry):
     for rel, data in skill_files.items():
         out["skills/%s/%s" % (skill, rel)] = data
     for rel in entry["engine_files"]:
-        safe_rel(rel, "engine_files entry")
-        path = engine_src / rel
+        path = source_path(engine_src, rel, "engine_files entry")
         if not path.is_file():
             raise BuildError("whitelisted engine file missing: %s/%s" % (entry["engine_source"], rel))
         out["skills/%s/%s" % (engine, rel)] = path.read_bytes()
@@ -161,9 +242,21 @@ def diff(root, entry, expected):
     return problems
 
 
+def check_write(root, entry, expected):
+    """Refuse (BuildError) unless every path to write or delete resolves under the output folder; touches nothing."""
+    folder = root / entry["output"]
+    if folder.is_symlink():
+        raise BuildError("output folder is a symlink, refused: %s" % entry["output"])
+    have = read_files(folder) if folder.is_dir() else {}
+    for rel in sorted(set(expected) | set(have)):
+        if not inside(folder, folder / rel):
+            raise BuildError("refusing to write or delete outside %s: %s" % (entry["output"], rel))
+    return have
+
+
 def write(root, entry, expected):
     folder = root / entry["output"]
-    have = read_files(folder) if folder.is_dir() else {}
+    have = check_write(root, entry, expected)
     changed = []
     for rel, data in sorted(expected.items()):
         if have.get(rel) != data:
@@ -175,7 +268,7 @@ def write(root, entry, expected):
         (folder / rel).unlink()
         changed.append("removed " + rel)
     for path in sorted((p for p in folder.rglob("*") if p.is_dir()), reverse=True):   # drop emptied folders
-        if not any(path.iterdir()):
+        if inside(folder, path) and not any(path.iterdir()):
             path.rmdir()
     return changed
 
@@ -189,6 +282,9 @@ def main(argv=None):
     try:
         entries = load_entries(root)
         plans = [(e, expected_files(root, e)) for e in entries]
+        if not args.check:
+            for e, files in plans:
+                check_write(root, e, files)
     except BuildError as e:
         print("error: %s" % e, file=sys.stderr)
         return 2
