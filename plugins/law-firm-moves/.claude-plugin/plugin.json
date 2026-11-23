@@ -1,7 +1,7 @@
 {
   "name": "law-firm-moves",
-  "version": "0.1.0",
-  "description": "Skill only: check a short watch list of law firms (up to 40, or one state up to 25) for firm-level moves such as mergers, group lateral hires, new offices and new managing partners, and report only what is new, each with a dated source link. Runs on your own Claude with its own web search; by hand, weekly suggested. Read-only. Unofficial.",
+  "version": "0.2.0",
+  "description": "Skill only: find law firms in a market you describe (one practice focus, in named states or nationwide) that just made a firm-level move such as a merger, group lateral hire, new office or new managing partner, every day, and report only what is new, each with a dated source link. An optional watch list of firms can be checked too. Runs on your own Claude with its own web search; by hand or on a daily schedule you set up. Read-only. Unofficial.",
   "author": {
     "name": "Agent Everywhere",
     "url": "https://github.com/Agent-Everywhere"
