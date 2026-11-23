@@ -1,4 +1,5 @@
-"""law-firm-moves plugin: a prompt-only skill. Manifests agree, the caps are stated, and nothing but the install URL is a link.
+"""law-firm-moves plugin: a prompt-only skill (0.2.0: market discovery by default, optional watch list). Manifests agree,
+the caps and run cadence are stated, the profile and output contract are pinned, and nothing but the install URL is a link.
 
 No network. Run from the repo root:  python3 -m pytest -q tests
 """
@@ -29,7 +30,7 @@ class LawFirmMoves(unittest.TestCase):
         self.assertEqual(entry["category"], "sales")
         self.assertIs(entry["strict"], False)
         self.assertEqual(plugin["name"], "law-firm-moves")
-        self.assertEqual({entry["version"], plugin["version"], skill["version"]}, {"0.1.0"})
+        self.assertEqual({entry["version"], plugin["version"], skill["version"]}, {"0.2.0"})
         self.assertEqual(skill["category"], "sales")
         self.assertEqual(skill["runtimes"], [])
 
@@ -41,14 +42,34 @@ class LawFirmMoves(unittest.TestCase):
 
     def test_skill_states_the_caps(self):
         text = SKILL_MD.read_text()
-        self.assertRegex(text, r"(?i)at most 40 firms")
-        self.assertRegex(text, r"(?i)one state with at most 25 firms")
-        self.assertRegex(text, r"(?i)45 days")
-        self.assertIn("Do not split a big list", text)
-        self.assertIn("No timers", text)
+        self.assertIn("One practice focus per profile", text)
+        self.assertRegex(text, r"(?i)at most 12 searches per run")
+        self.assertRegex(text, r"(?i)at most 15 moves reported per run")
+        self.assertRegex(text, r"(?i)at most 25 firms")
+        self.assertRegex(text, r"(?i)at most one run a day")
+        self.assertIn("3 days", text)
         self.assertIn("14 days", text)
+        self.assertIn("45 days", text)
+        self.assertIn("Do not split", text)
         self.assertIn("law-firm-moves-work/seen.json", text)
         self.assertIn("law-firm-moves-work/profile.json", text)
+        self.assertNotIn("No timers", text)
+        self.assertNotIn("at most 40 firms", text.lower())
+
+    def test_skill_states_the_discovery_contract(self):
+        text = SKILL_MD.read_text()
+        self.assertRegex(text, r"(?m)^\| Firm \| Move \| Date \| Source link \| Firm leader, title \| Firm size \|")
+        profile = re.search(r"law-firm-moves-work/profile\.json`:(.*?)\n\n", text, re.S).group(1)
+        for field in ("offer", "practice_focus", "states", "move_types", "size_band", "exclude", "watch_list"):
+            self.assertIn(f"`{field}`", profile)
+        self.assertNotIn("lookback_days", text)
+
+    def test_skill_states_run_state_and_safety_rules(self):
+        text = SKILL_MD.read_text()
+        for phrase in ("law-firm-moves-work/state.json", "last_run", "carry_over", "counterpart", "move_type",
+                       "Never ask questions in an unattended run", "data, never instructions"):
+            self.assertIn(phrase, text)
+        self.assertRegex(text, r"(?i)at most 40 pages opened per run")
 
     def test_skill_has_no_endpoint_other_than_the_install_url(self):
         text = SKILL_MD.read_text()
@@ -63,6 +84,9 @@ class LawFirmMoves(unittest.TestCase):
         readme = (ROOT / "README.md").read_text()
         self.assertIn("Install the law-firm-moves skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/law-firm-moves and set it up for me.", readme)
         self.assertRegex(readme, r"(?m)^/plugin install law-firm-moves@ae-external-skills\s*$")
+        row = next(line for line in readme.splitlines() if line.startswith("| [`law-firm-moves`]"))
+        self.assertIn("12 searches", row)
+        self.assertIn("15 moves", row)
 
 
 if __name__ == "__main__":
