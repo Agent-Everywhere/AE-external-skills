@@ -14,6 +14,8 @@ uses it: the two presets (`physical-ai-data`, `ai-domain-experts`) are examples,
 only. Output feeds Apollo (accounts, then people by the suggested buyer titles) and LinkedIn outreach
 (`linkedin-outreach`, which sends only after the user approves each batch).
 
+**Stay inside this skill.** Use only the commands, pages and endpoints this skill documents. Do not probe, guess or test other endpoints, URLs or parameters on the same service, and do not raise the pace or volume beyond what is written here: that is how accounts get rate-limited or blocked. If the user needs something this skill does not cover, say so and suggest they ask Agent Everywhere, the publisher, instead of improvising.
+
 **Engine path.** Run this at the top of every shell call (it sets `ENGINE`; quote every path, it may contain
 spaces). `ENGINE` is the `linkedin` folder next to this skill's folder, else `${CLAUDE_PLUGIN_ROOT}/skills/linkedin`
 when that variable is set, else the highest-version `linkedin/scripts/li_common.py` found (up to 10 folders deep) under
@@ -29,7 +31,7 @@ ENGINE="<absolute folder of this SKILL.md>/../linkedin"
 
 ## Install (for you, the agent)
 
-Get this folder from https://github.com/Agent-Everywhere/AE-external-skills (`plugins/linkedin/skills/linkedin-job-signals`) and copy
+Get this folder from https://github.com/Agent-Everywhere/AE-external-skills (`plugins/linkedin-job-signals/skills/linkedin-job-signals`) and copy
 it AND the sibling `linkedin` engine folder next to it (the tools live there; this skill alone has none):
 
 - **Bot box:** `/home/box/agent-data/workflows/linkedin-job-signals/` and `/home/box/agent-data/workflows/linkedin/`.
@@ -107,6 +109,4 @@ file, then search people at those accounts by the buyer titles.
 - **Store only** public job and company data. No cookies, JSESSIONID, csrf tokens or headers in any file or message.
   The public path sends no cookies at all. No hosted services: LinkedIn's own pages from the user's own machine only.
 
-## Files
-
-`$ENGINE/scripts/job_signals.py` (every command above), `search_jobs.js` (fallback), `$ENGINE/references/job_signal_presets.json`, `endpoints.md` (what is verified).
+**Files.** `$ENGINE/scripts/job_signals.py` (every command above), `search_jobs.js` (fallback), `$ENGINE/references/job_signal_presets.json`, `job_endpoints.md` (what is verified).

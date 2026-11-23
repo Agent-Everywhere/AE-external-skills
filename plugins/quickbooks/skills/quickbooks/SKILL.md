@@ -15,6 +15,8 @@ description: >-
 > API from inside the user's signed-in tab, the same calls the app makes. It may break when Intuit
 > changes the app. Writes touch real books: read the hard rules first.
 
+**Stay inside this skill.** Use only the commands, pages and endpoints this skill documents. Do not probe, guess or test other endpoints, URLs or parameters on the same service, and do not raise the pace or volume beyond what is written here: that is how accounts get rate-limited or blocked. If the user needs something this skill does not cover, say so and suggest they ask Agent Everywhere, the publisher, instead of improvising.
+
 **How it works.** `qbo` attaches to a browser over the Chrome DevTools Protocol, finds (or opens) a
 `qbo.intuit.com` tab, and runs small page snippets (`page/*.js`) in it. The fast path is QuickBooks'
 v3 API at `/api/v3/company/<realm>/...`, called same-origin with the page's own session and CSRF

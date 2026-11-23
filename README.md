@@ -18,7 +18,7 @@ through setup. You only sign in to the website yourself, in your own browser; th
 | Find people on LinkedIn by keywords (like "realtor") without Sales Navigator | `Install the linkedin-find-people skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/linkedin and set it up for me.` | A LinkedIn account, signed in in your browser |
 | Draft and send my LinkedIn connection requests and messages (I approve every batch) | `Install the linkedin-outreach skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/linkedin and set it up for me.` | A LinkedIn account, signed in in your browser |
 | See who accepted my connection requests and who replied | `Install the linkedin-replies skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/linkedin and set it up for me.` | A LinkedIn account, signed in in your browser |
-| Find companies hiring for roles that signal they need what I sell, qualify them, and get an Apollo-ready list | `Install the linkedin-job-signals skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/linkedin and set it up for me.` | A LinkedIn account, signed in in your browser |
+| Find companies hiring for roles that signal they need what I sell, qualify them, and get an Apollo-ready list | `Install the linkedin-job-signals skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/linkedin-job-signals and set it up for me.` | A LinkedIn account, signed in in your browser |
 
 These run on a normal (classic) LinkedIn account, with no Sales Navigator seat and no paid tool.
 
@@ -60,16 +60,17 @@ The seven `salesnav-*` skills above (`salesnav-find-people`, `salesnav-find-comp
 | `salesnav-inbox` | `salesnav-diy-linkedin` |
 | `salesnav-job-changes` | `salesnav-job-changes` |
 
-The four plain-LinkedIn job plugins are the same idea over `plugins/linkedin/skills/` (shared engine folder: `linkedin`):
+Three of the plain-LinkedIn job plugins are the same idea over `plugins/linkedin/skills/` (shared engine folder: `linkedin`):
 
 | Plugin | Skill folder under `plugins/linkedin/skills/` |
 |---|---|
 | `linkedin-find-people` | `linkedin-find-people` |
 | `linkedin-outreach` | `linkedin-outreach` |
 | `linkedin-replies` | `linkedin-replies` |
-| `linkedin-job-signals` | `linkedin-job-signals` |
 
-Copy the skill folder AND the shared engine `plugins/linkedin/skills/linkedin` next to it, then follow the "Install (for you, the agent)" block in the skill's `SKILL.md`. `linkedin-emails`, `quickbooks`, `sourcewell`, `texas-bids`, `sec-funding-signals` and `law-firm-moves` are `plugins/<name>/skills/<name>`.
+Copy the skill folder AND the shared engine `plugins/linkedin/skills/linkedin` next to it, then follow the "Install (for you, the agent)" block in the skill's `SKILL.md`.
+
+`linkedin-job-signals` is a slim standalone folder, `plugins/linkedin-job-signals/skills/`, generated from the same sources: it holds the `linkedin-job-signals` skill and a `linkedin` engine folder with only the files that skill uses (no people search, outreach or replies tools). Copy both folders next to each other. `linkedin-emails`, `quickbooks`, `sourcewell`, `texas-bids`, `sec-funding-signals` and `law-firm-moves` are `plugins/<name>/skills/<name>`.
 
 ### For developers / power users
 
@@ -86,7 +87,7 @@ Details are in the table below.
 Install only the ones you need. The six job plugins `salesnav-find-people`, `salesnav-find-companies`,
 `salesnav-split-big-search`, `salesnav-outreach`, `salesnav-inbox` and `salesnav-job-changes` each install one skill of the `sales-navigator` plugin,
 and `salesnav-prospecting` installs two of them (`salesnav-tam-people` and `salesnav-outreach`);
-the table lists the other plugins (`linkedin-emails` is its own plugin). The four plain-LinkedIn plugins `linkedin-find-people`, `linkedin-outreach`, `linkedin-replies` and `linkedin-job-signals` each install one skill of the `linkedin` plugin folder, with its shared engine.
+the table lists the other plugins (`linkedin-emails` is its own plugin). The plain-LinkedIn plugins `linkedin-find-people`, `linkedin-outreach` and `linkedin-replies` each install one skill of the `linkedin` plugin folder, with its shared engine; `linkedin-job-signals` installs its own generated folder, `plugins/linkedin-job-signals`, with only the engine files it uses.
 
 | Plugin | What it is | Who it's for | Where it runs | Needs | Install |
 |---|---|---|---|---|---|
@@ -101,7 +102,7 @@ the table lists the other plugins (`linkedin-emails` is its own plugin). The fou
 | [`law-firm-moves`](plugins/law-firm-moves/skills/law-firm-moves/SKILL.md) | Skill only (prompt, no CLI or engine, no data files). You give a short watch list of law firms (up to 40, or one state up to 25 firms found); your own Claude checks each firm's news page and a couple of dated searches for firm-level moves (merger, group of lawyers joining, new office, new managing partner, partner promotions), opens every source, and writes a table with the dated link and the firm's leader. A seen-list means later runs report only what is new. Run by hand, weekly suggested; look-back 14 days by default, 45 at most. Read-only, public pages only | A salesperson who sells to a handful of law firms | Claude Desktop (Cowork task) or Claude Code; no browser runtime | Nothing; it uses whatever web search and page reading your Claude already has | `/plugin install law-firm-moves@ae-external-skills` |
 | [`linkedin-emails`](plugins/linkedin-emails/skills/linkedin-emails/SKILL.md) | Skill + scripts (`emails.py`, `contact_info.js`, `download_export.js`). Fills the blank emails in your LinkedIn connections CSV (the export has about 3 in 100) by reading each person's Contact info from your own logged-in LinkedIn tab: 40 per run, at most 120 a day, 6 to 12 seconds apart, stops the day on any rate-limit or checkpoint. Read-only; no hosted service | A salesperson with a Connections.csv who wants emails for their own network | A Grok Bot box, Claude Code, Claude Desktop / Cowork or Codex, driving a browser you are logged into | Python 3, a logged-in linkedin.com tab the agent can run JavaScript in | `/plugin install linkedin-emails@ae-external-skills` (or paste the link, see Install by link) |
 | [`linkedin-find-people`](plugins/linkedin/skills/linkedin-find-people/SKILL.md), [`linkedin-outreach`](plugins/linkedin/skills/linkedin-outreach/SKILL.md), [`linkedin-replies`](plugins/linkedin/skills/linkedin-replies/SKILL.md) | Three skills over one shared engine (`plugins/linkedin/skills/linkedin`: `find_people.py`, `outreach.py`, `replies.py`, `search_people.js`, `poll.js`). Find people with a normal LinkedIn search (10 result pages a day, 8 to 15 seconds apart); draft connection notes and messages and send them one at a time by UI click after you type approval of the exact batch (20 requests a day and 100 a week, 40 messages a day, 3 per person); read who accepted and who replied (4 polls a day, no message text kept). No hosted service | A salesperson or founder on a normal LinkedIn account | A Grok Bot box, Claude Code, Claude Desktop / Cowork or Codex, driving a browser you are logged into | Python 3, a logged-in linkedin.com tab the agent can run JavaScript in | `/plugin install linkedin-find-people@ae-external-skills`, `linkedin-outreach@ae-external-skills`, `linkedin-replies@ae-external-skills` (or paste the link from the table above) |
-| [`linkedin-job-signals`](plugins/linkedin/skills/linkedin-job-signals/SKILL.md) | One skill over the same `linkedin` engine (`job_signals.py`, `search_jobs.js`, `references/job_signal_presets.json`). You say what you sell and who buys it; it reads LinkedIn's public job pages (no sign-in, 3 to 8 seconds apart, 12 search pages and 30 posts a day, stops at the first block), reads the posts, scores each company strong / maybe / no against your profile, and writes a full CSV plus an Apollo-ready account CSV with buyer titles. Claude drafts a one-line opener per company from the posting and your offer. Two example profiles ship (`physical-ai-data`, `ai-domain-experts`); a signed-in tab is only a fallback. Read-only; no hosted service | A salesperson or founder who sells to companies that reveal their needs by hiring | Claude Code, Claude Desktop / Cowork or Codex | Python 3; no LinkedIn account for the main path | `/plugin install linkedin-job-signals@ae-external-skills` (or paste the link from the table above) |
+| [`linkedin-job-signals`](plugins/linkedin-job-signals/skills/linkedin-job-signals/SKILL.md) | One skill with a slim copy of the `linkedin` engine, generated into `plugins/linkedin-job-signals` (`job_signals.py`, `li_common.py`, `search_jobs.js`, `references/job_signal_presets.json`, `references/job_endpoints.md`). You say what you sell and who buys it; it reads LinkedIn's public job pages (no sign-in, 3 to 8 seconds apart, 12 search pages and 30 posts a day, stops at the first block), reads the posts, scores each company strong / maybe / no against your profile, and writes a full CSV plus an Apollo-ready account CSV with buyer titles. Claude drafts a one-line opener per company from the posting and your offer. Two example profiles ship (`physical-ai-data`, `ai-domain-experts`); a signed-in tab is only a fallback. Read-only; no hosted service | A salesperson or founder who sells to companies that reveal their needs by hiring | Claude Code, Claude Desktop / Cowork or Codex | Python 3; no LinkedIn account for the main path | `/plugin install linkedin-job-signals@ae-external-skills` (or paste the link from the table above) |
 
 `grokbot` and `grokbot-box` are not the same thing: `grokbot` is for a human on a Mac, `grokbot-box`
 is for an agent inside a box. Each skill points to the other.
@@ -212,7 +213,7 @@ then the plugin's "..." > Check for updates, and click Update on the plugin page
 they share one engine, so a `salesnav-*` skill on its own has no tools. Zip all of
 `plugins/sales-navigator/` (its `skills/` folder holds the engine and the purpose skills) and add the
 skills from that zip together. The plain-LinkedIn skills work the same way: zip all of `plugins/linkedin/`
-(`cd plugins/linkedin && zip -r ../../dist/linkedin.zip skills -x '*/__pycache__/*'`) and add the skills from that zip together. `grokbot` runs a local CLI, so it needs Claude
+(`cd plugins/linkedin && zip -r ../../dist/linkedin.zip skills -x '*/__pycache__/*'`) and add the skills from that zip together (for `linkedin-job-signals`, zip `plugins/linkedin-job-signals` instead: `bash scripts/build-plugin-zip.sh linkedin-job-signals`). `grokbot` runs a local CLI, so it needs Claude
 Code (or another agent with shell access) on the Mac that has Grok Bot installed.
 
 **Just the `grokbot` CLI** (no Claude needed; Node 20+; rerun to update):
@@ -250,7 +251,7 @@ round (at most 5 questions), calibrate on example customers, then accounts, then
 
 0.9.2 adds the `salesnav-job-changes` job plugin and skill (people who left a list of companies, with recent job changes and their new company and title), `company_chunks.py` options `--filter-type PAST_COMPANY`, `--titles` and `--recent-job-change`, `saved_searches.js` (read) and `saved_search_create.js` (creates one saved people search after you confirm its exact name; same rule as account lists, 10 a day, ceiling 25; no edit or delete), and KB page 19 (`19-past-company-job-changes.md`: the `PAST_COMPANY` filter verified live 2026-11-20, past company from the row's `pastPositions`, the saved-search request shape).
 
-`linkedin-job-signals` 0.10.0 is new: it finds companies hiring for roles that signal a need, from LinkedIn's public job pages, over the same `linkedin` engine. `linkedin-find-people`, `linkedin-outreach` and `linkedin-replies` 0.10.0 are new: the plain-LinkedIn (no Sales Navigator) counterparts of the `salesnav-*` jobs, built over one shared `linkedin` engine folder. Three of the `linkedin-*` names are used again, now for classic LinkedIn. They start at 0.10.0, above the 0.9.x of the Sales Navigator plugins that used the same names for one day, so a client that installed one of those sees an update, never a downgrade. If you installed `linkedin-find-people`, `linkedin-outreach` or `linkedin-replies` before `sales-navigator` 0.9.1, that was the Sales Navigator version; run `/plugin uninstall <name>@ae-external-skills` and install the `salesnav-*` one you meant (`salesnav-find-people`, `salesnav-outreach`, `salesnav-inbox`) if you have a seat.
+`linkedin-job-signals` 0.10.1 moves it to its own folder, `plugins/linkedin-job-signals`, with only the engine files it uses (the other three `linkedin-*` plugins keep the full `linkedin` engine), and adds a "stay inside this skill" rule to every skill. It is the same plugin name: sync the marketplace and update it. `linkedin-job-signals` 0.10.0 is new: it finds companies hiring for roles that signal a need, from LinkedIn's public job pages, over the same `linkedin` engine. `linkedin-find-people`, `linkedin-outreach` and `linkedin-replies` 0.10.0 are new: the plain-LinkedIn (no Sales Navigator) counterparts of the `salesnav-*` jobs, built over one shared `linkedin` engine folder. Three of the `linkedin-*` names are used again, now for classic LinkedIn. They start at 0.10.0, above the 0.9.x of the Sales Navigator plugins that used the same names for one day, so a client that installed one of those sees an update, never a downgrade. If you installed `linkedin-find-people`, `linkedin-outreach` or `linkedin-replies` before `sales-navigator` 0.9.1, that was the Sales Navigator version; run `/plugin uninstall <name>@ae-external-skills` and install the `salesnav-*` one you meant (`salesnav-find-people`, `salesnav-outreach`, `salesnav-inbox`) if you have a seat.
 
 **Version rule.** Every plugin entry in `.claude-plugin/marketplace.json` carries its own `version`, and clients see an update only when that entry's version goes up. Bump the entry of each plugin you change on every release (for the three `linkedin-*` plugins, together with the `version` in the engine's and the three skills' `skill.yaml`; tests pin that they agree). Update them the same way as `sales-navigator`: sync the marketplace, then update the plugin.
 
@@ -268,8 +269,9 @@ If you installed `ae-desktop-operator` (the earlier name of `desktop-cowork`), r
 ```
 .claude-plugin/
   marketplace.json  # Claude Code marketplace: one plugin per skill, except sales-navigator (bundles its seven skills)
-                    # the six salesnav-* job plugins (same source, one skill each) and the four
-                    # linkedin-* job plugins (source plugins/linkedin, one skill each)
+                    # the six salesnav-* job plugins (same source, one skill each), three
+                    # linkedin-* job plugins (source plugins/linkedin, one skill each) and
+                    # linkedin-job-signals (its own generated folder, plugins/linkedin-job-signals)
 plugins/sales-navigator/   # the ONLY folder the sales-navigator plugin installs (marketplace `source`)
   skills/
     sales-navigator/        # the shared ENGINE: page/, scripts/, runtime/, reference.md, recipes.md, templates/
@@ -279,14 +281,17 @@ plugins/sales-navigator/   # the ONLY folder the sales-navigator plugin installs
     salesnav-outreach/
     salesnav-diy-linkedin/
     salesnav-job-changes/
-plugins/linkedin/          # plain LinkedIn (no Sales Navigator): the folder the four linkedin-* job plugins install
+plugins/linkedin/          # plain LinkedIn (no Sales Navigator): SOURCE of the engine and the four linkedin-* skills; the folder the
+                           # linkedin-find-people, linkedin-outreach and linkedin-replies plugins install
   skills/
     linkedin/               # the shared ENGINE (no SKILL.md): scripts/ (find_people.py, outreach.py, replies.py, li_common.py,
-                            # job_signals.py, search_people.js, poll.js, search_jobs.js), references/ (endpoints.md, job_signal_presets.json), skill.yaml
+                            # job_signals.py, search_people.js, poll.js, search_jobs.js), references/ (endpoints.md, job_endpoints.md, job_signal_presets.json), skill.yaml
     linkedin-find-people/   # SKILL.md + skill.yaml only; each reaches the engine through ENGINE
     linkedin-outreach/
     linkedin-replies/       # fixtures in tests/fixtures/linkedin_classic/ (a redacted search page)
     linkedin-job-signals/   # fixtures in tests/fixtures/linkedin_jobs/ (synthetic public job pages)
+plugins/linkedin-job-signals/  # GENERATED by scripts/build-standalone.py (never edit): the linkedin-job-signals skill plus only the
+                           # engine files it uses, from scripts/standalone.json; the folder the linkedin-job-signals plugin installs
 plugins/linkedin-emails/   # skill + scripts/ (emails.py, contact_info.js, download_export.js); fixtures in tests/fixtures/linkedin_emails/
 packages/
   browser-runtime/  # SOURCE OF TRUTH for the shared browser runtime (session.py + one README)
@@ -370,6 +375,15 @@ ship the CLI; it installs it inside the box by cloning this repo.
   tools. Its four job skills find it through `ENGINE` (`${CLAUDE_PLUGIN_ROOT}/skills/linkedin`, else the `linkedin`
   folder beside the skill's own, else a search under `/mnt/skills` and `~/.claude/plugins`) and stop if it is missing.
   They run only on LinkedIn's own pages (the signed-in browser, or for `linkedin-job-signals` the public job pages), and every send is a UI click after typed approval.
+- **Standalone folders (generated).** A skill that shares an engine with siblings can be handed over alone, with only
+  the engine files it needs. Never fork the code: edit the source skill or engine, then run
+  `python3 scripts/build-standalone.py` to regenerate the slim folder (listed, with its file whitelist, in
+  `scripts/standalone.json`; today `plugins/linkedin-job-signals`). Generated folders say so in `GENERATED.md` and are
+  never edited by hand. `tests/test_standalone.py` runs `python3 scripts/build-standalone.py --check`, so a stale
+  folder fails the test run (and any CI that runs it).
+- **Stay inside this skill.** Every `SKILL.md` carries the same standard guardrail paragraph, right after its
+  heading, intro or "Unofficial" note: use only what the skill documents, do not probe other endpoints or raise the
+  pace, and send anything else back to Agent Everywhere. `tests/test_stay_inside_guardrail.py` pins the exact wording.
 - **Upload-ready plugin zip.** `scripts/build-plugin-zip.sh <plugin-name>` builds `dist/<name>.zip` (plus an
   identical `.plugin`) with `.claude-plugin/plugin.json` at the zip root, for Claude Desktop's Upload plugin. The
   repo's plugin folder has no `plugin.json` (the marketplace entry is the source of truth), so the script generates one in

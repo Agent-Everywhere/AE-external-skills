@@ -199,12 +199,14 @@ class IntentPlugins(unittest.TestCase):
         """A `linkedin-*` plugin is never sourced from the Sales Navigator folder, and the reverse."""
         for e in self.market["plugins"]:
             with self.subTest(plugin=e["name"]):
-                if e["name"].startswith("linkedin-") and e["name"] != "linkedin-emails":
+                if e["name"] == "linkedin-job-signals":   # generated standalone folder (scripts/build-standalone.py)
+                    self.assertEqual(e["source"], "./plugins/linkedin-job-signals")
+                elif e["name"].startswith("linkedin-") and e["name"] != "linkedin-emails":
                     self.assertEqual(e["source"], "./plugins/linkedin")
                     self.assertTrue(e["description"].startswith("Plain LinkedIn, no Sales Navigator needed."))
                 if e["name"].startswith("salesnav-"):
                     self.assertEqual(e["source"], "./plugins/sales-navigator")
-                if e["source"] == "./plugins/linkedin":
+                if e["source"] in ("./plugins/linkedin", "./plugins/linkedin-job-signals"):
                     self.assertIn(e["name"], CLASSIC_PLUGINS)
                 if e["source"] == "./plugins/sales-navigator":
                     self.assertFalse(e["name"].startswith("linkedin-"), e["name"])

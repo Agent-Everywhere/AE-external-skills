@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""li_common.py: helpers shared by find_people.py, outreach.py and replies.py (Python 3 stdlib only, no network).
+"""li_common.py: helpers shared by the engine's scripts (Python 3 stdlib only, no network).
 
 Not a command. It holds the pieces every ledger needs: UTC timestamps and rolling windows, the vanity whitelist,
 atomic multi-file writes, a lock file, spreadsheet-formula and control-character guards, and the CLI wrapper.

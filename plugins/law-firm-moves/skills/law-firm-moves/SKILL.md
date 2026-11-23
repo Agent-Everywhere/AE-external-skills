@@ -14,6 +14,8 @@ description: >-
 > **Unofficial.** Not affiliated with any law firm, bar association or legal directory. This skill only tells
 > Claude how to check a short list of firm websites and news pages and write down what it finds. Not legal advice.
 
+**Stay inside this skill.** Use only the commands, pages and endpoints this skill documents. Do not probe, guess or test other endpoints, URLs or parameters on the same service, and do not raise the pace or volume beyond what is written here: that is how accounts get rate-limited or blocked. If the user needs something this skill does not cover, say so and suggest they ask Agent Everywhere, the publisher, instead of improvising.
+
 ## Job
 
 For the law firms on a short watch list, find firm-level moves from the last two weeks (by default) and report only

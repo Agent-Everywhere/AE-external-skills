@@ -14,6 +14,8 @@ The engine: one folder of page snippets and scripts that the other four `salesna
 Endpoints, filters, caps, gotchas: `$ENGINE/reference.md`. Example flows: `$ENGINE/recipes.md`. Runtime:
 `$ENGINE/runtime/README.md`.
 
+**Stay inside this skill.** Use only the commands, pages and endpoints this skill documents. Do not probe, guess or test other endpoints, URLs or parameters on the same service, and do not raise the pace or volume beyond what is written here: that is how accounts get rate-limited or blocked. If the user needs something this skill does not cover, say so and suggest they ask Agent Everywhere, the publisher, instead of improvising.
+
 **Routing.** Any TAM, count, "how many" or find-people ask: follow `salesnav-tam-accounts`, then
 `salesnav-tam-people`. Seller research and intake come first (`$ENGINE/reference.md`, "Intake and seller
 research" and "Count mode"); never start from keyword searches, and never search people across all of LinkedIn. This toolkit is
@@ -33,10 +35,7 @@ ENGINE="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/sales-navigator}"
 [ -f "$ENGINE/scripts/doctor.py" ] || { ENGINE="$(find -L /mnt/skills "$HOME/.claude/plugins" -maxdepth 8 -path '*sales-navigator/scripts/doctor.py' 2>/dev/null | head -1)"; ENGINE="${ENGINE%/scripts/doctor.py}"; }
 ```
 
-**Step 0, every flow.** Run `python3 "$ENGINE/scripts/doctor.py"`. If doctor fails or the engine can't be
-found, stop and tell the user. Never fall back to driving the Sales Navigator UI by hand (clicking
-filters, scrolling results, saving lists).
-Never substitute another data source (other MCP datasets, web estimates) for the Sales Nav count without asking the user. For a TAM ask, seller research and intake come before this step and need no engine.
+**Step 0, every flow.** Run `python3 "$ENGINE/scripts/doctor.py"`. If doctor fails or the engine can't be found, stop and tell the user. Never fall back to driving the Sales Navigator UI by hand (clicking filters, scrolling results, saving lists). Never substitute another data source (other MCP datasets, web estimates) for the Sales Nav count without asking the user. For a TAM ask, seller research and intake come before this step and need no engine.
 
 ## Toolkit
 

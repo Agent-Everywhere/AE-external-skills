@@ -8,5 +8,6 @@ of those skills finds this folder through `ENGINE` (see its SKILL.md) and runs t
   `scripts/li_common.py` holds what they share.
 - `scripts/job_signals.py`: the job-signals ledger (Python 3 stdlib). The only script that makes network calls: it
   reads LinkedIn's public, logged-out job pages (no cookies sent, paced, capped, stops at the first block).
-- `references/endpoints.md`: the plain-LinkedIn endpoints and which are verified; `references/job_signal_presets.json`:
-  the example profiles.
+- `references/endpoints.md`: the plain-LinkedIn endpoints and which are verified (people search, replies, writes);
+  `references/job_endpoints.md`: the same for LinkedIn job postings (the only reference `linkedin-job-signals` needs);
+  `references/job_signal_presets.json`: the example profiles.

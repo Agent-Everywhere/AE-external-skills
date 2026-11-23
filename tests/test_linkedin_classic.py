@@ -20,6 +20,7 @@ PLUGIN = ROOT / "plugins" / "linkedin"
 SKILLS = PLUGIN / "skills"
 ENGINE = SKILLS / "linkedin"
 SCRIPTS = ENGINE / "scripts"
+STANDALONE = {"linkedin-job-signals"}   # generated into its own folder by scripts/build-standalone.py (tests/test_standalone.py)
 JOBS = {"linkedin-find-people": "linkedin-find-people", "linkedin-outreach": "linkedin-outreach",
         "linkedin-replies": "linkedin-replies", "linkedin-job-signals": "linkedin-job-signals"}
 FIND = SCRIPTS / "find_people.py"
@@ -1548,7 +1549,7 @@ class ClassicLinkedinPackaging(unittest.TestCase):
                              ["SKILL.md", "skill.yaml"])
         for rel in ("scripts/li_common.py", "scripts/find_people.py", "scripts/outreach.py", "scripts/replies.py",
                     "scripts/search_people.js", "scripts/poll.js", "scripts/job_signals.py", "scripts/search_jobs.js",
-                    "references/endpoints.md", "references/job_signal_presets.json", "skill.yaml"):
+                    "references/endpoints.md", "references/job_endpoints.md", "references/job_signal_presets.json", "skill.yaml"):
             self.assertTrue((ENGINE / rel).is_file(), rel)
         for path in PLUGIN.rglob("*"):
             self.assertNotIn("__pycache__", path.parts)
@@ -1570,7 +1571,7 @@ class ClassicLinkedinPackaging(unittest.TestCase):
         for name, skill in JOBS.items():
             with self.subTest(plugin=name):
                 e = self.entries[name]
-                self.assertEqual(e["source"], "./plugins/linkedin")
+                self.assertEqual(e["source"], "./plugins/" + name if name in STANDALONE else "./plugins/linkedin")
                 self.assertIs(e["strict"], False)
                 self.assertEqual(e["skills"], ["./skills/" + skill])
                 self.assertEqual(e["version"], eng["version"])
@@ -1579,10 +1580,14 @@ class ClassicLinkedinPackaging(unittest.TestCase):
                 self.assertNotIn("Needs a LinkedIn Sales Navigator seat", e["description"])
                 self.assertTrue((PLUGIN / "skills" / skill / "SKILL.md").is_file())
                 source = (ROOT / e["source"]).resolve()
-                self.assertEqual(source, PLUGIN.resolve())
+                if name in STANDALONE:
+                    self.assertEqual(source, (ROOT / "plugins" / name).resolve())
+                    self.assertTrue((source / "skills" / name / "SKILL.md").is_file())
+                else:
+                    self.assertEqual(source, PLUGIN.resolve())
                 self.assertTrue((source / "skills" / "linkedin" / "scripts" / "li_common.py").is_file(), "the engine ships")
         sharing = [p["name"] for p in self.market["plugins"] if p["source"] == "./plugins/linkedin"]
-        self.assertEqual(sorted(sharing), sorted(JOBS))
+        self.assertEqual(sorted(sharing), sorted(set(JOBS) - STANDALONE))
 
     def test_linkedin_emails_is_untouched_where_it_was(self):
         e = self.entries["linkedin-emails"]
@@ -1597,7 +1602,9 @@ class ClassicLinkedinPackaging(unittest.TestCase):
                 if p["source"] == "./plugins/linkedin":
                     self.assertTrue(p["name"].startswith("linkedin-"), p["name"])
                     self.assertFalse(p["name"].startswith("salesnav-"), p["name"])
-                if p["name"].startswith("linkedin-") and p["name"] != "linkedin-emails":
+                if p["name"] in STANDALONE:
+                    self.assertEqual(p["source"], "./plugins/" + p["name"])
+                elif p["name"].startswith("linkedin-") and p["name"] != "linkedin-emails":
                     self.assertEqual(p["source"], "./plugins/linkedin")
                 if p["name"].startswith("salesnav-"):
                     self.assertEqual(p["source"], "./plugins/sales-navigator")
@@ -1615,7 +1622,7 @@ class ClassicLinkedinPackaging(unittest.TestCase):
                 self.assertIn("~/.codex/skills/linkedin", block)
                 self.assertIn("~/.claude/skills/", block)
                 self.assertIn("/plugin install %s@ae-external-skills" % name, block)
-                self.assertIn("plugins/linkedin/skills/%s" % name, block)
+                self.assertIn("plugins/%s/skills/%s" % (name, name) if name in STANDALONE else "plugins/linkedin/skills/%s" % name, block)
 
     def test_every_command_goes_through_engine_and_the_resolve_block_is_literal(self):
         bare = re.compile(r"(?<!ENGINE/)(?<!ENGINE\}/)(?<![\w.$/-])(?:scripts|references)/[\w.<>*-]+")
@@ -1800,14 +1807,17 @@ class ClassicLinkedinPackaging(unittest.TestCase):
         plain = head.split("### Plain LinkedIn (no Sales Navigator needed)", 1)[1].split("### Sales Navigator", 1)[0]
         for name in JOBS:
             with self.subTest(plugin=name):
-                sentence = ("`Install the %s skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/linkedin "
-                            "and set it up for me.` | A LinkedIn account, signed in in your browser |" % name)
+                folder = name if name in STANDALONE else "linkedin"
+                sentence = ("`Install the %s skill from https://github.com/Agent-Everywhere/AE-external-skills/tree/main/plugins/%s "
+                            "and set it up for me.` | A LinkedIn account, signed in in your browser |" % (name, folder))
                 self.assertIn(sentence, plain)
-                self.assertIn("| `%s` | `%s` |" % (name, JOBS[name]), self.readme)
+                if name not in STANDALONE:
+                    self.assertIn("| `%s` | `%s` |" % (name, JOBS[name]), self.readme)
         self.assertNotIn("are coming", self.readme)
         self.assertNotIn("More plain-LinkedIn skills", self.readme)
         self.assertIn("plugins/linkedin/", self.readme.split("## Layout", 1)[1])
         self.assertIn("plugins/linkedin/skills/linkedin", self.readme)
+        self.assertIn("plugins/linkedin-job-signals/skills/", self.readme)
         self.assertRegex(self.readme.split("## Upgrading", 1)[1].split("## Layout", 1)[0], r"linkedin-find-people.*0\.10\.0")
 
     def test_sync_runtime_check_is_clean(self):

@@ -870,13 +870,14 @@ class SkillPackaging(unittest.TestCase):
     def test_ship_list_and_manifest(self):
         self.assertEqual(sorted(p.name for p in (SKILLS / "linkedin-job-signals").iterdir() if p.name != ".DS_Store"),
                          ["SKILL.md", "skill.yaml"])
-        for rel in ("scripts/job_signals.py", "scripts/search_jobs.js", "references/job_signal_presets.json"):
+        for rel in ("scripts/job_signals.py", "scripts/search_jobs.js", "references/job_signal_presets.json",
+                    "references/job_endpoints.md"):
             self.assertTrue((ENGINE / rel).is_file(), rel)
 
     def test_marketplace_entry_and_readme(self):
         market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text())
         e = {p["name"]: p for p in market["plugins"]}["linkedin-job-signals"]
-        self.assertEqual((e["source"], e["skills"]), ("./plugins/linkedin", ["./skills/linkedin-job-signals"]))
+        self.assertEqual((e["source"], e["skills"]), ("./plugins/linkedin-job-signals", ["./skills/linkedin-job-signals"]))
         self.assertTrue(e["description"].startswith("Plain LinkedIn, no Sales Navigator needed."))
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("linkedin-job-signals", readme)

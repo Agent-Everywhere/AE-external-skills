@@ -15,6 +15,8 @@ skill reads that box's data for each connection, from the user's own logged-in L
 a working copy of the CSV. In a 20-person test, Contact info had 17 emails where the export had 1, so expect a
 majority but not everyone. Measure it on the first batch and tell the user the real number.
 
+**Stay inside this skill.** Use only the commands, pages and endpoints this skill documents. Do not probe, guess or test other endpoints, URLs or parameters on the same service, and do not raise the pace or volume beyond what is written here: that is how accounts get rate-limited or blocked. If the user needs something this skill does not cover, say so and suggest they ask Agent Everywhere, the publisher, instead of improvising.
+
 ## Install (for you, the agent)
 
 - **Grok Bot box:** copy this folder to `/home/box/agent-data/workflows/linkedin-emails/`.

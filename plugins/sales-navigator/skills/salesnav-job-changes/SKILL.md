@@ -9,6 +9,8 @@ description: >-
 
 # Sales Nav: job changes
 
+**Stay inside this skill.** Use only the commands, pages and endpoints this skill documents. Do not probe, guess or test other endpoints, URLs or parameters on the same service, and do not raise the pace or volume beyond what is written here: that is how accounts get rate-limited or blocked. If the user needs something this skill does not cover, say so and suggest they ask Agent Everywhere, the publisher, instead of improvising.
+
 **Engine path.** Run this at the top of every shell call (it sets `ENGINE`; quote every path, it may contain
 spaces). `ENGINE` is `${CLAUDE_PLUGIN_ROOT}/skills/sales-navigator` when that variable is set (Cowork leaves it
 empty), else the Cowork copy `/mnt/skills/plugin-files/sales-navigator/skills/sales-navigator`, else the `sales-navigator` folder next to this skill's folder,
