@@ -42,8 +42,10 @@ class LawFirmMoves(unittest.TestCase):
     def test_skill_states_the_caps(self):
         text = SKILL_MD.read_text()
         self.assertRegex(text, r"(?i)at most 40 firms")
-        self.assertRegex(text, r"(?i)up to 25 firms|at most 25 firms|25 firms")
+        self.assertRegex(text, r"(?i)one state with at most 25 firms")
         self.assertRegex(text, r"(?i)45 days")
+        self.assertIn("Do not split a big list", text)
+        self.assertIn("No timers", text)
         self.assertIn("14 days", text)
         self.assertIn("law-firm-moves-work/seen.json", text)
         self.assertIn("law-firm-moves-work/profile.json", text)

@@ -40,7 +40,8 @@ right. Otherwise ask these, in one short message:
 
 1. **What do you sell, and to whom?** One line, in their words. This is the only source for "why it matters".
 2. **The watch list:** firm names, ideally with each firm's website. Or, instead, **one US state plus a practice
-   focus** (for example insurance defense), and you find up to 25 firms there.
+   focus** (for example insurance defense), and you find up to 25 firms there. Use a firm list or a state, not both:
+   if the user gives both, ask which one, and never combine them to exceed either cap.
 3. **Which move types matter** (see below; default all).
 4. **Firm-size band**, if any (number of attorneys).
 5. **Firms to leave out:** current clients, and firms that are competitors of the user.
