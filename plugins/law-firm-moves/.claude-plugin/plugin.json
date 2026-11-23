@@ -1,0 +1,10 @@
+{
+  "name": "law-firm-moves",
+  "version": "0.1.0",
+  "description": "Skill only: check a short watch list of law firms (up to 40, or one state up to 25) for firm-level moves such as mergers, group lateral hires, new offices and new managing partners, and report only what is new, each with a dated source link. Runs on your own Claude with its own web search; by hand, weekly suggested. Read-only. Unofficial.",
+  "author": {
+    "name": "Agent Everywhere",
+    "url": "https://github.com/Agent-Everywhere"
+  },
+  "keywords": ["law-firms", "legal", "mergers", "lateral-hires", "prospecting", "sales"]
+}
