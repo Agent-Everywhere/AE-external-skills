@@ -1,0 +1,6 @@
+# Per-skill manifest. Keep in step with .claude-plugin/marketplace.json (checked by tests).
+name: law-firm-moves
+version: 0.1.0
+category: sales
+# Prompt-only skill: no engine, no CLI, no browser runtime. It uses the web search the user's own Claude already has.
+runtimes: []

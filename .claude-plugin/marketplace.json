@@ -265,6 +265,24 @@
       ]
     },
     {
+      "name": "law-firm-moves",
+      "source": "./plugins/law-firm-moves",
+      "version": "0.1.0",
+      "description": "Skill only: check a short watch list of law firms (up to 40, or one state up to 25) for firm-level moves such as mergers, group lateral hires, new offices and new managing partners, and report only what is new, each with a dated source link. Runs on your own Claude with its own web search, by hand. Read-only. Unofficial.",
+      "strict": false,
+      "skills": [
+        "./skills/law-firm-moves"
+      ],
+      "category": "sales",
+      "tags": [
+        "law-firms",
+        "legal",
+        "mergers",
+        "lateral-hires",
+        "prospecting"
+      ]
+    },
+    {
       "name": "linkedin-emails",
       "source": "./plugins/linkedin-emails",
       "version": "0.1.0",
