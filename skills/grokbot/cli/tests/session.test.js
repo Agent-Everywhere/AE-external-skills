@@ -2,7 +2,7 @@ import "./_isolate.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { decryptSafeStorage, encryptSafeStorage, parseDescriptorFile, readSecretValue, redact, jwtClaims, normalizeHeaders } from "../src/session.js";
+import { ensureSandBox, decryptSafeStorage, encryptSafeStorage, parseDescriptorFile, readSecretValue, redact, jwtClaims, normalizeHeaders } from "../src/session.js";
 
 const key = crypto.pbkdf2Sync("test-password", "saltysalt", 1003, 16, "sha1");
 
@@ -50,6 +50,29 @@ test("redact covers hyphen/snake-case secret keys and nested bodies", async () =
   const out = redact('{"cursor-access-token":"abc","x-anyrun-network-token":"n1","gateway_token":"g","api_key":"k","name":"ok"}');
   assert.ok(!/abc|n1|"g"|"k"/.test(out) && out.includes('"name":"ok"'));
   assert.deepEqual(redactValue({ a: { refreshToken: "r", list: [{ Cookie: "c", ok: 1 }] }, msg: "Bearer x.y.z" }), { a: { refreshToken: "<redacted>", list: [{ Cookie: "<redacted>", ok: 1 }] }, msg: "Bearer <redacted>" });
+});
+
+const sandboxFetch = (body) => async () => ({ ok: true, status: 200, statusText: "OK", text: async () => JSON.stringify(body) });
+
+test("ensureSandBox uses x-anyrun-port-token from gatewayPortToken (app 1.2.x)", async () => {
+  const s = await ensureSandBox({ accessToken: "a", accountScope: "s" }, { fetchImpl: sandboxFetch({ gatewayUrl: "https://h.example/", gatewayToken: "gt", gatewayPortToken: "pt1" }) });
+  assert.deepEqual(s.headers, { "x-anyrun-port-token": "pt1" });
+  assert.equal(s.baseUrl, "https://h.example");
+  const snake = await ensureSandBox({ accessToken: "a" }, { fetchImpl: sandboxFetch({ gateway_url: "https://h.example", gateway_token: "gt", gateway_port_token: "pt2" }) });
+  assert.deepEqual(snake.headers, { "x-anyrun-port-token": "pt2" });
+});
+
+test("ensureSandBox prefers the network token over the port token, and explicit gatewayHeaders over both", async () => {
+  const base = { gatewayUrl: "https://h.example", gatewayToken: "gt", gatewayPortToken: "pt" };
+  const net = await ensureSandBox({ accessToken: "a" }, { fetchImpl: sandboxFetch({ ...base, anyrunNetworkToken: "nt" }) });
+  assert.deepEqual(net.headers, { "x-anyrun-network-token": "nt" });
+  const explicit = await ensureSandBox({ accessToken: "a" }, { fetchImpl: sandboxFetch({ ...base, anyrunNetworkToken: "nt", gatewayHeaders: { "X-Custom": "c" } }) });
+  assert.deepEqual(explicit.headers, { "x-custom": "c" });
+});
+
+test("redact covers x-anyrun-port-token JSON values", () => {
+  const out = redact('{"x-anyrun-port-token":"secretport","name":"ok"}');
+  assert.ok(!out.includes("secretport") && out.includes('"name":"ok"'));
 });
 
 test("descriptor file version bumps keep working (v3 in app 0.79, unknown future versions with the same entry shape)", () => {

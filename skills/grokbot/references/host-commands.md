@@ -1,7 +1,7 @@
 # Host gateway command catalog (host version 00b0aa1, app 0.79.3)
 
 `POST {baseUrl}/api/<command>` · JSON body · headers: `authorization: Bearer <gatewayToken>`,
-`x-anyrun-network-token: <routing token>` (both from the app's gateway descriptor).
+`x-anyrun-port-token: <gatewayPortToken>` since app 1.2.x (from EnsureSandBox; older apps used `x-anyrun-network-token: <routing token>` from the gateway descriptor).
 Also `GET /health` → `{ok,pid,isBusy,activeAgentId,startedAt,lastBusyAtMs}` and `GET /events` (SSE).
 
 Extracted from the desktop app's renderer command catalog and the node-agent-coordinator's gateway edge schema

@@ -243,6 +243,9 @@ export async function ensureSandBox(auth, { fetchImpl = fetch } = {}) {
   let headers = normalizeHeaders(body.gatewayHeaders ?? body.gateway_headers);
   const net = body.anyrunNetworkToken ?? body.anyrun_network_token ?? body.networkToken;
   if (Object.keys(headers).length === 0 && net) headers = { "x-anyrun-network-token": String(net) };
+  // App 1.2.x: EnsureSandBox carries gatewayPortToken instead; the load balancer routes on x-anyrun-port-token.
+  const portToken = body.gatewayPortToken ?? body.gateway_port_token;
+  if (Object.keys(headers).length === 0 && portToken) headers = { "x-anyrun-port-token": String(portToken) };
   return { source: "ensure-sandbox", accountScope: auth.accountScope, baseUrl: String(baseUrl).replace(/\/$/, ""), token: String(token), headers };
 }
 
@@ -335,7 +338,7 @@ export function describeSessionSources() {
 }
 
 // Any JSON key that *contains* one of these fragments is treated as secret (case-insensitive), so
-// cursor-access-token, x-anyrun-network-token, gateway_token, refreshToken, … are all covered.
+// cursor-access-token, x-anyrun-network-token, x-anyrun-port-token, gateway_token, refreshToken, … are all covered.
 const SECRET_FRAGMENTS = "token|secret|password|credential|authorization|api[-_]?key|cookie";
 const SECRET_KEY_RE = new RegExp(`"([^"]*(?:${SECRET_FRAGMENTS})[^"]*)"\\s*:\\s*"[^"]*"`, "gi");
 export function redact(text) {

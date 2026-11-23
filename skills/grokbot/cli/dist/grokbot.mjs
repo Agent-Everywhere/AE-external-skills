@@ -3547,6 +3547,8 @@ async function ensureSandBox(auth, { fetchImpl = fetch } = {}) {
   let headers = normalizeHeaders(body.gatewayHeaders ?? body.gateway_headers);
   const net = body.anyrunNetworkToken ?? body.anyrun_network_token ?? body.networkToken;
   if (Object.keys(headers).length === 0 && net) headers = { "x-anyrun-network-token": String(net) };
+  const portToken = body.gatewayPortToken ?? body.gateway_port_token;
+  if (Object.keys(headers).length === 0 && portToken) headers = { "x-anyrun-port-token": String(portToken) };
   return { source: "ensure-sandbox", accountScope: auth.accountScope, baseUrl: String(baseUrl).replace(/\/$/, ""), token: String(token), headers };
 }
 function boxGatewayCandidates(env = process.env) {
